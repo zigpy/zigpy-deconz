@@ -8,6 +8,7 @@ from . import types as t
 LOGGER = logging.getLogger(__name__)
 
 COMMAND_TIMEOUT = 2
+DECONZ_BAUDRATE = 38400
 
 TX_COMMANDS = {
     'device_state': (0x07, (t.uint8_t, t.uint8_t, t.uint8_t), True),
@@ -107,9 +108,9 @@ class Deconz:
     def set_application(self, app):
         self._app = app
 
-    async def connect(self, device, baudrate=38400):
+    async def connect(self, device, baudrate=DECONZ_BAUDRATE):
         assert self._uart is None
-        self._uart = await uart.connect(device, baudrate, self)
+        self._uart = await uart.connect(device, DECONZ_BAUDRATE, self)
 
     def close(self):
         return self._uart.close()
