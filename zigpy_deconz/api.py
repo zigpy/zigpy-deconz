@@ -46,6 +46,7 @@ RX_COMMANDS = {
             t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t),
         True
     ),
+    'mac_poll': (0x1C, (t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
 }
 
 NETWORK_PARAMETER = {
@@ -260,6 +261,9 @@ class Deconz:
         LOGGER.debug("APS data confirm response: %s", data)
         self.device_state_update = False
         self._handle_device_state_value(data[1])
+
+    def _handle_mac_poll(self, data):
+        pass
 
     def _handle_device_state_value(self, value):
         flags = [i for i in DEVICE_STATE if (value & i.value) == i.value]
