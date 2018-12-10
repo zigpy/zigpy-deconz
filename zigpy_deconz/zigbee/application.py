@@ -23,10 +23,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         api.set_application(self)
 
         self._pending = {}
-        self._devices_by_nwk = {d.nwk: d.ieee for a, d in self.devices.items()}
 
         self._nwk = 0
-        self._discovery_handle = None
         self.discovering = False
 
     async def startup(self, auto_form=False):
@@ -104,27 +102,26 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if not src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
             raise Exception("Unsupported address mode in handle_rx: %s" % (src_addr.address_mode))
 
-        zigpy_nwk = src_addr.address
-        zigpy_ieee = self._devices_by_nwk.get(zigpy_nwk)
-
-        if zigpy_ieee is None:
+        nwk = src_addr.address
+        try:
+            device = self.get_device(nwk=nwk)
+        except KeyError:
             # we do not know the ieee addr yet, so use a dummy for now
-            zigpy_ieee = DISCOVERY_DEVICE
+            device = self.add_device(DISCOVERY_DEVICE, nwk)
             if not self.discovering:
-                LOGGER.debug("Start device discovery: %s", zigpy_nwk)
-                self._handle_discovery(zigpy_nwk, zigpy_ieee, 0)
+                LOGGER.debug("Start device discovery: %s", nwk)
+                asyncio.ensure_future(self._discovery(device, 0))
 
-        device = self.get_device(zigpy_ieee)
         device.lqi = lqi
         device.rssi = rssi
 
         if device.status == zigpy.device.Status.NEW and dst_ep != 0:
             # only allow ZDO responses while initializing device
-            LOGGER.debug("Received frame on uninitialized device %s for endpoint: %s", zigpy_ieee, dst_ep)
+            LOGGER.debug("Received frame on uninitialized device %s (%s) for endpoint: %s", device.ieee, device.status, dst_ep)
             return
         elif device.status == zigpy.device.Status.ZDO_INIT and dst_ep != 0 and cluster_id != 0:
             # only allow access to basic cluster while initializing endpoints
-            LOGGER.debug("Received frame on uninitialized device %s endpoint %s for cluster: %s", zigpy_ieee, dst_ep, cluster_id)
+            LOGGER.debug("Received frame on uninitialized device %s endpoint %s for cluster: %s", device.ieee, dst_ep, cluster_id)
             return
 
         try:
@@ -156,28 +153,16 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self.handle_message(device, True, profile, cluster, src_ep, dst_ep, tsn, command_id, args)
 
-    def _handle_discovery(self, nwk, ieee, parent_nwk):
-        dev = self.add_device(ieee, nwk)
-
-        if self.discovering:
-            LOGGER.debug("Canceling old discovery call")
-            self._discovery_handle.cancel()
-        else:
-            self.discovering = True
-        self._discovery_handle = asyncio.ensure_future(self._discovery(dev, nwk, ieee, parent_nwk))
-
-    async def _discovery(self, dev, nwk, ieee, parent_nwk):
+    async def _discovery(self, dev, parent_nwk):
         try:
-            r = await dev.zdo.request(0x0001, nwk, 0, 0, tries=3, delay=2)
+            r = await dev.zdo.request(0x0001, dev.nwk, 0, 0, tries=3, delay=2)
             if r[0] != 0:
-                raise Exception("Endpoint request failed: %s", r)
+                raise Exception("ZDO ieee address request failed: %s", r)
         except Exception as exc:
             self.discovering = False
             LOGGER.exception("Failed ZDO ieee address request during device discovery: %s", exc)
             return
         LOGGER.debug("ZDO ieee addr response: %s", r[1])
-        new_ieee = r[1]
-        del self.devices[ieee]
+        dev._ieee = r[1]
         self.discovering = False
-        self.handle_join(nwk, new_ieee, parent_nwk)
-        self._devices_by_nwk[nwk] = new_ieee
+        self.handle_join(dev.nwk, dev.ieee, parent_nwk)
