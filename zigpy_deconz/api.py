@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import enum
+import binascii
 
 from . import uart
 from . import types as t
@@ -98,13 +99,13 @@ class Deconz:
     def __init__(self):
         self._uart = None
         self._seq = 1
-        self._req_id = 1
         self._commands_by_id = {v[0]: k for k, v in RX_COMMANDS.items()}
         self._awaiting = {}
         self._app = None
         self._cmd_mode_future = None
         self.network_state = NETWORK_STATE.OFFLINE.value
-        self.device_state_update = False
+        self._data_indication = False
+        self._data_confirm = False
 
     def set_application(self, app):
         self._app = app
@@ -147,7 +148,7 @@ class Deconz:
         try:
             data, _ = t.deserialize(data[5:], RX_COMMANDS[command][1])
         except Exception:
-            LOGGER.warning("Failed to deserialize frame: %s", data)
+            LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
         if RX_COMMANDS[command][2]:
             fut, = self._awaiting.pop(seq)
             if status is not STATUS.SUCCESS.value:
@@ -220,7 +221,7 @@ class Deconz:
 
     def _handle_aps_data_indication(self, data):
         LOGGER.debug("APS data indication response: %s", data)
-        self.device_state_update = False
+        self._data_indication = False
         self._handle_device_state_value(data[1])
         if self._app:
             self._app.handle_rx(data[4],    # src_addr
@@ -232,16 +233,15 @@ class Deconz:
                                 data[11],   # lqi
                                 data[16])   # rssi
 
-    async def aps_data_request(self, dst_addr, dst_ep, profile, cluster, src_ep, aps_payload):
+    async def aps_data_request(self, req_id, dst_addr, dst_ep, profile, cluster, src_ep, aps_payload):
         dst = dst_addr.serialize()
         has_dst_endpoint = 0
         if dst_addr.address_mode in [t.ADDRESS_MODE.NWK.value, t.ADDRESS_MODE.IEEE.value]:
             has_dst_endpoint = 1
         length = len(dst) + has_dst_endpoint + len(aps_payload) + 9
-        self._req_id = (self._req_id % 255) + 1
         try:
             return await asyncio.wait_for(
-                self._command('aps_data_request', length, self._req_id, 0,
+                self._command('aps_data_request', length, req_id, 0,
                               dst_addr, dst_ep, profile, cluster, src_ep,
                               aps_payload, 0, 0),
                 timeout=COMMAND_TIMEOUT
@@ -258,9 +258,10 @@ class Deconz:
         return self._command('aps_data_confirm', 0)
 
     def _handle_aps_data_confirm(self, data):
-        LOGGER.debug("APS data confirm response: %s", data)
-        self.device_state_update = False
+        LOGGER.debug("APS data confirm response for request with id %s: %02x", data[2], data[6])
+        self._data_confirm = False
         self._handle_device_state_value(data[1])
+        self._app.handle_tx_confirm(data[2], data[6])
 
     def _handle_mac_poll(self, data):
         pass
@@ -271,9 +272,11 @@ class Deconz:
         if ns != self.network_state:
             LOGGER.debug("Network state: %s", NETWORK_STATE(ns).name)
         self.network_state = ns
-        if DEVICE_STATE.APSDE_DATA_INDICATION in flags and not self.device_state_update:
-            self.device_state_update = True
+        if DEVICE_STATE.APSDE_DATA_REQUEST not in flags:
+            LOGGER.debug("Data request queue full.")
+        if DEVICE_STATE.APSDE_DATA_INDICATION in flags and not self._data_indication:
+            self._data_indication = True
             self._aps_data_indication()
-        elif DEVICE_STATE.APSDE_DATA_CONFIRM in flags and not self.device_state_update:
-            self.device_state_update = True
+        elif DEVICE_STATE.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
+            self._data_confirm = True
             self._aps_data_confirm()

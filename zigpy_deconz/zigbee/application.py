@@ -11,8 +11,6 @@ import zigpy.util
 import zigpy.device
 
 
-DISCOVERY_DEVICE = zigpy.types.EUI64([t.uint8_t(0xEE) for a in range(8)])
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -65,15 +63,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     @zigpy.util.retryable_request
     async def request(self, nwk, profile, cluster, src_ep, dst_ep, sequence, data, expect_reply=True, timeout=10):
-        LOGGER.debug("Zigbee request seq %s, data: %s", sequence, binascii.hexlify(data))
+        LOGGER.debug("Zigbee request with id %s, data: %s", sequence, binascii.hexlify(data))
         assert sequence not in self._pending
+        send_fut = asyncio.Future()
+        reply_fut = None
         if expect_reply:
             reply_fut = asyncio.Future()
-            self._pending[sequence] = reply_fut
+        self._pending[sequence] = (send_fut, reply_fut)
         dst_addr = t.DeconzAddress()
         dst_addr.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
         dst_addr.address = t.uint16_t(nwk)
+
         await self._api.aps_data_request(
+            sequence,
             dst_addr,
             dst_ep,
             profile,
@@ -81,6 +83,15 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             src_ep,
             data
         )
+
+        try:
+            r = await asyncio.wait_for(send_fut, timeout)
+        except asyncio.TimeoutError:
+            self._pending.pop(sequence, None)
+            raise
+
+        if r:
+            LOGGER.debug("Error while sending frame: 0x%02x", r)
 
         if not expect_reply:
             return
@@ -99,18 +110,21 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
 
     def handle_rx(self, src_addr, src_ep, dst_ep, profile_id, cluster_id, data, lqi, rssi):
+        # intercept ZDO device announce frames
+        if dst_ep == 0 and cluster_id == 0x13:
+            nwk, data = t.uint16_t.deserialize(data[1:])
+            ieee = zigpy.types.EUI64(map(t.uint8_t, data[7::-1]))
+            LOGGER.info("New device joined: 0x%04x, %s", nwk, ieee)
+            self.handle_join(nwk, ieee, 0)
+            return
         if not src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
             raise Exception("Unsupported address mode in handle_rx: %s" % (src_addr.address_mode))
 
-        nwk = src_addr.address
         try:
-            device = self.get_device(nwk=nwk)
+            device = self.get_device(nwk=src_addr.address)
         except KeyError:
             # we do not know the ieee addr yet, so use a dummy for now
-            device = self.add_device(DISCOVERY_DEVICE, nwk)
-            if not self.discovering:
-                LOGGER.debug("Start device discovery: %s", nwk)
-                asyncio.ensure_future(self._discovery(device, 0))
+            LOGGER.debug("Received frame from unknown device: 0x%04x", src_addr.address)
 
         device.lqi = lqi
         device.rssi = rssi
@@ -139,7 +153,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     def _handle_reply(self, device, profile, cluster, src_ep, dst_ep, tsn, command_id, args):
         try:
-            reply_fut = self._pending[tsn]
+            _, reply_fut = self._pending[tsn]
             if reply_fut:
                 self._pending.pop(tsn)
                 reply_fut.set_result(args)
@@ -153,16 +167,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self.handle_message(device, True, profile, cluster, src_ep, dst_ep, tsn, command_id, args)
 
-    async def _discovery(self, dev, parent_nwk):
+    def handle_tx_confirm(self, sequence, status):
         try:
-            r = await dev.zdo.request(0x0001, dev.nwk, 0, 0, tries=3, delay=2)
-            if r[0] != 0:
-                raise Exception("ZDO ieee address request failed: %s", r)
-        except Exception as exc:
-            self.discovering = False
-            LOGGER.exception("Failed ZDO ieee address request during device discovery: %s", exc)
+            send_fut, _ = self._pending[sequence]
+            if send_fut:
+                send_fut.set_result(status)
             return
-        LOGGER.debug("ZDO ieee addr response: %s", r[1])
-        dev._ieee = r[1]
-        self.discovering = False
-        self.handle_join(dev.nwk, dev.ieee, parent_nwk)
+        except KeyError as exc:
+            LOGGER.warning("Unexpected transmit confirm for request id %s, Status: 0x%02x, %s", sequence, status, exc)
+        except asyncio.futures.InvalidStateError as exc:
+            LOGGER.debug("Invalid state on future - probably duplicate response: %s", exc)
