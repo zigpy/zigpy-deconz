@@ -238,7 +238,7 @@ class Deconz:
         has_dst_endpoint = 0
         if dst_addr.address_mode in [t.ADDRESS_MODE.NWK.value, t.ADDRESS_MODE.IEEE.value]:
             has_dst_endpoint = 1
-        length = len(dst) + has_dst_endpoint + len(aps_payload) + 9
+        length = len(dst) + has_dst_endpoint + len(aps_payload) + 11
         try:
             return await asyncio.wait_for(
                 self._command('aps_data_request', length, req_id, 0,
