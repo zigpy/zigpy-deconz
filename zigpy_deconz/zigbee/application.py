@@ -13,6 +13,8 @@ import zigpy.device
 
 LOGGER = logging.getLogger(__name__)
 
+SEND_CONFIRM_TIMEOUT = 10
+
 
 class ControllerApplication(zigpy.application.ControllerApplication):
     def __init__(self, api, database_file=None):
@@ -87,9 +89,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
 
             try:
-                r = await asyncio.wait_for(send_fut, timeout)
+                r = await asyncio.wait_for(send_fut, SEND_CONFIRM_TIMEOUT)
             except asyncio.TimeoutError:
                 self._pending.pop(sequence, None)
+                LOGGER.debug("Failed to receive transmit confirm for request id: %s", sequence)
                 raise
 
         if r:
@@ -125,8 +128,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         try:
             device = self.get_device(nwk=src_addr.address)
         except KeyError:
-            # we do not know the ieee addr yet, so use a dummy for now
             LOGGER.debug("Received frame from unknown device: 0x%04x", src_addr.address)
+            return
 
         device.lqi = lqi
         device.rssi = rssi

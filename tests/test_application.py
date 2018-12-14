@@ -34,7 +34,6 @@ def _test_rx(app, addr_ieee, addr_nwk, device, deserialized):
     app.get_device = mock.MagicMock(return_value=device)
     app.deserialize = mock.MagicMock(return_value=deserialized)
 
-    app._devices_by_nwk[addr_nwk.address] = EUI64(addr_ieee.address)
     app.devices = (EUI64(addr_ieee.address), )
 
     app.handle_rx(
@@ -81,7 +80,6 @@ def test_rx_failed_deserialize(app, addr_ieee, addr_nwk, caplog):
     app.get_device = mock.MagicMock(return_value=mock.MagicMock())
     app.deserialize = mock.MagicMock(side_effect=ValueError)
 
-    app._devices_by_nwk[addr_nwk.address] = EUI64(addr_ieee.address)
     app.devices = (EUI64(addr_ieee.address), )
 
     app.handle_rx(
@@ -189,18 +187,20 @@ def _handle_reply(app, tsn):
 
 def test_handle_reply(app):
     tsn = 123
-    fut = asyncio.Future()
-    app._pending[tsn] = fut
+    send_fut = asyncio.Future()
+    reply_fut = asyncio.Future()
+    app._pending[tsn] = (send_fut, reply_fut)
     _handle_reply(app, tsn)
     assert app.handle_message.call_count == 0
-    assert fut.result() == mock.sentinel.args
+    assert reply_fut.result() == mock.sentinel.args
 
 
 def test_handle_reply_dup(app):
     tsn = 123
-    fut = asyncio.Future()
-    app._pending[tsn] = fut
-    fut.set_result(mock.sentinel.reply_result)
+    send_fut = asyncio.Future()
+    reply_fut = asyncio.Future()
+    app._pending[tsn] = (send_fut, reply_fut)
+    reply_fut.set_result(mock.sentinel.reply_result)
     _handle_reply(app, tsn)
     assert app.handle_message.call_count == 0
 
