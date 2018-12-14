@@ -24,6 +24,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self._nwk = 0
         self.discovering = False
+        self._request_lock = asyncio.Lock()
 
     async def startup(self, auto_form=False):
         """Perform a complete application startup"""
@@ -74,21 +75,22 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         dst_addr.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
         dst_addr.address = t.uint16_t(nwk)
 
-        await self._api.aps_data_request(
-            sequence,
-            dst_addr,
-            dst_ep,
-            profile,
-            cluster,
-            src_ep,
-            data
-        )
+        async with self._request_lock:
+            await self._api.aps_data_request(
+                sequence,
+                dst_addr,
+                dst_ep,
+                profile,
+                cluster,
+                src_ep,
+                data
+            )
 
-        try:
-            r = await asyncio.wait_for(send_fut, timeout)
-        except asyncio.TimeoutError:
-            self._pending.pop(sequence, None)
-            raise
+            try:
+                r = await asyncio.wait_for(send_fut, timeout)
+            except asyncio.TimeoutError:
+                self._pending.pop(sequence, None)
+                raise
 
         if r:
             LOGGER.debug("Error while sending frame: 0x%02x", r)
