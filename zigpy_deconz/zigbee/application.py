@@ -13,7 +13,7 @@ import zigpy.device
 
 LOGGER = logging.getLogger(__name__)
 
-SEND_CONFIRM_TIMEOUT = 10
+SEND_CONFIRM_TIMEOUT = 15
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -26,7 +26,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self._nwk = 0
         self.discovering = False
-        self._request_lock = asyncio.Lock()
 
     async def startup(self, auto_form=False):
         """Perform a complete application startup"""
@@ -77,26 +76,25 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         dst_addr.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
         dst_addr.address = t.uint16_t(nwk)
 
-        async with self._request_lock:
-            await self._api.aps_data_request(
-                sequence,
-                dst_addr,
-                dst_ep,
-                profile,
-                cluster,
-                src_ep,
-                data
-            )
+        await self._api.aps_data_request(
+            sequence,
+            dst_addr,
+            dst_ep,
+            profile,
+            cluster,
+            src_ep,
+            data
+        )
 
-            try:
-                r = await asyncio.wait_for(send_fut, SEND_CONFIRM_TIMEOUT)
-            except asyncio.TimeoutError:
-                self._pending.pop(sequence, None)
-                LOGGER.debug("Failed to receive transmit confirm for request id: %s", sequence)
-                raise
+        try:
+            r = await asyncio.wait_for(send_fut, SEND_CONFIRM_TIMEOUT)
+        except asyncio.TimeoutError:
+            self._pending.pop(sequence, None)
+            LOGGER.warning("Failed to receive transmit confirm for request id: %s", sequence)
+            raise
 
         if r:
-            LOGGER.debug("Error while sending frame: 0x%02x", r)
+            LOGGER.warning("Error while sending frame: 0x%02x", r)
 
         if not expect_reply:
             return
@@ -121,7 +119,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             ieee = zigpy.types.EUI64(map(t.uint8_t, data[7::-1]))
             LOGGER.info("New device joined: 0x%04x, %s", nwk, ieee)
             self.handle_join(nwk, ieee, 0)
-            return
         if not src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
             raise Exception("Unsupported address mode in handle_rx: %s" % (src_addr.address_mode))
 
