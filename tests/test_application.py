@@ -142,7 +142,6 @@ async def test_permit(app):
 async def _test_request(app, do_reply=True, expect_reply=True, **kwargs):
     seq = 123
     nwk = 0x2345
-    app._devices_by_nwk[nwk] = 0x22334455
 
     def aps_data_request(dst_addr, dst_ep, profile, cluster, src_ep, data):
         if expect_reply:
