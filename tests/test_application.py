@@ -142,12 +142,11 @@ async def test_permit(app):
 async def _test_request(app, do_reply=True, expect_reply=True, **kwargs):
     seq = 123
     nwk = 0x2345
-    app._devices_by_nwk[nwk] = 0x22334455
 
-    def aps_data_request(dst_addr, dst_ep, profile, cluster, src_ep, data):
+    def aps_data_request(req_id, dst_addr, dst_ep, profile, cluster, src_ep, data):
         if expect_reply:
             if do_reply:
-                app._pending[seq].set_result(mock.sentinel.reply_result)
+                app._pending[req_id].set_result(mock.sentinel.reply_result)
 
     app._api.aps_data_request = mock.MagicMock(
         side_effect=asyncio.coroutine(aps_data_request))
