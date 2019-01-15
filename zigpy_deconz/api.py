@@ -65,6 +65,7 @@ NETWORK_PARAMETER = {
     'permit_join': (0x21, t.uint8_t),
     'protocol_version': (0x22, t.uint16_t),
     'nwk_update_id': (0x24, t.uint8_t),
+    'watchdog_ttl': (0x26, t.uint32_t),
 }
 
 NETWORK_PARAMETER_BY_ID = {v[0]: (k, v[1]) for k, v in NETWORK_PARAMETER.items()}
