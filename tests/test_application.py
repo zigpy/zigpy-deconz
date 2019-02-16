@@ -117,11 +117,17 @@ async def test_form_network(app):
 
 
 @pytest.mark.asyncio
-async def test_startup(app):
+async def test_startup(app, version=0):
+
+    async def _version():
+        return [version]
+
     app.form_network = mock.MagicMock(
         side_effect=asyncio.coroutine(mock.MagicMock()))
     app._api._command = mock.MagicMock(
         side_effect=asyncio.coroutine(mock.MagicMock()))
+    app._api.version = mock.MagicMock(
+        side_effect=_version)
 
     await app.startup(auto_form=False)
     assert app.form_network.call_count == 0
