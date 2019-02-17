@@ -26,6 +26,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self._nwk = 0
         self.discovering = False
+        self.version = 0
 
         asyncio.ensure_future(self._reset_watchdog())
 
@@ -36,6 +37,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def startup(self, auto_form=False):
         """Perform a complete application startup"""
+        r = await self._api.version()
+        self.version = r[0]
         await self._api.device_state()
         r = await self._api.read_parameter(NETWORK_PARAMETER['mac_address'][0])
         self._ieee = zigpy.types.EUI64([zigpy.types.uint8_t(r[2][i]) for i in range(7, -1, -1)])
@@ -50,6 +53,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._api.read_parameter(NETWORK_PARAMETER['protocol_version'][0])
         await self._api.read_parameter(NETWORK_PARAMETER['nwk_update_id'][0])
         await self._api.write_parameter(NETWORK_PARAMETER['aps_designed_coordinator'][0], 1)
+
+        if self.version > 0x261f0500:
+            asyncio.ensure_future(self._reset_watchdog())
+
         if auto_form:
             await self.form_network()
 

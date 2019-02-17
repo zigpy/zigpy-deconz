@@ -16,6 +16,7 @@ TX_COMMANDS = {
     'change_network_state': (0x08, (t.uint8_t, ), True),
     'read_parameter': (0x0A, (t.uint16_t, t.uint8_t), True),
     'write_parameter': (0x0B, (t.uint16_t, t.uint8_t, t.Bytes), True),
+    'version': (0x0D, (), True),
     'aps_data_indication': (0x17, (t.uint16_t, t.uint8_t), True),
     'aps_data_request': (
         0x12,
@@ -31,6 +32,7 @@ RX_COMMANDS = {
     'change_network_state': (0x08, (t.uint8_t, ), True),
     'read_parameter': (0x0A, (t.uint16_t, t.uint8_t, t.Bytes), True),
     'write_parameter': (0x0B, (t.uint16_t, t.uint8_t), True),
+    'version': (0x0D, (t.uint32_t, ), True),
     'device_state_changed': (0x0E, (t.uint8_t, t.uint8_t), False),
     'aps_data_indication': (
         0x17,
@@ -212,6 +214,19 @@ class Deconz:
 
     def _handle_write_parameter(self, data):
         LOGGER.debug("Write parameter %s: SUCCESS", NETWORK_PARAMETER_BY_ID[data[1]][0])
+
+    async def version(self):
+        try:
+            return await asyncio.wait_for(
+                self._command('version'),
+                timeout=COMMAND_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            LOGGER.warning("No response to version command")
+            raise
+
+    def _handle_version(self, data):
+        LOGGER.debug("Version response: %x", data[0])
 
     def _handle_device_state_changed(self, data):
         LOGGER.debug("Device state changed response: %s", data)
