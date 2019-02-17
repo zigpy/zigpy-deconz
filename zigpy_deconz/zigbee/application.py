@@ -89,7 +89,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             dst_ep,
             profile,
             cluster,
-            src_ep,
+            min(1, src_ep),
             data
         )
 
