@@ -119,7 +119,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self._pending.pop(sequence, None)
             raise
 
-    async def permit(self, time_s=60):
+    async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
         await self._api.write_parameter(
             NETWORK_PARAMETER['permit_join'][0],
