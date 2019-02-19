@@ -10,7 +10,7 @@ import zigpy.types
 import zigpy.util
 import zigpy_deconz.exception
 from zigpy_deconz import types as t
-from zigpy_deconz.api import NETWORK_PARAMETER, NetworkState
+from zigpy_deconz.api import NetworkParameter, NetworkState
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def _reset_watchdog(self):
         while True:
-            await self._api.write_parameter(NETWORK_PARAMETER['watchdog_ttl'][0], 3600)
+            await self._api.write_parameter(NetworkParameter.watchdog_ttl, 3600)
             await asyncio.sleep(1200)
 
     async def shutdown(self):
@@ -44,19 +44,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         r = await self._api.version()
         self.version = r[0]
         await self._api.device_state()
-        r = await self._api.read_parameter(NETWORK_PARAMETER['mac_address'][0])
+        r = await self._api[NetworkParameter.mac_address]
         self._ieee = zigpy.types.EUI64([zigpy.types.uint8_t(r[2][i]) for i in range(7, -1, -1)])
-        await self._api.read_parameter(NETWORK_PARAMETER['nwk_panid'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['nwk_address'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['nwk_extended_panid'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['channel_mask'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['aps_extended_panid'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['trust_center_address'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['security_mode'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['current_channel'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['protocol_version'][0])
-        await self._api.read_parameter(NETWORK_PARAMETER['nwk_update_id'][0])
-        await self._api.write_parameter(NETWORK_PARAMETER['aps_designed_coordinator'][0], 1)
+        await self._api[NetworkParameter.nwk_panid]
+        await self._api[NetworkParameter.nwk_address]
+        await self._api[NetworkParameter.nwk_extended_panid]
+        await self._api[NetworkParameter.channel_mask]
+        await self._api[NetworkParameter.aps_extended_panid]
+        await self._api[NetworkParameter.trust_center_address]
+        await self._api[NetworkParameter.security_mode]
+        await self._api[NetworkParameter.current_channel]
+        await self._api[NetworkParameter.protocol_version]
+        await self._api[NetworkParameter.nwk_update_id]
+        self._api[NetworkParameter.aps_designed_coordinator] = 1
 
         if self.version > 0x261f0500:
             asyncio.ensure_future(self._reset_watchdog())
@@ -152,10 +152,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
-        await self._api.write_parameter(
-            NETWORK_PARAMETER['permit_join'][0],
-            time_s
-        )
+        await self._api.write_parameter(NetworkParameter.permit_join, time_s)
 
     def handle_rx(self, src_addr, src_ep, dst_ep, profile_id, cluster_id, data, lqi, rssi):
         # intercept ZDO device announce frames

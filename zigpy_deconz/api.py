@@ -87,7 +87,7 @@ class NetworkParameter(t.uint8_t, enum.Enum):
 
 
 NETWORK_PARAMETER_SCHEMA = {
-    NetworkParameter.mac_address: t.uint64_t,
+    NetworkParameter.mac_address: t.EUI64,
     NetworkParameter.nwk_panid: t.uint16_t,
     NetworkParameter.nwk_address: t.uint16_t,
     NetworkParameter.nwk_extended_panid: t.uint64_t,
@@ -224,7 +224,15 @@ class Deconz:
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
     def read_parameter(self, id_):
-        return self._command(Command.read_parameter, 1, id_)
+        try:
+            if isinstance(id_, str):
+                param = NetworkParameter[id_]
+            else:
+                param = NetworkParameter(id_)
+        except (KeyError, ValueError):
+            raise KeyError("Unknown parameter id: %s" % (id_, ))
+
+        return self._command(Command.read_parameter, 1, param)
 
     def _handle_read_parameter(self, data):
         try:
@@ -237,13 +245,16 @@ class Deconz:
 
     def write_parameter(self, id_, value):
         try:
-            param = NetworkParameter(id_)
-        except ValueError:
-            LOGGER.error("Unknown network param id '%s' write request", id_)
-            return
-        v = NETWORK_PARAMETER_SCHEMA[param]().serialize()
+            if isinstance(id_, str):
+                param = NetworkParameter[id_]
+            else:
+                param = NetworkParameter(id_)
+        except (KeyError, ValueError):
+            raise KeyError("Unknown parameter id: %s write request" % (id_,))
+
+        v = NETWORK_PARAMETER_SCHEMA[param](value).serialize()
         length = len(v) + 1
-        return self._command(Command.write_parameter, length, id_, v)
+        return self._command(Command.write_parameter, length, param, v)
 
     def _handle_write_parameter(self, data):
         try:
@@ -351,3 +362,9 @@ class Deconz:
         if DeviceState.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
             self._data_confirm = True
             asyncio.ensure_future(self._aps_data_confirm())
+
+    def __getitem__(self, key):
+        return self.read_parameter(key)
+
+    def __setitem__(self, key, value):
+        return asyncio.ensure_future(self.write_parameter(key, value))
