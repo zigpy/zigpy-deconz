@@ -193,3 +193,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             LOGGER.warning("Unexpected transmit confirm for request id %s, Status: 0x%02x, %s", sequence, status, exc)
         except asyncio.futures.InvalidStateError as exc:
             LOGGER.debug("Invalid state on future - probably duplicate response: %s", exc)
+
+    async def broadcast(self, profile, cluster, src_ep, dst_ep, grpid, radius,
+                        sequence, data, broadcast_address):
+        LOGGER.debug("Broadcast not implemented.")
