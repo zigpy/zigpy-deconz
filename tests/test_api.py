@@ -52,19 +52,22 @@ def test_commands():
 
 
 @pytest.mark.asyncio
-async def test_command(api):
+async def test_command(api, monkeypatch):
     def mock_api_frame(name, *args):
         c = deconz_api.TX_COMMANDS[name]
         return mock.sentinel.api_frame_data, c[2]
     api._api_frame = mock.MagicMock(side_effect=mock_api_frame)
     api._uart.send = mock.MagicMock()
 
+    async def mock_fut():
+        return mock.sentinel.cmd_result
+    monkeypatch.setattr(asyncio, 'Future', mock_fut)
+
     for cmd_name, cmd_opts in deconz_api.TX_COMMANDS.items():
         _, _, expect_reply = cmd_opts
-        ret = api._command(cmd_name, mock.sentinel.cmd_data)
+        ret = await api._command(cmd_name, mock.sentinel.cmd_data)
         if expect_reply:
-            assert asyncio.isfuture(ret) is True
-            ret.cancel()
+            assert ret is mock.sentinel.cmd_result
         else:
             assert ret is None
         assert api._api_frame.call_count == 1
@@ -168,7 +171,7 @@ async def test_aps_data_confirm(api, monkeypatch):
         if success:
             res.set_result([7, 0x22, 0x11, mock.sentinel.dst_addr, 1, 0x00,
                             0, 0, 0, 0])
-        return res
+        return asyncio.wait_for(res, timeout=deconz_api.COMMAND_TIMEOUT)
 
     api._command = mock_cmd
     api._data_confirm = True
@@ -195,7 +198,7 @@ async def test_aps_data_ind(api, monkeypatch):
         if success:
             res.set_result([s.len, 0x22, t.DeconzAddress(), 1,
                             t.DeconzAddress(), 1, 0x0104, 0x0000, b'\x00\x01\x02'])
-        return res
+        return asyncio.wait_for(res, timeout=deconz_api.COMMAND_TIMEOUT)
 
     api._command = mock_cmd
     api._data_indication = True
@@ -242,9 +245,11 @@ async def test_aps_data_request_timeout(api, monkeypatch):
         b'aps payload'
     ]
 
-    mock_cmd = mock.MagicMock(return_value=asyncio.Future())
-    api._command = mock_cmd
     monkeypatch.setattr(deconz_api, 'COMMAND_TIMEOUT', .1)
+    mock_cmd = mock.MagicMock(
+        return_value=asyncio.wait_for(asyncio.Future(),
+                                      timeout=deconz_api.COMMAND_TIMEOUT))
+    api._command = mock_cmd
 
     with pytest.raises(asyncio.TimeoutError):
         await api.aps_data_request(*params)
