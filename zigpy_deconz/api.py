@@ -50,6 +50,7 @@ RX_COMMANDS = {
         True
     ),
     'mac_poll': (0x1C, (t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
+    'zigbee_green_power': (0x19, (t.LVBytes, ), False),
 }
 
 NETWORK_PARAMETER = {
@@ -280,6 +281,9 @@ class Deconz:
         self._app.handle_tx_confirm(data[2], data[6])
 
     def _handle_mac_poll(self, data):
+        pass
+
+    def _handle_zigbee_green_power(self, data):
         pass
 
     def _handle_device_state_value(self, value):
