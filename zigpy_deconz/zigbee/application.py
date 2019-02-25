@@ -111,6 +111,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             LOGGER.warning("Error while sending frame: 0x%02x", r)
 
         if not expect_reply:
+            self._pending.pop(sequence, None)
             return
 
         try:
