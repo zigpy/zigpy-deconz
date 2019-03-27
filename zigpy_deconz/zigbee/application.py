@@ -35,6 +35,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             await self._api.write_parameter(NETWORK_PARAMETER['watchdog_ttl'][0], 3600)
             await asyncio.sleep(1200)
 
+    async def shutdown(self):
+        """Shutdown application."""
+        self._api.close()
+
     async def startup(self, auto_form=False):
         """Perform a complete application startup"""
         r = await self._api.version()
