@@ -28,7 +28,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self.discovering = False
         self.version = 0
 
-        asyncio.ensure_future(self._reset_watchdog())
+        if self.version > 0x261f0500:
+            asyncio.ensure_future(self._reset_watchdog())
 
     async def _reset_watchdog(self):
         while True:
