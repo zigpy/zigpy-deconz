@@ -63,7 +63,12 @@ NETWORK_PARAMETER = {
     'aps_extended_panid': (0x0B, t.uint64_t),
     'trust_center_address': (0x0E, t.uint64_t),
     'security_mode': (0x10, t.uint8_t),
-    'network_key': (0x18, t.uint8_t),
+    'network_key': (
+        0x18,
+        (t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t,
+             t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t,
+             t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t)
+    ),
     'current_channel': (0x1C, t.uint8_t),
     'permit_join': (0x21, t.uint8_t),
     'protocol_version': (0x22, t.uint16_t),
