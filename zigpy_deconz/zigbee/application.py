@@ -6,6 +6,7 @@ from zigpy_deconz.api import NETWORK_PARAMETER, NETWORK_STATE
 from zigpy_deconz import types as t
 
 import zigpy.application
+import zigpy.exceptions
 import zigpy.types
 import zigpy.util
 import zigpy.device
@@ -111,6 +112,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         if r:
             LOGGER.warning("Error while sending frame: 0x%02x", r)
+            self._pending.pop(sequence, None)
+            raise zigpy.exceptions.DeliveryError(
+                "[0x%04x:%s:0x%04x] failed transmission request: %s" % (nwk, dst_ep, cluster, r)
+            )
 
         if not expect_reply:
             self._pending.pop(sequence, None)
