@@ -297,6 +297,6 @@ class Deconz:
         if DEVICE_STATE.APSDE_DATA_INDICATION in flags and not self._data_indication:
             self._data_indication = True
             self._aps_data_indication()
-        elif DEVICE_STATE.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
+        if DEVICE_STATE.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
             self._data_confirm = True
             self._aps_data_confirm()

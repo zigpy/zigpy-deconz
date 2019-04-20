@@ -13,7 +13,7 @@ import zigpy.device
 
 LOGGER = logging.getLogger(__name__)
 
-SEND_CONFIRM_TIMEOUT = 15
+SEND_CONFIRM_TIMEOUT = 30
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
