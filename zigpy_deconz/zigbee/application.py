@@ -28,8 +28,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self.discovering = False
         self.version = 0
 
-        asyncio.ensure_future(self._reset_watchdog())
-
     async def _reset_watchdog(self):
         while True:
             await self._api.write_parameter(NETWORK_PARAMETER['watchdog_ttl'][0], 3600)
