@@ -3,6 +3,7 @@ from unittest import mock
 
 import pytest
 
+from zigpy.exceptions import DeliveryError
 from zigpy.types import EUI64
 from zigpy_deconz.api import Deconz
 from zigpy_deconz.zigbee.application import ControllerApplication
@@ -145,12 +146,16 @@ async def test_permit(app):
     assert app._api.write_parameter.call_args_list[0][0][1] == time_s
 
 
-async def _test_request(app, do_reply=True, expect_reply=True, **kwargs):
+async def _test_request(app, do_reply=True, expect_reply=True,
+                        send_succes=True, **kwargs):
     seq = 123
     nwk = 0x2345
 
     def aps_data_request(req_id, dst_addr, dst_ep, profile, cluster, src_ep, data):
-        app._pending[req_id][0].set_result(mock.sentinel.transmit_confirm)
+        if send_succes:
+            app._pending[req_id][0].set_result(0)
+        else:
+            app._pending[req_id][0].set_result(mock.sentinel.send_fail)
         if expect_reply:
             if do_reply:
                 app._pending[req_id][1].set_result(mock.sentinel.reply_result)
@@ -175,6 +180,13 @@ async def test_request_expect_no_reply(app):
 async def test_request_no_reply(app):
     with pytest.raises(asyncio.TimeoutError):
         await _test_request(app, False, True, tries=2, timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_request_send_failure(app):
+    with pytest.raises(DeliveryError):
+        await _test_request(app, False, True, send_succes=False,
+                            tries=2, timeout=0.1)
 
 
 def _handle_reply(app, tsn):
