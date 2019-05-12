@@ -70,7 +70,7 @@ class Gateway(asyncio.Protocol):
             if b == self.ESC[0]:
                 idx += 1
                 if idx >= len(data):
-                    return None, None
+                    return None
                 elif data[idx] == self.ESC_END[0]:
                     b = self.END[0]
                 elif data[idx] == self.ESC_ESC[0]:

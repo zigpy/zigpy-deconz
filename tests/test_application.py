@@ -7,6 +7,7 @@ from zigpy.exceptions import DeliveryError
 from zigpy.types import EUI64
 from zigpy_deconz.api import Deconz
 from zigpy_deconz.zigbee.application import ControllerApplication
+from zigpy_deconz.zigbee import application
 from zigpy_deconz import types as t
 
 
@@ -112,6 +113,7 @@ async def test_form_network(app):
     assert app._api.device_state.call_count == 0
 
     app._api.network_state = 0
+    application.CHANGE_NETWORK_WAIT = 0.001
     with pytest.raises(Exception):
         await app.form_network()
     assert app._api.device_state.call_count == 10

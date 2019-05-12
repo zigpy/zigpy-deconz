@@ -61,6 +61,12 @@ def test_data_received_incomplete_frame(gw):
     assert gw._api.data_received.call_count == 0
 
 
+def test_data_received_runt_frame(gw):
+    data = b'\x02\x44\xC0'
+    gw.data_received(data)
+    assert gw._api.data_received.call_count == 0
+
+
 def test_data_received_extra(gw):
     data = b'\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xFF\xC0\x00'
     gw.data_received(data)
@@ -80,6 +86,12 @@ def test_unescape(gw):
     data_unescaped = b'\x00\xC0\x00\xDB\x00\x00\x00'
     r = gw._unescape(data)
     assert r == data_unescaped
+
+
+def test_unescape_error(gw):
+    data = b'\x00\xDB\xDC\x00\xDB\xDD\x00\x00\x00\xDB'
+    r = gw._unescape(data)
+    assert r is None
 
 
 def test_escape(gw):
