@@ -147,12 +147,12 @@ async def test_permit(app):
 
 
 async def _test_request(app, do_reply=True, expect_reply=True,
-                        send_succes=True, **kwargs):
+                        send_success=True, **kwargs):
     seq = 123
     nwk = 0x2345
 
-    def aps_data_request(req_id, dst_addr, dst_ep, profile, cluster, src_ep, data):
-        if send_succes:
+    def aps_data_request(req_id, dst_addr_ep, profile, cluster, src_ep, data):
+        if send_success:
             app._pending[req_id][0].set_result(0)
         else:
             app._pending[req_id][0].set_result(mock.sentinel.send_fail)
@@ -185,7 +185,7 @@ async def test_request_no_reply(app):
 @pytest.mark.asyncio
 async def test_request_send_failure(app):
     with pytest.raises(DeliveryError):
-        await _test_request(app, False, True, send_succes=False,
+        await _test_request(app, False, True, send_success=False,
                             tries=2, timeout=0.1)
 
 

@@ -131,12 +131,14 @@ class Struct:
         if len(args) == 1 and isinstance(args[0], self.__class__):
             # copy constructor
             for field in self._fields:
-                setattr(self, field[0], getattr(args[0], field[0]))
+                if hasattr(args[0], field[0]):
+                    setattr(self, field[0], getattr(args[0], field[0]))
 
     def serialize(self):
         r = b''
         for field in self._fields:
-            r += getattr(self, field[0]).serialize()
+            if hasattr(self, field[0]):
+                r += getattr(self, field[0]).serialize()
         return r
 
     @classmethod
@@ -174,4 +176,29 @@ class DeconzAddress(Struct):
         elif mode == ADDRESS_MODE.IEEE:
             v, data = uint64_t.deserialize(data)
         setattr(r, cls._fields[1][0], v)
+        return r, data
+
+
+class DeconzAddressEndpoint(Struct):
+    _fields = [
+        # The address format (AddressMode)
+        ('address_mode', uint8_t),
+        ('address', uint64_t),
+        ('endpoint', uint8_t)
+    ]
+
+    @classmethod
+    def deserialize(cls, data):
+        r = cls()
+        mode, data = data[0], data[1:]
+        setattr(r, cls._fields[0][0], mode)
+        a = e = None
+        if mode in [ADDRESS_MODE.GROUP, ADDRESS_MODE.NWK]:
+            a, data = uint16_t.deserialize(data)
+        elif mode == ADDRESS_MODE.IEEE:
+            a, data = uint64_t.deserialize(data)
+        setattr(r, cls._fields[1][0], a)
+        if mode in [ADDRESS_MODE.NWK, ADDRESS_MODE.IEEE]:
+            e, data = uint8_t.deserialize(data)
+        setattr(r, cls._fields[2][0], e)
         return r, data
