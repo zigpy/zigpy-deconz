@@ -14,6 +14,7 @@ import zigpy.device
 
 LOGGER = logging.getLogger(__name__)
 
+CHANGE_NETWORK_WAIT = 1
 SEND_CONFIRM_TIMEOUT = 30
 
 
@@ -77,7 +78,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             await self._api.device_state()
             if self._api.network_state == NETWORK_STATE.CONNECTED.value:
                 return
-            await asyncio.sleep(1)
+            await asyncio.sleep(CHANGE_NETWORK_WAIT)
         raise Exception("Could not form network.")
 
     @zigpy.util.retryable_request
