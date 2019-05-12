@@ -185,7 +185,7 @@ async def test_request_no_reply(app):
 @pytest.mark.asyncio
 async def test_request_send_failure(app):
     with pytest.raises(DeliveryError):
-        await _test_request(app, False, True, send_succes=False,
+        await _test_request(app, False, True, send_success=False,
                             tries=2, timeout=0.1)
 
 
