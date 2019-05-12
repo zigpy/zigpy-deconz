@@ -89,14 +89,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if expect_reply:
             reply_fut = asyncio.Future()
         self._pending[sequence] = (send_fut, reply_fut)
-        dst_addr = t.DeconzAddress()
-        dst_addr.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
-        dst_addr.address = t.uint16_t(nwk)
+        dst_addr_ep = t.DeconzAddressEndpoint()
+        dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
+        dst_addr_ep.address = t.uint16_t(nwk)
+        dst_addr_ep.endpoint = t.uint8_t(dst_ep)
 
         await self._api.aps_data_request(
             sequence,
-            dst_addr,
-            dst_ep,
+            dst_addr_ep,
             profile,
             cluster,
             min(1, src_ep),
@@ -127,6 +127,38 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self._pending.pop(sequence, None)
             raise
 
+    async def broadcast(self, profile, cluster, src_ep, dst_ep, grpid, radius,
+                        sequence, data,
+                        broadcast_address=zigpy.types.BroadcastAddress.RX_ON_WHEN_IDLE):
+        LOGGER.debug("Zigbee broadcast with id %s, data: %s", sequence, binascii.hexlify(data))
+        assert sequence not in self._pending
+        send_fut = asyncio.Future()
+        self._pending[sequence] = (send_fut, None)
+        dst_addr_ep = t.DeconzAddressEndpoint()
+        dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.GROUP.value)
+        dst_addr_ep.address = t.uint16_t(broadcast_address)
+
+        await self._api.aps_data_request(
+            sequence,
+            dst_addr_ep,
+            profile,
+            cluster,
+            min(1, src_ep),
+            data
+        )
+
+        try:
+            r = await asyncio.wait_for(send_fut, SEND_CONFIRM_TIMEOUT)
+        except asyncio.TimeoutError:
+            self._pending.pop(sequence, None)
+            LOGGER.warning("Failed to receive transmit confirm for broadcast id: %s", sequence)
+            raise
+
+        if r:
+            LOGGER.warning("Error while sending broadcast: 0x%02x", r)
+
+        self._pending.pop(sequence, None)
+
     async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
         await self._api.write_parameter(
@@ -141,11 +173,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             ieee = zigpy.types.EUI64(map(t.uint8_t, data[7::-1]))
             LOGGER.info("New device joined: 0x%04x, %s", nwk, ieee)
             self.handle_join(nwk, ieee, 0)
-        if not src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
-            raise Exception("Unsupported address mode in handle_rx: %s" % (src_addr.address_mode))
 
         try:
-            device = self.get_device(nwk=src_addr.address)
+            if src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
+                device = self.get_device(nwk=src_addr.address)
+            elif src_addr.address_mode == t.ADDRESS_MODE.IEEE.value:
+                device = self.get_device(ieee=src_addr.address)
+            else:
+                raise Exception("Unsupported address mode in handle_rx: %s" % (src_addr.address_mode))
         except KeyError:
             LOGGER.debug("Received frame from unknown device: 0x%04x", src_addr.address)
             return
@@ -201,7 +236,3 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             LOGGER.warning("Unexpected transmit confirm for request id %s, Status: 0x%02x, %s", sequence, status, exc)
         except asyncio.futures.InvalidStateError as exc:
             LOGGER.debug("Invalid state on future - probably duplicate response: %s", exc)
-
-    async def broadcast(self, profile, cluster, src_ep, dst_ep, grpid, radius,
-                        sequence, data, broadcast_address):
-        LOGGER.debug("Broadcast not implemented.")

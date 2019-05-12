@@ -20,7 +20,7 @@ TX_COMMANDS = {
     'aps_data_indication': (0x17, (t.uint16_t, t.uint8_t), True),
     'aps_data_request': (
         0x12,
-        (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddress, t.uint8_t,
+        (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
             t.uint16_t, t.uint16_t, t.uint8_t, t.LVBytes, t.uint8_t,
             t.uint8_t),
         True),
@@ -45,7 +45,7 @@ RX_COMMANDS = {
     'aps_data_request': (0x12, (t.uint16_t, t.uint8_t, t.uint8_t), True),
     'aps_data_confirm': (
         0x04,
-        (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddress, t.uint8_t,
+        (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
             t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t),
         True
     ),
@@ -250,16 +250,13 @@ class Deconz:
                                 data[11],   # lqi
                                 data[16])   # rssi
 
-    async def aps_data_request(self, req_id, dst_addr, dst_ep, profile, cluster, src_ep, aps_payload):
-        dst = dst_addr.serialize()
-        has_dst_endpoint = 0
-        if dst_addr.address_mode in [t.ADDRESS_MODE.NWK.value, t.ADDRESS_MODE.IEEE.value]:
-            has_dst_endpoint = 1
-        length = len(dst) + has_dst_endpoint + len(aps_payload) + 11
+    async def aps_data_request(self, req_id, dst_addr_ep, profile, cluster, src_ep, aps_payload):
+        dst = dst_addr_ep.serialize()
+        length = len(dst) + len(aps_payload) + 11
         try:
             return await asyncio.wait_for(
                 self._command('aps_data_request', length, req_id, 0,
-                              dst_addr, dst_ep, profile, cluster, src_ep,
+                              dst_addr_ep, profile, cluster, src_ep,
                               aps_payload, 0, 0),
                 timeout=COMMAND_TIMEOUT
             )
@@ -275,10 +272,10 @@ class Deconz:
         return self._command('aps_data_confirm', 0)
 
     def _handle_aps_data_confirm(self, data):
-        LOGGER.debug("APS data confirm response for request with id %s: %02x", data[2], data[6])
+        LOGGER.debug("APS data confirm response for request with id %s: %02x", data[2], data[5])
         self._data_confirm = False
         self._handle_device_state_value(data[1])
-        self._app.handle_tx_confirm(data[2], data[6])
+        self._app.handle_tx_confirm(data[2], data[5])
 
     def _handle_mac_poll(self, data):
         pass

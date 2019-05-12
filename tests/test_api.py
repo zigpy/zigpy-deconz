@@ -79,10 +79,11 @@ def test_api_frame(api):
     addr = t.DeconzAddress()
     addr.address_mode = t.ADDRESS_MODE.NWK
     addr.address = t.uint8_t(0)
+    addr.endpoint = t.uint8_t(0)
     for cmd_name, cmd_opts in deconz_api.TX_COMMANDS.items():
         _, schema, _ = cmd_opts
         if schema:
-            args = [addr if isinstance(a(), t.DeconzAddress) else a() for a in schema]
+            args = [addr if isinstance(a(), t.DeconzAddressEndpoint) else a() for a in schema]
             api._api_frame(cmd_name, *args)
         else:
             api._api_frame(cmd_name)
