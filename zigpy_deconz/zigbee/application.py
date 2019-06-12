@@ -170,8 +170,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     def handle_rx(self, src_addr, src_ep, dst_ep, profile_id, cluster_id, data, lqi, rssi):
         # intercept ZDO device announce frames
         if dst_ep == 0 and cluster_id == 0x13:
-            nwk, _ = t.uint16_t.deserialize(data[1:])
-            ieee = zigpy.types.EUI64(map(t.uint8_t, data[7::-1]))
+            nwk, rest = t.uint16_t.deserialize(data[1:])
+            ieee, _ = zigpy.types.EUI64.deserialize(rest)
             LOGGER.info("New device joined: 0x%04x, %s", nwk, ieee)
             self.handle_join(nwk, ieee, 0)
 
