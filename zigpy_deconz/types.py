@@ -1,5 +1,7 @@
 import enum
 
+import zigpy.types as t
+
 
 def deserialize(data, schema):
     result = []
@@ -122,6 +124,7 @@ class ADDRESS_MODE(uint8_t, enum.Enum):
     GROUP = 0x01
     NWK = 0x02
     IEEE = 0x03
+    NWK_AND_IEEE = 0x04
 
 
 class Struct:
@@ -161,28 +164,36 @@ class Struct:
 class DeconzAddress(Struct):
     _fields = [
         # The address format (AddressMode)
-        ('address_mode', uint8_t),
+        ('address_mode', ADDRESS_MODE),
         ('address', uint64_t),
     ]
 
     @classmethod
     def deserialize(cls, data):
         r = cls()
-        mode, data = data[0], data[1:]
-        setattr(r, cls._fields[0][0], mode)
-        v = None
-        if mode in [ADDRESS_MODE.GROUP, ADDRESS_MODE.NWK]:
-            v, data = uint16_t.deserialize(data)
+        mode, data = ADDRESS_MODE.deserialize(data)
+        r.address_mode = mode
+        if mode in [ADDRESS_MODE.GROUP,
+                    ADDRESS_MODE.NWK,
+                    ADDRESS_MODE.NWK_AND_IEEE]:
+            r.address, data = t.NWK.deserialize(data)
         elif mode == ADDRESS_MODE.IEEE:
-            v, data = uint64_t.deserialize(data)
-        setattr(r, cls._fields[1][0], v)
+            r.address, data = t.EUI64.deserialize(data)
+        if mode == ADDRESS_MODE.NWK_AND_IEEE:
+            r.ieee, data = t.EUI64.deserialize(data)
         return r, data
+
+    def serialize(self):
+        r = super().serialize()
+        if self.address_mode == ADDRESS_MODE.NWK_AND_IEEE:
+            r += self.ieee.serialize()
+        return r
 
 
 class DeconzAddressEndpoint(Struct):
     _fields = [
         # The address format (AddressMode)
-        ('address_mode', uint8_t),
+        ('address_mode', ADDRESS_MODE),
         ('address', uint64_t),
         ('endpoint', uint8_t)
     ]
@@ -190,8 +201,8 @@ class DeconzAddressEndpoint(Struct):
     @classmethod
     def deserialize(cls, data):
         r = cls()
-        mode, data = data[0], data[1:]
-        setattr(r, cls._fields[0][0], mode)
+        mode, data = ADDRESS_MODE.deserialize(data)
+        r.address_mode = mode
         a = e = None
         if mode in [ADDRESS_MODE.GROUP, ADDRESS_MODE.NWK]:
             a, data = uint16_t.deserialize(data)
