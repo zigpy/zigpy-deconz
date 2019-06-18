@@ -51,6 +51,8 @@ RX_COMMANDS = {
     ),
     'mac_poll': (0x1C, (t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
     'zigbee_green_power': (0x19, (t.LVBytes, ), False),
+    'simplified_beacon': (0x1f, (t.uint16_t, t.uint16_t, t.uint16_t, t.uint8_t,
+                          t.uint8_t, t.uint8_t), False)
 }
 
 NETWORK_PARAMETER = {
@@ -282,6 +284,12 @@ class Deconz:
 
     def _handle_zigbee_green_power(self, data):
         pass
+
+    def _handle_simplified_beacon(self, data):
+        LOGGER.debug(("Received simplified beacon frame: source=0x%04x, "
+                      "pan_id=0x%04x, channel=%s, flags=0x%02x, "
+                      "update_id=0x%02x"),
+                     data[1], data[2], data[3], data[4], data[5])
 
     def _handle_device_state_value(self, value):
         flags = [i for i in DEVICE_STATE if (value & i.value) == i.value]
