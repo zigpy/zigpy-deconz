@@ -1,4 +1,4 @@
-"""Setup module for zigbpy-xbee"""
+"""Setup module for zigpy-deconz"""
 
 from setuptools import find_packages, setup
 
