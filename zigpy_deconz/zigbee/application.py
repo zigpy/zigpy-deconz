@@ -24,7 +24,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._api = api
         api.set_application(self)
 
-        self._pending = {}
+        self._pending = Requests()
 
         self._nwk = 0
         self.discovering = False
@@ -85,80 +85,61 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def request(self, nwk, profile, cluster, src_ep, dst_ep, sequence, data, expect_reply=True, timeout=10):
         LOGGER.debug("Zigbee request with id %s, data: %s", sequence, binascii.hexlify(data))
         assert sequence not in self._pending
-        send_fut = asyncio.Future()
-        reply_fut = None
-        if expect_reply:
-            reply_fut = asyncio.Future()
-        self._pending[sequence] = (send_fut, reply_fut)
         dst_addr_ep = t.DeconzAddressEndpoint()
         dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
         dst_addr_ep.address = t.uint16_t(nwk)
         dst_addr_ep.endpoint = t.uint8_t(dst_ep)
 
-        await self._api.aps_data_request(
-            sequence,
-            dst_addr_ep,
-            profile,
-            cluster,
-            min(1, src_ep),
-            data
-        )
-
-        try:
-            r = await asyncio.wait_for(send_fut, SEND_CONFIRM_TIMEOUT)
-        except asyncio.TimeoutError:
-            self._pending.pop(sequence, None)
-            LOGGER.warning("Failed to receive transmit confirm for request id: %s", sequence)
-            raise
-
-        if r:
-            LOGGER.warning("Error while sending frame: 0x%02x", r)
-            self._pending.pop(sequence, None)
-            raise zigpy.exceptions.DeliveryError(
-                "[0x%04x:%s:0x%04x] failed transmission request: %s" % (nwk, dst_ep, cluster, r)
+        with self._pending.new(sequence, expect_reply) as req:
+            await self._api.aps_data_request(
+                sequence,
+                dst_addr_ep,
+                profile,
+                cluster,
+                min(1, src_ep),
+                data
             )
 
-        if not expect_reply:
-            self._pending.pop(sequence, None)
-            return
+            r = await asyncio.wait_for(req.send, SEND_CONFIRM_TIMEOUT)
 
-        try:
-            return await asyncio.wait_for(reply_fut, timeout)
-        except asyncio.TimeoutError:
-            self._pending.pop(sequence, None)
-            raise
+            if r:
+                LOGGER.warning("Error while sending frame: 0x%02x", r)
+                raise zigpy.exceptions.DeliveryError(
+                    "[0x%04x:%s:0x%04x] failed transmission request: %s" % (nwk, dst_ep, cluster, r)
+                )
+
+            if not expect_reply:
+                return
+
+            return await asyncio.wait_for(req.reply, timeout)
 
     async def broadcast(self, profile, cluster, src_ep, dst_ep, grpid, radius,
                         sequence, data,
                         broadcast_address=zigpy.types.BroadcastAddress.RX_ON_WHEN_IDLE):
         LOGGER.debug("Zigbee broadcast with id %s, data: %s", sequence, binascii.hexlify(data))
         assert sequence not in self._pending
-        send_fut = asyncio.Future()
-        self._pending[sequence] = (send_fut, None)
         dst_addr_ep = t.DeconzAddressEndpoint()
         dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.GROUP.value)
         dst_addr_ep.address = t.uint16_t(broadcast_address)
 
-        await self._api.aps_data_request(
-            sequence,
-            dst_addr_ep,
-            profile,
-            cluster,
-            min(1, src_ep),
-            data
-        )
+        with self._pending.new(sequence) as req:
+            await self._api.aps_data_request(
+                sequence,
+                dst_addr_ep,
+                profile,
+                cluster,
+                min(1, src_ep),
+                data
+            )
 
-        try:
-            r = await asyncio.wait_for(send_fut, SEND_CONFIRM_TIMEOUT)
-        except asyncio.TimeoutError:
-            self._pending.pop(sequence, None)
-            LOGGER.warning("Failed to receive transmit confirm for broadcast id: %s", sequence)
-            raise
+            r = await asyncio.wait_for(req.send, SEND_CONFIRM_TIMEOUT)
 
-        if r:
-            LOGGER.warning("Error while sending broadcast: 0x%02x", r)
-
-        self._pending.pop(sequence, None)
+            if r:
+                LOGGER.warning("Error while sending broadcast: 0x%02x", r)
+                raise zigpy.exceptions.DeliveryError(
+                    "[0x%04x:%s:0x%04x] failed transmission request: %s" % (broadcast_address,
+                                                                            dst_ep, cluster, r)
+                )
 
     async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
@@ -213,10 +194,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     def _handle_reply(self, device, profile, cluster, src_ep, dst_ep, tsn, command_id, args):
         try:
-            _, reply_fut = self._pending[tsn]
-            if reply_fut:
-                self._pending.pop(tsn)
-                reply_fut.set_result(args)
+            req = self._pending[tsn]
+            if req.reply:
+                req.reply.set_result(args)
             return
         except KeyError as exc:
             LOGGER.warning("Unexpected response TSN=%s command=%s args=%s, %s", tsn, command_id, args, exc)
@@ -229,11 +209,71 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     def handle_tx_confirm(self, sequence, status):
         try:
-            send_fut, _ = self._pending[sequence]
-            if send_fut:
-                send_fut.set_result(status)
+            self._pending[sequence].send.set_result(status)
             return
         except KeyError as exc:
             LOGGER.warning("Unexpected transmit confirm for request id %s, Status: 0x%02x, %s", sequence, status, exc)
         except asyncio.futures.InvalidStateError as exc:
             LOGGER.debug("Invalid state on future - probably duplicate response: %s", exc)
+
+
+class Requests(dict):
+    def new(self, sequence, expect_reply=False):
+        """Wrap new request into a context manager."""
+        return Request(self, sequence, expect_reply)
+
+
+class Request:
+    """Context manager."""
+
+    def __init__(self, pending, sequence, expect_reply=False):
+        """Init context manager for sendUnicast/sendBroadcast."""
+        assert sequence not in pending
+        self._exception = None
+        self._pending = pending
+        self._reply_fut = None
+        if expect_reply:
+            self._reply_fut = asyncio.Future()
+        self._send_fut = asyncio.Future()
+        self._sequence = sequence
+
+    @property
+    def exception(self):
+        """Exit status."""
+        return self._exception
+
+    @property
+    def reply(self):
+        """Reply Future."""
+        return self._reply_fut
+
+    @property
+    def sequence(self):
+        """Send Future."""
+        return self._sequence
+
+    @property
+    def send(self):
+        return self._send_fut
+
+    def __enter__(self):
+        """Return context manager."""
+        self._pending[self.sequence] = self
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        """Clean up pending on exit."""
+        if not self.send.done():
+            self.send.cancel()
+        if self.reply and not self.reply.done():
+            self.reply.cancel()
+        self._pending.pop(self.sequence)
+
+        if exc_type in (asyncio.TimeoutError,
+                        zigpy.exceptions.ZigbeeException):
+            self._exception = (exc_type, exc_value, exc_traceback)
+            LOGGER.debug("Request id 0x%02x failure: %s",
+                         self.sequence, exc_type.__name__)
+
+        return False
+
