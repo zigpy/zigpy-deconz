@@ -167,12 +167,12 @@ async def _test_request(app, do_reply=True, expect_reply=True,
 
     def aps_data_request(req_id, dst_addr_ep, profile, cluster, src_ep, data):
         if send_success:
-            app._pending[req_id][0].set_result(0)
+            app._pending[req_id].send.set_result(0)
         else:
-            app._pending[req_id][0].set_result(mock.sentinel.send_fail)
+            app._pending[req_id].send.set_result(mock.sentinel.send_fail)
         if expect_reply:
             if do_reply:
-                app._pending[req_id][1].set_result(mock.sentinel.reply_result)
+                app._pending[req_id].reply.set_result(mock.sentinel.reply_result)
 
     app._api.aps_data_request = mock.MagicMock(
         side_effect=asyncio.coroutine(aps_data_request))
@@ -219,21 +219,17 @@ def _handle_reply(app, tsn):
 
 def test_handle_reply(app):
     tsn = 123
-    send_fut = asyncio.Future()
-    reply_fut = asyncio.Future()
-    app._pending[tsn] = (send_fut, reply_fut)
-    _handle_reply(app, tsn)
+    with app._pending.new(tsn, True) as req:
+        _handle_reply(app, tsn)
     assert app.handle_message.call_count == 0
-    assert reply_fut.result() == mock.sentinel.args
+    assert req.reply.result() == mock.sentinel.args
 
 
 def test_handle_reply_dup(app):
     tsn = 123
-    send_fut = asyncio.Future()
-    reply_fut = asyncio.Future()
-    app._pending[tsn] = (send_fut, reply_fut)
-    reply_fut.set_result(mock.sentinel.reply_result)
-    _handle_reply(app, tsn)
+    with app._pending.new(tsn, True) as req:
+        req.reply.set_result(mock.sentinel.reply_result)
+        _handle_reply(app, tsn)
     assert app.handle_message.call_count == 0
 
 

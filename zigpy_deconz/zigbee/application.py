@@ -276,4 +276,3 @@ class Request:
                          self.sequence, exc_type.__name__)
 
         return False
-
