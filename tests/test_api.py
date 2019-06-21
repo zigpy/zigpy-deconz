@@ -107,3 +107,9 @@ def test_data_received(api, monkeypatch):
         assert my_handler.call_args[0][0] == mock.sentinel.deserialize_data
         t.deserialize.reset_mock()
         my_handler.reset_mock()
+
+
+def test_simplified_beacon(api):
+    api._handle_simplified_beacon(
+        (0x0007, 0x1234, 0x5678, 0x19, 0x00, 0x01)
+    )
