@@ -1,5 +1,3 @@
-import pytest
-
 import zigpy_deconz.types as t
 
 
@@ -15,9 +13,6 @@ def test_deconz_address_group():
 
     assert addr.serialize() == data
 
-    with pytest.raises(ValueError):
-        t.DeconzAddress.deserialize(data[:-1])
-
 
 def test_deconz_address_nwk():
     data = b'\x02\x55\xaa'
@@ -30,9 +25,6 @@ def test_deconz_address_nwk():
     assert addr.address == 0xaa55
 
     assert addr.serialize() == data
-
-    with pytest.raises(ValueError):
-        t.DeconzAddress.deserialize(data[:-1])
 
 
 def test_deconz_address_ieee():
@@ -47,9 +39,6 @@ def test_deconz_address_ieee():
 
     assert addr.serialize() == data
 
-    with pytest.raises(ValueError):
-        t.DeconzAddress.deserialize(data[:-1])
-
 
 def test_deconz_address_nwk_and_ieee():
     data = b'\x04\x55\xaa\x88\x99\xbb\xcc\xdd\xee\xef\xbe'
@@ -63,6 +52,3 @@ def test_deconz_address_nwk_and_ieee():
     assert addr.address == 0xaa55
 
     assert addr.serialize() == data
-
-    with pytest.raises(ValueError):
-        t.DeconzAddress.deserialize(data[:-1])

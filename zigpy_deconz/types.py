@@ -1,7 +1,5 @@
 import enum
 
-import zigpy.types as t
-
 
 def deserialize(data, schema):
     result = []
@@ -161,6 +159,40 @@ class Struct:
         return r
 
 
+class EUI64(list):
+    def serialize(self):
+        assert len(self) == 8
+        return b''.join([i.serialize() for i in self[::-1]])
+
+    @classmethod
+    def deserialize(cls, data):
+        r = []
+        for i in range(8):
+            item, data = uint8_t.deserialize(data)
+            r.append(item)
+        return cls(r[::-1]), data
+
+    def __repr__(self):
+        return ':'.join('%02x' % i for i in self)
+
+    def __hash__(self):
+        return hash(repr(self))
+
+
+class HexRepr:
+    _hex_len = 2
+
+    def __repr__(self):
+        return ('0x{:0' + str(self._hex_len) + 'x}').format(self)
+
+    def __str__(self):
+        return ('0x{:0' + str(self._hex_len) + 'x}').format(self)
+
+
+class NWK(HexRepr, uint16_t):
+    _hex_len = 4
+
+
 class DeconzAddress(Struct):
     _fields = [
         # The address format (AddressMode)
@@ -176,11 +208,11 @@ class DeconzAddress(Struct):
         if mode in [ADDRESS_MODE.GROUP,
                     ADDRESS_MODE.NWK,
                     ADDRESS_MODE.NWK_AND_IEEE]:
-            r.address, data = t.NWK.deserialize(data)
+            r.address, data = NWK.deserialize(data)
         elif mode == ADDRESS_MODE.IEEE:
-            r.address, data = t.EUI64.deserialize(data)
+            r.address, data = EUI64.deserialize(data)
         if mode == ADDRESS_MODE.NWK_AND_IEEE:
-            r.ieee, data = t.EUI64.deserialize(data)
+            r.ieee, data = EUI64.deserialize(data)
         return r, data
 
     def serialize(self):
@@ -205,9 +237,9 @@ class DeconzAddressEndpoint(Struct):
         r.address_mode = mode
         a = e = None
         if mode in [ADDRESS_MODE.GROUP, ADDRESS_MODE.NWK]:
-            a, data = uint16_t.deserialize(data)
+            a, data = NWK.deserialize(data)
         elif mode == ADDRESS_MODE.IEEE:
-            a, data = uint64_t.deserialize(data)
+            a, data = EUI64.deserialize(data)
         setattr(r, cls._fields[1][0], a)
         if mode in [ADDRESS_MODE.NWK, ADDRESS_MODE.IEEE]:
             e, data = uint8_t.deserialize(data)
