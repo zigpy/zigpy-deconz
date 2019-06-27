@@ -76,7 +76,7 @@ NETWORK_PARAMETER = {
 NETWORK_PARAMETER_BY_ID = {v[0]: (k, v[1]) for k, v in NETWORK_PARAMETER.items()}
 
 
-class STATUS(enum.Enum):
+class STATUS(t.uint8_t, enum.Enum):
     SUCCESS = 0
     FAILURE = 1
     BUSY = 2
@@ -150,14 +150,17 @@ class Deconz:
             return
         command = self._commands_by_id[data[0]]
         seq = data[1]
-        status = data[2]
+        try:
+            status = STATUS(data[2])
+        except ValueError:
+            status = data[2]
         try:
             data, _ = t.deserialize(data[5:], RX_COMMANDS[command][1])
         except Exception:
             LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
         if RX_COMMANDS[command][2]:
             fut, = self._awaiting.pop(seq)
-            if status is not STATUS.SUCCESS.value:
+            if status != STATUS.SUCCESS:
                 fut.set_exception(Exception('%s, status: %s' % (command, status, )))
                 return
             fut.set_result(data)
