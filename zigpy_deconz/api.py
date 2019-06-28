@@ -5,6 +5,7 @@ import binascii
 
 from . import uart
 from . import types as t
+from zigpy_deconz.exception import CommandError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -161,7 +162,9 @@ class Deconz:
         if RX_COMMANDS[command][2]:
             fut, = self._awaiting.pop(seq)
             if status != STATUS.SUCCESS:
-                fut.set_exception(Exception('%s, status: %s' % (command, status, )))
+                fut.set_exception(
+                    CommandError(status, '%s, status: %s' % (command,
+                                                             status, )))
                 return
             fut.set_result(data)
         getattr(self, '_handle_%s' % (command, ))(data)
@@ -268,16 +271,25 @@ class Deconz:
     async def aps_data_request(self, req_id, dst_addr_ep, profile, cluster, src_ep, aps_payload):
         dst = dst_addr_ep.serialize()
         length = len(dst) + len(aps_payload) + 11
-        try:
-            return await asyncio.wait_for(
-                self._command('aps_data_request', length, req_id, 0,
-                              dst_addr_ep, profile, cluster, src_ep,
-                              aps_payload, 0, 0),
-                timeout=COMMAND_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            LOGGER.warning("No response to aps_data_request command")
-            raise
+        delays = (0.5, 1.0, 1.5, None)
+        for delay in delays:
+            try:
+                return await asyncio.wait_for(
+                    self._command('aps_data_request', length, req_id, 0,
+                                  dst_addr_ep, profile, cluster, src_ep,
+                                  aps_payload, 2, 0),
+                    timeout=COMMAND_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                LOGGER.warning("No response to aps_data_request command")
+                raise
+            except CommandError as ex:
+                LOGGER.debug("'aps_data_request' failure: %s", ex)
+                if delay is not None and ex.status == STATUS.BUSY:
+                    LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
 
     def _handle_aps_data_request(self, data):
         LOGGER.debug("APS data request response: %s", data)
