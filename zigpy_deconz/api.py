@@ -270,8 +270,16 @@ class Deconz:
         LOGGER.debug("APS data request response: %s", data)
         self._handle_device_state_value(data[1])
 
-    def _aps_data_confirm(self):
-        return self._command('aps_data_confirm', 0)
+    async def _aps_data_confirm(self):
+        try:
+            r = await asyncio.wait_for(self._command('aps_data_confirm', 0),
+                                       timeout=COMMAND_TIMEOUT)
+            LOGGER.debug(("Request id: 0x%02x 'aps_data_confirm' for %s, "
+                          "status: 0x%02x"), r[2], r[3], r[5])
+            return r
+        except asyncio.TimeoutError:
+            LOGGER.debug("No response to 'aps_data_confirm'")
+            self._data_confirm = False
 
     def _handle_aps_data_confirm(self, data):
         LOGGER.debug("APS data confirm response for request with id %s: %02x", data[2], data[5])
@@ -304,4 +312,4 @@ class Deconz:
             self._aps_data_indication()
         if DEVICE_STATE.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
             self._data_confirm = True
-            self._aps_data_confirm()
+            asyncio.ensure_future(self._aps_data_confirm())
