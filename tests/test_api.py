@@ -113,3 +113,56 @@ def test_simplified_beacon(api):
     api._handle_simplified_beacon(
         (0x0007, 0x1234, 0x5678, 0x19, 0x00, 0x01)
     )
+
+
+@pytest.mark.asyncio
+async def test_aps_data_confirm(api, monkeypatch):
+    monkeypatch.setattr(deconz_api, 'COMMAND_TIMEOUT', 0.1)
+
+    success = True
+
+    def mock_cmd(*args, **kwargs):
+        res = asyncio.Future()
+        if success:
+            res.set_result([7, 0x22, 0x11, mock.sentinel.dst_addr, 1, 0x00,
+                            0, 0, 0, 0])
+        return res
+
+    api._command = mock_cmd
+    api._data_confirm = True
+
+    res = await api._aps_data_confirm()
+    assert res is not None
+    assert api._data_confirm is True
+
+    success = False
+    res = await api._aps_data_confirm()
+    assert res is None
+    assert api._data_confirm is False
+
+
+@pytest.mark.asyncio
+async def test_aps_data_ind(api, monkeypatch):
+    monkeypatch.setattr(deconz_api, 'COMMAND_TIMEOUT', 0.1)
+
+    success = True
+
+    def mock_cmd(*args, **kwargs):
+        res = asyncio.Future()
+        s = mock.sentinel
+        if success:
+            res.set_result([s.len, 0x22, t.DeconzAddress(), 1,
+                            t.DeconzAddress(), 1, 0x0104, 0x0000, b'\x00\x01\x02'])
+        return res
+
+    api._command = mock_cmd
+    api._data_indication = True
+
+    res = await api._aps_data_indication()
+    assert res is not None
+    assert api._data_indication is True
+
+    success = False
+    res = await api._aps_data_indication()
+    assert res is None
+    assert api._data_indication is False
