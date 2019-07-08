@@ -151,6 +151,7 @@ class Deconz:
     def data_received(self, data):
         try:
             command = self._commands_by_id[data[0]]
+            _, schema, solicited = RX_COMMANDS[command]
         except KeyError:
             LOGGER.debug("Unknown command received: 0x%02x", data[0])
             return
@@ -160,10 +161,14 @@ class Deconz:
         except ValueError:
             status = data[2]
         try:
-            data, _ = t.deserialize(data[5:], RX_COMMANDS[command][1])
-        except Exception:
+            data, _ = t.deserialize(data[5:], schema)
+        except Exception as exc:
             LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
-        if RX_COMMANDS[command][2] and seq in self._awaiting:
+            if solicited and seq in self._awaiting:
+                fut = self._awaiting.pop(seq)
+                fut.set_exception(exc)
+            return
+        if solicited and seq in self._awaiting:
             fut = self._awaiting.pop(seq)
             if status != STATUS.SUCCESS:
                 fut.set_exception(
