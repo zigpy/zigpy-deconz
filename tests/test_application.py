@@ -8,14 +8,22 @@ import zigpy.device
 from zigpy.types import EUI64
 import zigpy.zdo.types as zdo_t
 from zigpy_deconz.api import Deconz
-from zigpy_deconz.zigbee.application import ControllerApplication
+import zigpy_deconz.zigbee.application
 from zigpy_deconz.zigbee import application
 from zigpy_deconz import types as t
 
 
 @pytest.fixture
-def app(database_file=None):
-    return ControllerApplication(Deconz(), database_file=database_file)
+def app(monkeypatch, database_file=None):
+    app = zigpy_deconz.zigbee.application.ControllerApplication(
+        Deconz(), database_file=database_file)
+    monkeypatch.setattr(zigpy_deconz.zigbee.application,
+                        'TIMEOUT_REPLY_ENDDEV',
+                        .1)
+    monkeypatch.setattr(zigpy_deconz.zigbee.application,
+                        'TIMEOUT_REPLY_ROUTER',
+                        .1)
+    return app
 
 
 @pytest.fixture
@@ -176,6 +184,10 @@ async def _test_request(app, do_reply=True, expect_reply=True,
 
     app._api.aps_data_request = mock.MagicMock(
         side_effect=asyncio.coroutine(aps_data_request))
+    app.get_device = mock.MagicMock(
+        return_value=zigpy.device.Device(app,
+                                         mock.sentinel.ieee,
+                                         mock.sentinel.nwk))
 
     return await app.request(nwk, 0x0260, 1, 2, 3, seq, b'\x01\x02\x03', expect_reply=expect_reply, **kwargs)
 
