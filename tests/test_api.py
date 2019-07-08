@@ -4,6 +4,7 @@ from unittest import mock
 import pytest
 
 from zigpy_deconz import api as deconz_api, types as t, uart
+import zigpy_deconz.exception
 
 
 COMMANDS = [*deconz_api.TX_COMMANDS.items(), *deconz_api.RX_COMMANDS.items()]
@@ -109,6 +110,47 @@ def test_data_received(api, monkeypatch):
         my_handler.reset_mock()
 
 
+def test_data_received_unk_status(api, monkeypatch):
+    monkeypatch.setattr(t, 'deserialize', mock.MagicMock(
+        return_value=(mock.sentinel.deserialize_data, b'')))
+    my_handler = mock.MagicMock()
+
+    for cmd, cmd_opts in deconz_api.RX_COMMANDS.items():
+        cmd_id, unsolicited = cmd_opts[0], cmd_opts[2]
+        payload = b'\x01\x02\x03\x04'
+        status = t.uint8_t(0xfe).serialize()
+        data = cmd_id.to_bytes(1, 'big') + b'\x00' + \
+            status + b'\x00\x00' + payload
+        setattr(api, '_handle_{}'.format(cmd), my_handler)
+        api._awaiting[0] = (mock.MagicMock(), )
+        api.data_received(data)
+        assert t.deserialize.call_count == 1
+        assert t.deserialize.call_args[0][0] == payload
+        if unsolicited:
+            assert my_handler.call_count == 0
+        else:
+            assert my_handler.call_count == 1
+        t.deserialize.reset_mock()
+        my_handler.reset_mock()
+
+
+def test_data_received_unk_cmd(api, monkeypatch):
+    monkeypatch.setattr(t, 'deserialize', mock.MagicMock(
+        return_value=(mock.sentinel.deserialize_data, b'')))
+
+    for cmd_id in range(0, 255):
+        if cmd_id in api._commands_by_id:
+            continue
+        payload = b'\x01\x02\x03\x04'
+        status = t.uint8_t(0x00).serialize()
+        data = cmd_id.to_bytes(1, 'big') + b'\x00' + \
+            status + b'\x00\x00' + payload
+        api._awaiting[0] = (mock.MagicMock(), )
+        api.data_received(data)
+        assert t.deserialize.call_count == 0
+        t.deserialize.reset_mock()
+
+
 def test_simplified_beacon(api):
     api._handle_simplified_beacon(
         (0x0007, 0x1234, 0x5678, 0x19, 0x00, 0x01)
@@ -166,3 +208,71 @@ async def test_aps_data_ind(api, monkeypatch):
     res = await api._aps_data_indication()
     assert res is None
     assert api._data_indication is False
+
+
+@pytest.mark.asyncio
+async def test_aps_data_request(api):
+    params = [
+        0x00,  # req  id
+        t.DeconzAddressEndpoint.deserialize(
+            b'\x02\xaa\x55\x01')[0],  # dst + ep
+        0x0104,  # profile id
+        0x0007,  # cluster id
+        0x01,  # src ep
+        b'aps payload'
+    ]
+
+    mock_cmd = mock.MagicMock(
+        side_effect=asyncio.coroutine(mock.MagicMock()))
+    api._command = mock_cmd
+
+    await api.aps_data_request(*params)
+    assert mock_cmd.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_aps_data_request_timeout(api, monkeypatch):
+    params = [
+        0x00,  # req  id
+        t.DeconzAddressEndpoint.deserialize(
+            b'\x02\xaa\x55\x01')[0],  # dst + ep
+        0x0104,  # profile id
+        0x0007,  # cluster id
+        0x01,  # src ep
+        b'aps payload'
+    ]
+
+    mock_cmd = mock.MagicMock(return_value=asyncio.Future())
+    api._command = mock_cmd
+    monkeypatch.setattr(deconz_api, 'COMMAND_TIMEOUT', .1)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await api.aps_data_request(*params)
+        assert mock_cmd.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_aps_data_request_busy(api, monkeypatch):
+    params = [
+        0x00,  # req  id
+        t.DeconzAddressEndpoint.deserialize(
+            b'\x02\xaa\x55\x01')[0],  # dst + ep
+        0x0104,  # profile id
+        0x0007,  # cluster id
+        0x01,  # src ep
+        b'aps payload'
+    ]
+
+    res = asyncio.Future()
+    exc = zigpy_deconz.exception.CommandError(deconz_api.STATUS.BUSY, 'busy')
+    res.set_exception(exc)
+    mock_cmd = mock.MagicMock(return_value=res)
+
+    api._command = mock_cmd
+    monkeypatch.setattr(deconz_api, 'COMMAND_TIMEOUT', .1)
+    sleep = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
+    monkeypatch.setattr(asyncio, 'sleep', sleep)
+
+    with pytest.raises(zigpy_deconz.exception.CommandError):
+        await api.aps_data_request(*params)
+        assert mock_cmd.call_count == 4
