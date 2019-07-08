@@ -157,8 +157,12 @@ class Deconz:
             status = data[2]
         try:
             data, _ = t.deserialize(data[5:], RX_COMMANDS[command][1])
-        except Exception:
+        except Exception as exc:
             LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
+            if RX_COMMANDS[command][2]:
+                fut, = self._awaiting.pop(seq)
+                fut.set_exception(exc)
+            return
         if RX_COMMANDS[command][2]:
             fut, = self._awaiting.pop(seq)
             if status != STATUS.SUCCESS:
