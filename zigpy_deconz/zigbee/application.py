@@ -16,6 +16,8 @@ LOGGER = logging.getLogger(__name__)
 
 CHANGE_NETWORK_WAIT = 1
 SEND_CONFIRM_TIMEOUT = 30
+TIMEOUT_REPLY_ROUTER = 6
+TIMEOUT_REPLY_ENDDEV = 29
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -82,7 +84,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         raise Exception("Could not form network.")
 
     @zigpy.util.retryable_request
-    async def request(self, nwk, profile, cluster, src_ep, dst_ep, sequence, data, expect_reply=True, timeout=10):
+    async def request(self, nwk, profile, cluster, src_ep, dst_ep, sequence, data, expect_reply=True,
+                      timeout=TIMEOUT_REPLY_ROUTER):
         LOGGER.debug("Zigbee request with id %s, data: %s", sequence, binascii.hexlify(data))
         assert sequence not in self._pending
         dst_addr_ep = t.DeconzAddressEndpoint()
@@ -111,6 +114,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             if not expect_reply:
                 return
 
+            dev = self.get_device(nwk=nwk)
+            if dev.node_desc.is_end_device in (True, None):
+                LOGGER.debug("Extending timeout for %s/0x%04x", dev.ieee, nwk)
+                timeout = TIMEOUT_REPLY_ENDDEV
             return await asyncio.wait_for(req.reply, timeout)
 
     async def broadcast(self, profile, cluster, src_ep, dst_ep, grpid, radius,
