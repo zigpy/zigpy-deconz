@@ -235,8 +235,18 @@ class Deconz:
         LOGGER.debug("Device state changed response: %s", data)
         self._handle_device_state_value(data[0])
 
-    def _aps_data_indication(self):
-        return self._command('aps_data_indication', 1, 1)
+    async def _aps_data_indication(self):
+        try:
+            r = await asyncio.wait_for(
+                self._command('aps_data_indication', 1, 1),
+                timeout=COMMAND_TIMEOUT)
+            LOGGER.debug(("'aps_data_indication' responnse from %s, ep: %s, "
+                          "profile: 0x%04x, cluster_id: 0x%04x, data: %s"),
+                         r[4], r[5], r[6], r[7], binascii.hexlify(r[8]))
+            return r
+        except asyncio.TimeoutError:
+            self._data_indication = False
+            LOGGER.debug("No response to 'aps_data_indication'")
 
     def _handle_aps_data_indication(self, data):
         LOGGER.debug("APS data indication response: %s", data)
@@ -270,8 +280,16 @@ class Deconz:
         LOGGER.debug("APS data request response: %s", data)
         self._handle_device_state_value(data[1])
 
-    def _aps_data_confirm(self):
-        return self._command('aps_data_confirm', 0)
+    async def _aps_data_confirm(self):
+        try:
+            r = await asyncio.wait_for(self._command('aps_data_confirm', 0),
+                                       timeout=COMMAND_TIMEOUT)
+            LOGGER.debug(("Request id: 0x%02x 'aps_data_confirm' for %s, "
+                          "status: 0x%02x"), r[2], r[3], r[5])
+            return r
+        except asyncio.TimeoutError:
+            LOGGER.debug("No response to 'aps_data_confirm'")
+            self._data_confirm = False
 
     def _handle_aps_data_confirm(self, data):
         LOGGER.debug("APS data confirm response for request with id %s: %02x", data[2], data[5])
@@ -301,7 +319,7 @@ class Deconz:
             LOGGER.debug("Data request queue full.")
         if DEVICE_STATE.APSDE_DATA_INDICATION in flags and not self._data_indication:
             self._data_indication = True
-            self._aps_data_indication()
+            asyncio.ensure_future(self._aps_data_indication())
         if DEVICE_STATE.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
             self._data_confirm = True
-            self._aps_data_confirm()
+            asyncio.ensure_future(self._aps_data_confirm())
