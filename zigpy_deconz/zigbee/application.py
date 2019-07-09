@@ -7,6 +7,7 @@ from zigpy_deconz import types as t
 
 import zigpy.application
 import zigpy.exceptions
+import zigpy.endpoint
 import zigpy.types
 import zigpy.util
 import zigpy.device
@@ -65,6 +66,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         if auto_form:
             await self.form_network()
+        self.devices[self.ieee] = await ConBeeDevice.new(self,
+                                                         self.ieee, self.nwk)
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
@@ -283,3 +286,48 @@ class Request:
                          self.sequence, exc_type.__name__)
 
         return False
+
+
+class ConBeeDevice(zigpy.device.Device):
+    """Zigpy Device representing Coordinator."""
+
+    async def add_to_group(self, grp_id: int,
+                           name: str = None) -> None:
+        group = self.application.groups.add_group(grp_id, name)
+        group.add_member(self)
+        return
+
+    async def remove_from_group(self, grp_id: int) -> None:
+        self.application.groups[grp_id].remove_member(self)
+        return
+
+    @property
+    def manufacturer(self):
+        return "dresden elektronik"
+
+    @property
+    def model(self):
+        return 'ConBee'
+
+    @classmethod
+    async def new(cls, application, ieee, nwk):
+        """Create or replace zigpy device."""
+        dev = cls(application, ieee, nwk)
+
+        if ieee in application.devices:
+            from_dev = application.get_device(ieee=ieee)
+            dev.status = from_dev.status
+            dev.node_desc = from_dev.node_desc
+            for ep_id, from_ep in from_dev.endpoints.items():
+                if not ep_id:
+                    continue  # Skip ZDO
+                ep = dev.add_endpoint(ep_id)
+                ep.profile_id = from_ep.profile_id
+                ep.device_type = from_ep.device_type
+                ep.status = from_ep.status
+                ep.in_clusters = from_ep.in_clusters
+                ep.out_clusters = from_ep.out_clusters
+        else:
+            await dev._initialize()
+
+        return dev
