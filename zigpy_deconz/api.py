@@ -124,7 +124,7 @@ class Deconz:
     def close(self):
         return self._uart.close()
 
-    def _command(self, name, *args):
+    async def _command(self, name, *args):
         LOGGER.debug("Command %s %s", name, args)
         data, needs_response = self._api_frame(name, *args)
         self._uart.send(data)
@@ -133,7 +133,11 @@ class Deconz:
             fut = asyncio.Future()
             self._awaiting[self._seq] = (fut, )
         self._seq = (self._seq % 255) + 1
-        return fut
+        try:
+            return await asyncio.wait_for(fut, timeout=COMMAND_TIMEOUT)
+        except asyncio.TimeoutError:
+            LOGGER.warning("No response to '%s' command", name)
+            raise
 
     def _api_frame(self, name, *args):
         c = TX_COMMANDS[name]
@@ -169,70 +173,35 @@ class Deconz:
             fut.set_result(data)
         getattr(self, '_handle_%s' % (command, ))(data)
 
-    async def device_state(self):
-        try:
-            return await asyncio.wait_for(
-                self._command('device_state', 0, 0, 0),
-                timeout=COMMAND_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            LOGGER.warning("No response to device_state command")
-            raise
+    def device_state(self):
+        return self._command('device_state', 0, 0, 0)
 
     def _handle_device_state(self, data):
         LOGGER.debug("Device state response: %s", data)
         self._handle_device_state_value(data[0])
 
-    async def change_network_state(self, state):
-        try:
-            return await asyncio.wait_for(
-                self._command('change_network_state', state),
-                timeout=COMMAND_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            LOGGER.warning("No response to change_network_state command")
-            raise
+    def change_network_state(self, state):
+        return self._command('change_network_state', state)
 
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NETWORK_STATE(data[0]).name)
 
-    async def read_parameter(self, id_):
-        try:
-            return await asyncio.wait_for(
-                self._command('read_parameter', 1, id_),
-                timeout=COMMAND_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            LOGGER.warning("No response to read_parameter command")
-            raise
+    def read_parameter(self, id_):
+        return self._command('read_parameter', 1, id_)
 
     def _handle_read_parameter(self, data):
         LOGGER.debug("Read parameter %s response: %s", NETWORK_PARAMETER_BY_ID[data[1]][0], data[2])
 
-    async def write_parameter(self, id_, value):
-        try:
-            v = NETWORK_PARAMETER_BY_ID[id_][1](value).serialize()
-            length = len(v) + 1
-            return await asyncio.wait_for(
-                self._command('write_parameter', length, id_, v),
-                timeout=COMMAND_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            LOGGER.warning("No response to write_parameter command")
-            raise
+    def write_parameter(self, id_, value):
+        v = NETWORK_PARAMETER_BY_ID[id_][1](value).serialize()
+        length = len(v) + 1
+        return self._command('write_parameter', length, id_, v)
 
     def _handle_write_parameter(self, data):
         LOGGER.debug("Write parameter %s: SUCCESS", NETWORK_PARAMETER_BY_ID[data[1]][0])
 
-    async def version(self):
-        try:
-            return await asyncio.wait_for(
-                self._command('version'),
-                timeout=COMMAND_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            LOGGER.warning("No response to version command")
-            raise
+    def version(self):
+        return self._command('version')
 
     def _handle_version(self, data):
         LOGGER.debug("Version response: %x", data[0])
@@ -243,16 +212,13 @@ class Deconz:
 
     async def _aps_data_indication(self):
         try:
-            r = await asyncio.wait_for(
-                self._command('aps_data_indication', 1, 1),
-                timeout=COMMAND_TIMEOUT)
+            r = await self._command('aps_data_indication', 1, 1)
             LOGGER.debug(("'aps_data_indication' responnse from %s, ep: %s, "
                           "profile: 0x%04x, cluster_id: 0x%04x, data: %s"),
                          r[4], r[5], r[6], r[7], binascii.hexlify(r[8]))
             return r
         except asyncio.TimeoutError:
             self._data_indication = False
-            LOGGER.debug("No response to 'aps_data_indication'")
 
     def _handle_aps_data_indication(self, data):
         LOGGER.debug("APS data indication response: %s", data)
@@ -274,15 +240,9 @@ class Deconz:
         delays = (0.5, 1.0, 1.5, None)
         for delay in delays:
             try:
-                return await asyncio.wait_for(
-                    self._command('aps_data_request', length, req_id, 0,
-                                  dst_addr_ep, profile, cluster, src_ep,
-                                  aps_payload, 2, 0),
-                    timeout=COMMAND_TIMEOUT
-                )
-            except asyncio.TimeoutError:
-                LOGGER.warning("No response to aps_data_request command")
-                raise
+                return await self._command('aps_data_request', length, req_id,
+                                           0, dst_addr_ep, profile, cluster,
+                                           src_ep, aps_payload, 2, 0)
             except CommandError as ex:
                 LOGGER.debug("'aps_data_request' failure: %s", ex)
                 if delay is not None and ex.status == STATUS.BUSY:
@@ -297,13 +257,11 @@ class Deconz:
 
     async def _aps_data_confirm(self):
         try:
-            r = await asyncio.wait_for(self._command('aps_data_confirm', 0),
-                                       timeout=COMMAND_TIMEOUT)
+            r = await self._command('aps_data_confirm', 0)
             LOGGER.debug(("Request id: 0x%02x 'aps_data_confirm' for %s, "
                           "status: 0x%02x"), r[2], r[3], r[5])
             return r
         except asyncio.TimeoutError:
-            LOGGER.debug("No response to 'aps_data_confirm'")
             self._data_confirm = False
 
     def _handle_aps_data_confirm(self, data):
