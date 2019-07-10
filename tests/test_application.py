@@ -152,14 +152,16 @@ async def test_startup(app, version=0):
     app._api.version = mock.MagicMock(
         side_effect=_version)
 
-    await app.startup(auto_form=False)
-    assert app.form_network.call_count == 0
-    await app.startup(auto_form=True)
-    assert app.form_network.call_count == 1
+    with mock.patch('zigpy_deconz.zigbee.application.ConBeeDevice') as con:
+        con.new.side_effect = asyncio.coroutine(mock.MagicMock())
+        await app.startup(auto_form=False)
+        assert app.form_network.call_count == 0
+        await app.startup(auto_form=True)
+        assert app.form_network.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_permit(app):
+async def test_permit(app, nwk):
     app._api.write_parameter = mock.MagicMock(
         side_effect=asyncio.coroutine(mock.MagicMock()))
     time_s = 30
@@ -187,7 +189,7 @@ async def _test_request(app, do_reply=True, expect_reply=True,
     app.get_device = mock.MagicMock(
         return_value=zigpy.device.Device(app,
                                          mock.sentinel.ieee,
-                                         mock.sentinel.nwk))
+                                         nwk))
 
     return await app.request(nwk, 0x0260, 1, 2, 3, seq, b'\x01\x02\x03', expect_reply=expect_reply, **kwargs)
 
@@ -306,3 +308,54 @@ def test_rx_device_annce(app, addr_ieee, addr_nwk):
     assert app.handle_join.call_args[0][0] == addr_nwk.address
     assert app.handle_join.call_args[0][1] == addr_ieee.address
     assert app.handle_join.call_args[0][2] == 0
+
+
+@pytest.mark.asyncio
+async def test_conbee_dev_add_to_group(app, nwk):
+    group = mock.MagicMock()
+    app._groups = mock.MagicMock()
+    app._groups.add_group.return_value = group
+
+    conbee = application.ConBeeDevice(app, mock.sentinel.ieee, nwk)
+
+    await conbee.add_to_group(mock.sentinel.grp_id, mock.sentinel.grp_name)
+    assert group.add_member.call_count == 1
+
+    assert app.groups.add_group.call_count == 1
+    assert app.groups.add_group.call_args[0][0] is mock.sentinel.grp_id
+    assert app.groups.add_group.call_args[0][1] is mock.sentinel.grp_name
+
+
+@pytest.mark.asyncio
+async def test_conbee_dev_remove_from_group(app, nwk):
+    group = mock.MagicMock()
+    app.groups[mock.sentinel.grp_id] = group
+    conbee = application.ConBeeDevice(app,
+                                      mock.sentinel.ieee, nwk)
+
+    await conbee.remove_from_group(mock.sentinel.grp_id)
+    assert group.remove_member.call_count == 1
+
+
+def test_conbee_props(nwk):
+    conbee = application.ConBeeDevice(app, mock.sentinel.ieee, nwk)
+    assert conbee.manufacturer is not None
+    assert conbee.model is not None
+
+
+@pytest.mark.asyncio
+async def test_conbee_new(app, nwk, monkeypatch):
+    mock_init = mock.MagicMock(
+        side_effect=asyncio.coroutine(mock.MagicMock())
+    )
+    monkeypatch.setattr(zigpy.device.Device, '_initialize', mock_init)
+
+    conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
+    assert isinstance(conbee, zigpy_deconz.zigbee.application.ConBeeDevice)
+    assert mock_init.call_count == 1
+    mock_init.reset_mock()
+
+    app.devices[mock.sentinel.ieee] = mock.MagicMock()
+    conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
+    assert isinstance(conbee, zigpy_deconz.zigbee.application.ConBeeDevice)
+    assert mock_init.call_count == 0
