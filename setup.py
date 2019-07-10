@@ -4,7 +4,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="zigpy-deconz",
-    version="0.1.6",
+    version="0.2.0",
     description="A library which communicates with Deconz radios for zigpy",
     url="http://github.com/zigpy/zigpy-deconz",
     author="Daniel Schmidt",
