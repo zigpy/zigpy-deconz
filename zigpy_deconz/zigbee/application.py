@@ -294,12 +294,19 @@ class ConBeeDevice(zigpy.device.Device):
     async def add_to_group(self, grp_id: int,
                            name: str = None) -> None:
         group = self.application.groups.add_group(grp_id, name)
-        group.add_member(self)
-        return
+
+        for epid in self.endpoints:
+            if not epid:
+                continue  # skip ZDO
+            group.add_member(self.endpoints[epid])
+        return [0]
 
     async def remove_from_group(self, grp_id: int) -> None:
-        self.application.groups[grp_id].remove_member(self)
-        return
+        for epid in self.endpoints:
+            if not epid:
+                continue  # skip ZDO
+            self.application.groups[grp_id].remove_member(self.endpoints[epid])
+        return [0]
 
     @property
     def manufacturer(self):
