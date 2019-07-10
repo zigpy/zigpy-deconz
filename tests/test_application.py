@@ -317,9 +317,13 @@ async def test_conbee_dev_add_to_group(app, nwk):
     app._groups.add_group.return_value = group
 
     conbee = application.ConBeeDevice(app, mock.sentinel.ieee, nwk)
+    conbee.endpoints = {0: mock.sentinel.zdo,
+                        1: mock.sentinel.ep1,
+                        2: mock.sentinel.ep2
+                        }
 
     await conbee.add_to_group(mock.sentinel.grp_id, mock.sentinel.grp_name)
-    assert group.add_member.call_count == 1
+    assert group.add_member.call_count == 2
 
     assert app.groups.add_group.call_count == 1
     assert app.groups.add_group.call_args[0][0] is mock.sentinel.grp_id
@@ -332,9 +336,13 @@ async def test_conbee_dev_remove_from_group(app, nwk):
     app.groups[mock.sentinel.grp_id] = group
     conbee = application.ConBeeDevice(app,
                                       mock.sentinel.ieee, nwk)
+    conbee.endpoints = {0: mock.sentinel.zdo,
+                        1: mock.sentinel.ep1,
+                        2: mock.sentinel.ep2
+                        }
 
     await conbee.remove_from_group(mock.sentinel.grp_id)
-    assert group.remove_member.call_count == 1
+    assert group.remove_member.call_count == 2
 
 
 def test_conbee_props(nwk):
@@ -355,7 +363,11 @@ async def test_conbee_new(app, nwk, monkeypatch):
     assert mock_init.call_count == 1
     mock_init.reset_mock()
 
-    app.devices[mock.sentinel.ieee] = mock.MagicMock()
+    mock_dev = mock.MagicMock()
+    mock_dev.endpoints = {0: mock.MagicMock(),
+                          1: mock.MagicMock(),
+                          22: mock.MagicMock()}
+    app.devices[mock.sentinel.ieee] = mock_dev
     conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
     assert isinstance(conbee, zigpy_deconz.zigbee.application.ConBeeDevice)
     assert mock_init.call_count == 0
