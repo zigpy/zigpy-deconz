@@ -335,6 +335,7 @@ class ConBeeDevice(zigpy.device.Device):
                 ep.in_clusters = from_ep.in_clusters
                 ep.out_clusters = from_ep.out_clusters
         else:
+            application.devices[ieee] = dev
             await dev._initialize()
 
         return dev
