@@ -13,19 +13,19 @@ COMMAND_TIMEOUT = 2
 DECONZ_BAUDRATE = 38400
 
 TX_COMMANDS = {
-    'device_state': (0x07, (t.uint8_t, t.uint8_t, t.uint8_t), True),
-    'change_network_state': (0x08, (t.uint8_t, ), True),
-    'read_parameter': (0x0A, (t.uint16_t, t.uint8_t), True),
-    'write_parameter': (0x0B, (t.uint16_t, t.uint8_t, t.Bytes), True),
-    'version': (0x0D, (), True),
-    'aps_data_indication': (0x17, (t.uint16_t, t.uint8_t), True),
+    'device_state': (0x07, (t.uint8_t, t.uint8_t, t.uint8_t), ),
+    'change_network_state': (0x08, (t.uint8_t, ), ),
+    'read_parameter': (0x0A, (t.uint16_t, t.uint8_t), ),
+    'write_parameter': (0x0B, (t.uint16_t, t.uint8_t, t.Bytes), ),
+    'version': (0x0D, (), ),
+    'aps_data_indication': (0x17, (t.uint16_t, t.uint8_t), ),
     'aps_data_request': (
         0x12,
         (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
             t.uint16_t, t.uint16_t, t.uint8_t, t.LVBytes, t.uint8_t,
             t.uint8_t),
-        True),
-    'aps_data_confirm': (0x04, (t.uint16_t, ), True),
+    ),
+    'aps_data_confirm': (0x04, (t.uint16_t, ), ),
 }
 
 RX_COMMANDS = {
@@ -126,28 +126,27 @@ class Deconz:
 
     async def _command(self, name, *args):
         LOGGER.debug("Command %s %s", name, args)
-        data, needs_response = self._api_frame(name, *args)
-        self._uart.send(data)
-        fut = None
-        if needs_response:
-            fut = asyncio.Future()
-            self._awaiting[self._seq] = (fut, )
         self._seq = (self._seq % 255) + 1
+        data = self._api_frame(name, *args)
+        self._uart.send(data)
+        fut = asyncio.Future()
+        self._awaiting[self._seq] = fut
         try:
             return await asyncio.wait_for(fut, timeout=COMMAND_TIMEOUT)
         except asyncio.TimeoutError:
             LOGGER.warning("No response to '%s' command", name)
+            self._awaiting.pop(self._seq)
             raise
 
     def _api_frame(self, name, *args):
-        c = TX_COMMANDS[name]
-        d = t.serialize(args, c[1])
-        data = t.uint8_t(c[0]).serialize()
+        cmd_id, schema = TX_COMMANDS[name]
+        d = t.serialize(args, schema)
+        data = t.uint8_t(cmd_id).serialize()
         data += t.uint8_t(self._seq).serialize()
         data += t.uint8_t(0).serialize()
         data += t.uint16_t(len(d) + 5).serialize()
         data += d
-        return data, c[2]
+        return data
 
     def data_received(self, data):
         if data[0] not in self._commands_by_id:
@@ -163,8 +162,8 @@ class Deconz:
             data, _ = t.deserialize(data[5:], RX_COMMANDS[command][1])
         except Exception:
             LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
-        if RX_COMMANDS[command][2]:
-            fut, = self._awaiting.pop(seq)
+        if RX_COMMANDS[command][2] and seq in self._awaiting:
+            fut = self._awaiting.pop(seq)
             if status != STATUS.SUCCESS:
                 fut.set_exception(
                     CommandError(status, '%s, status: %s' % (command,
