@@ -149,10 +149,11 @@ class Deconz:
         return data
 
     def data_received(self, data):
-        if data[0] not in self._commands_by_id:
-            LOGGER.debug("Unknown command received: %s", data[0])
+        try:
+            command = self._commands_by_id[data[0]]
+        except KeyError:
+            LOGGER.debug("Unknown command received: 0x%02x", data[0])
             return
-        command = self._commands_by_id[data[0]]
         seq = data[1]
         try:
             status = STATUS(data[2])
