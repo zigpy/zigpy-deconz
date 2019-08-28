@@ -126,27 +126,27 @@ class Deconz:
 
     async def _command(self, name, *args):
         LOGGER.debug("Command %s %s", name, args)
-        self._seq = (self._seq % 255) + 1
-        data = self._api_frame(name, *args)
+        data, seq = self._api_frame(name, *args)
         self._uart.send(data)
         fut = asyncio.Future()
-        self._awaiting[self._seq] = fut
+        self._awaiting[seq] = fut
         try:
             return await asyncio.wait_for(fut, timeout=COMMAND_TIMEOUT)
         except asyncio.TimeoutError:
             LOGGER.warning("No response to '%s' command", name)
-            self._awaiting.pop(self._seq)
+            self._awaiting.pop(seq)
             raise
 
     def _api_frame(self, name, *args):
         cmd_id, schema = TX_COMMANDS[name]
         d = t.serialize(args, schema)
         data = t.uint8_t(cmd_id).serialize()
+        self._seq = (self._seq % 255) + 1
         data += t.uint8_t(self._seq).serialize()
         data += t.uint8_t(0).serialize()
         data += t.uint16_t(len(d) + 5).serialize()
         data += d
-        return data
+        return data, self._seq
 
     def data_received(self, data):
         try:

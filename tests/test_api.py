@@ -59,7 +59,7 @@ def test_commands():
 @pytest.mark.asyncio
 async def test_command(api, monkeypatch):
     def mock_api_frame(name, *args):
-        return mock.sentinel.api_frame_data
+        return mock.sentinel.api_frame_data, api._seq
     api._api_frame = mock.MagicMock(side_effect=mock_api_frame)
     api._uart.send = mock.MagicMock()
 
@@ -82,7 +82,7 @@ async def test_command(api, monkeypatch):
 @pytest.mark.asyncio
 async def test_command_timeout(api, monkeypatch):
     def mock_api_frame(name, *args):
-        return mock.sentinel.api_frame_data
+        return mock.sentinel.api_frame_data, api._seq
     api._api_frame = mock.MagicMock(side_effect=mock_api_frame)
     api._uart.send = mock.MagicMock()
 
