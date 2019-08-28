@@ -213,7 +213,7 @@ class Deconz:
     async def _aps_data_indication(self):
         try:
             r = await self._command('aps_data_indication', 1, 1)
-            LOGGER.debug(("'aps_data_indication' responnse from %s, ep: %s, "
+            LOGGER.debug(("'aps_data_indication' response from %s, ep: %s, "
                           "profile: 0x%04x, cluster_id: 0x%04x, data: %s"),
                          r[4], r[5], r[6], r[7], binascii.hexlify(r[8]))
             return r
