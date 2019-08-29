@@ -101,11 +101,16 @@ class STATUS(t.uint8_t, enum.Enum):
     INVALID_VALUE = 7
 
 
-class DEVICE_STATE(enum.Enum):
+class DEVICE_STATE(t.uint8_t, enum.Enum):
     APSDE_DATA_CONFIRM = 0x04
     APSDE_DATA_INDICATION = 0x08
     CONF_CHANGED = 0x10
     APSDE_DATA_REQUEST = 0x20
+
+    @classmethod
+    def flags(cls, value: int):
+        """Make it into list of flags, until we deprecate py35 and py36."""
+        return [flag for flag in cls if (value & flag) == flag]
 
 
 class NETWORK_STATE(t.uint8_t, enum.Enum):
@@ -300,7 +305,7 @@ class Deconz:
                      data[1], data[2], data[3], data[4], data[5])
 
     def _handle_device_state_value(self, value):
-        flags = [i for i in DEVICE_STATE if (value & i.value) == i.value]
+        flags = DEVICE_STATE.flags(value)
         ns = NETWORK_STATE(value & 0x03)
         if ns != self.network_state:
             LOGGER.debug("Network state transition: %s -> %s",
