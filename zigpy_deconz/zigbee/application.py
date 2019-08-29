@@ -2,7 +2,7 @@ import asyncio
 import binascii
 import logging
 
-from zigpy_deconz.api import NETWORK_PARAMETER, NETWORK_STATE
+from zigpy_deconz.api import NETWORK_PARAMETER, NetworkState
 from zigpy_deconz import types as t
 
 import zigpy.application
@@ -75,13 +75,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def form_network(self, channel=15, pan_id=None, extended_pan_id=None):
         LOGGER.info("Forming network")
-        if self._api.network_state == NETWORK_STATE.CONNECTED.value:
+        if self._api.network_state == NetworkState.CONNECTED.value:
             return
 
-        await self._api.change_network_state(NETWORK_STATE.CONNECTED.value)
+        await self._api.change_network_state(NetworkState.CONNECTED.value)
         for _ in range(10):
             await self._api.device_state()
-            if self._api.network_state == NETWORK_STATE.CONNECTED.value:
+            if self._api.network_state == NetworkState.CONNECTED.value:
                 return
             await asyncio.sleep(CHANGE_NETWORK_WAIT)
         raise Exception("Could not form network.")

@@ -88,7 +88,7 @@ NETWORK_PARAMETER = {
 NETWORK_PARAMETER_BY_ID = {v[0]: (k, v[1]) for k, v in NETWORK_PARAMETER.items()}
 
 
-class STATUS(t.uint8_t, enum.Enum):
+class Status(t.uint8_t, enum.Enum):
     SUCCESS = 0
     FAILURE = 1
     BUSY = 2
@@ -99,7 +99,7 @@ class STATUS(t.uint8_t, enum.Enum):
     INVALID_VALUE = 7
 
 
-class DEVICE_STATE(t.uint8_t, enum.Enum):
+class DeviceState(t.uint8_t, enum.Enum):
     APSDE_DATA_CONFIRM = 0x04
     APSDE_DATA_INDICATION = 0x08
     CONF_CHANGED = 0x10
@@ -111,7 +111,7 @@ class DEVICE_STATE(t.uint8_t, enum.Enum):
         return [flag for flag in cls if (value & flag) == flag]
 
 
-class NETWORK_STATE(t.uint8_t, enum.Enum):
+class NetworkState(t.uint8_t, enum.Enum):
     OFFLINE = 0
     JOINING = 1
     CONNECTED = 2
@@ -125,7 +125,7 @@ class Deconz:
         self._awaiting = {}
         self._app = None
         self._cmd_mode_future = None
-        self.network_state = NETWORK_STATE.OFFLINE
+        self.network_state = NetworkState.OFFLINE
         self._data_indication = False
         self._data_confirm = False
 
@@ -172,7 +172,7 @@ class Deconz:
             return
         seq = data[1]
         try:
-            status = STATUS(data[2])
+            status = Status(data[2])
         except ValueError:
             status = data[2]
         try:
@@ -185,7 +185,7 @@ class Deconz:
             return
         if solicited and seq in self._awaiting:
             fut = self._awaiting.pop(seq)
-            if status != STATUS.SUCCESS:
+            if status != Status.SUCCESS:
                 fut.set_exception(
                     CommandError(status, '%s, status: %s' % (command,
                                                              status, )))
@@ -204,7 +204,7 @@ class Deconz:
         return self._command(Command.change_network_state, state)
 
     def _handle_change_network_state(self, data):
-        LOGGER.debug("Change network state response: %s", NETWORK_STATE(data[0]).name)
+        LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
     def read_parameter(self, id_):
         return self._command(Command.read_parameter, 1, id_)
@@ -265,7 +265,7 @@ class Deconz:
                                            cluster, src_ep, aps_payload, 2, 0)
             except CommandError as ex:
                 LOGGER.debug("'aps_data_request' failure: %s", ex)
-                if delay is not None and ex.status == STATUS.BUSY:
+                if delay is not None and ex.status == Status.BUSY:
                     LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
                     await asyncio.sleep(delay)
                     continue
@@ -303,17 +303,17 @@ class Deconz:
                      data[1], data[2], data[3], data[4], data[5])
 
     def _handle_device_state_value(self, value):
-        flags = DEVICE_STATE.flags(value)
-        ns = NETWORK_STATE(value & 0x03)
+        flags = DeviceState.flags(value)
+        ns = NetworkState(value & 0x03)
         if ns != self.network_state:
             LOGGER.debug("Network state transition: %s -> %s",
                          self.network_state.name, ns.name)
         self.network_state = ns
-        if DEVICE_STATE.APSDE_DATA_REQUEST not in flags:
+        if DeviceState.APSDE_DATA_REQUEST not in flags:
             LOGGER.debug("Data request queue full.")
-        if DEVICE_STATE.APSDE_DATA_INDICATION in flags and not self._data_indication:
+        if DeviceState.APSDE_DATA_INDICATION in flags and not self._data_indication:
             self._data_indication = True
             asyncio.ensure_future(self._aps_data_indication())
-        if DEVICE_STATE.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
+        if DeviceState.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
             self._data_confirm = True
             asyncio.ensure_future(self._aps_data_confirm())

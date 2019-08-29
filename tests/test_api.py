@@ -277,7 +277,7 @@ async def test_aps_data_request_busy(api, monkeypatch):
     ]
 
     res = asyncio.Future()
-    exc = zigpy_deconz.exception.CommandError(deconz_api.STATUS.BUSY, 'busy')
+    exc = zigpy_deconz.exception.CommandError(deconz_api.Status.BUSY, 'busy')
     res.set_exception(exc)
     mock_cmd = mock.MagicMock(return_value=res)
 
