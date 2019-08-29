@@ -29,44 +29,42 @@ class Command(t.uint8_t, enum.Enum):
 
 
 TX_COMMANDS = {
-    Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
-    Command.change_network_state: (t.uint8_t, ),
-    Command.read_parameter: (t.uint16_t, t.uint8_t),
-    Command.write_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
-    Command.version: (),
+    Command.aps_data_confirm: (t.uint16_t, ),
     Command.aps_data_indication: (t.uint16_t, t.uint8_t),
     Command.aps_data_request: (
         t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
         t.uint16_t, t.uint16_t, t.uint8_t, t.LVBytes, t.uint8_t, t.uint8_t,
     ),
-    Command.aps_data_confirm: (t.uint16_t, ),
+    Command.change_network_state: (t.uint8_t, ),
+    Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
+    Command.read_parameter: (t.uint16_t, t.uint8_t),
+    Command.version: (),
+    Command.write_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
 }
 
 RX_COMMANDS = {
-    Command.device_state: ((t.uint8_t, t.uint8_t, t.uint8_t), True),
-    Command.change_network_state: ((t.uint8_t, ), True),
-    Command.read_parameter: ((t.uint16_t, t.uint8_t, t.Bytes), True),
-    Command.write_parameter: ((t.uint16_t, t.uint8_t), True),
-    Command.version: ((t.uint32_t, ), True),
-    Command.device_state_changed: ((t.uint8_t, t.uint8_t), False),
-    Command.aps_data_indication: (
-        (t.uint16_t, t.uint8_t, t.DeconzAddress, t.uint8_t, t.DeconzAddress,
-            t.uint8_t, t.uint16_t, t.uint16_t, t.LVBytes, t.uint8_t,
-            t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t,
-            t.int8s),
-        True
-    ),
-    Command.aps_data_request: ((t.uint16_t, t.uint8_t, t.uint8_t), True),
     Command.aps_data_confirm: (
         (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
-            t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t),
-        True
-    ),
+         t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t),
+        True),
+    Command.aps_data_indication: (
+        (t.uint16_t, t.uint8_t, t.DeconzAddress, t.uint8_t, t.DeconzAddress,
+         t.uint8_t, t.uint16_t, t.uint16_t, t.LVBytes, t.uint8_t,
+         t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t,
+         t.int8s),
+        True),
+    Command.aps_data_request: ((t.uint16_t, t.uint8_t, t.uint8_t), True),
+    Command.change_network_state: ((t.uint8_t, ), True),
+    Command.device_state: ((t.uint8_t, t.uint8_t, t.uint8_t), True),
+    Command.device_state_changed: ((t.uint8_t, t.uint8_t), False),
     Command.mac_poll: ((t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
-    Command.zigbee_green_power: ((t.LVBytes, ), False),
+    Command.read_parameter: ((t.uint16_t, t.uint8_t, t.Bytes), True),
     Command.simplified_beacon: (
         (t.uint16_t, t.uint16_t, t.uint16_t, t.uint8_t, t.uint8_t, t.uint8_t),
-        False)
+        False),
+    Command.version: ((t.uint32_t, ), True),
+    Command.write_parameter: ((t.uint16_t, t.uint8_t), True),
+    Command.zigbee_green_power: ((t.LVBytes, ), False),
 }
 
 NETWORK_PARAMETER = {
