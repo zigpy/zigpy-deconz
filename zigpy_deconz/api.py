@@ -108,7 +108,7 @@ class DEVICE_STATE(enum.Enum):
     APSDE_DATA_REQUEST = 0x20
 
 
-class NETWORK_STATE(enum.Enum):
+class NETWORK_STATE(t.uint8_t, enum.Enum):
     OFFLINE = 0
     JOINING = 1
     CONNECTED = 2
@@ -122,7 +122,7 @@ class Deconz:
         self._awaiting = {}
         self._app = None
         self._cmd_mode_future = None
-        self.network_state = NETWORK_STATE.OFFLINE.value
+        self.network_state = NETWORK_STATE.OFFLINE
         self._data_indication = False
         self._data_confirm = False
 
@@ -301,9 +301,10 @@ class Deconz:
 
     def _handle_device_state_value(self, value):
         flags = [i for i in DEVICE_STATE if (value & i.value) == i.value]
-        ns = value & 0x03
+        ns = NETWORK_STATE(value & 0x03)
         if ns != self.network_state:
-            LOGGER.debug("Network state: %s", NETWORK_STATE(ns).name)
+            LOGGER.debug("Network state transition: %s -> %s",
+                         self.network_state.name, ns.name)
         self.network_state = ns
         if DEVICE_STATE.APSDE_DATA_REQUEST not in flags:
             LOGGER.debug("Data request queue full.")
