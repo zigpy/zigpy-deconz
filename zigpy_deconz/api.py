@@ -12,48 +12,61 @@ LOGGER = logging.getLogger(__name__)
 COMMAND_TIMEOUT = 2
 DECONZ_BAUDRATE = 38400
 
+
+class Command(t.uint8_t, enum.Enum):
+    aps_data_confirm = 0x04
+    device_state = 0x07
+    change_network_state = 0x08
+    read_parameter = 0x0A
+    write_parameter = 0x0B
+    version = 0x0D
+    device_state_changed = 0x0E
+    aps_data_request = 0x12
+    aps_data_indication = 0x17
+    zigbee_green_power = 0x19
+    mac_poll = 0x1C
+    simplified_beacon = 0x1F
+
+
 TX_COMMANDS = {
-    'device_state': (0x07, (t.uint8_t, t.uint8_t, t.uint8_t), ),
-    'change_network_state': (0x08, (t.uint8_t, ), ),
-    'read_parameter': (0x0A, (t.uint16_t, t.uint8_t), ),
-    'write_parameter': (0x0B, (t.uint16_t, t.uint8_t, t.Bytes), ),
-    'version': (0x0D, (), ),
-    'aps_data_indication': (0x17, (t.uint16_t, t.uint8_t), ),
-    'aps_data_request': (
-        0x12,
-        (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
-            t.uint16_t, t.uint16_t, t.uint8_t, t.LVBytes, t.uint8_t,
-            t.uint8_t),
+    Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
+    Command.change_network_state: (t.uint8_t, ),
+    Command.read_parameter: (t.uint16_t, t.uint8_t),
+    Command.write_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
+    Command.version: (),
+    Command.aps_data_indication: (t.uint16_t, t.uint8_t),
+    Command.aps_data_request: (
+        t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
+        t.uint16_t, t.uint16_t, t.uint8_t, t.LVBytes, t.uint8_t, t.uint8_t,
     ),
-    'aps_data_confirm': (0x04, (t.uint16_t, ), ),
+    Command.aps_data_confirm: (t.uint16_t, ),
 }
 
 RX_COMMANDS = {
-    'device_state': (0x07, (t.uint8_t, t.uint8_t, t.uint8_t), True),
-    'change_network_state': (0x08, (t.uint8_t, ), True),
-    'read_parameter': (0x0A, (t.uint16_t, t.uint8_t, t.Bytes), True),
-    'write_parameter': (0x0B, (t.uint16_t, t.uint8_t), True),
-    'version': (0x0D, (t.uint32_t, ), True),
-    'device_state_changed': (0x0E, (t.uint8_t, t.uint8_t), False),
-    'aps_data_indication': (
-        0x17,
+    Command.device_state: ((t.uint8_t, t.uint8_t, t.uint8_t), True),
+    Command.change_network_state: ((t.uint8_t, ), True),
+    Command.read_parameter: ((t.uint16_t, t.uint8_t, t.Bytes), True),
+    Command.write_parameter: ((t.uint16_t, t.uint8_t), True),
+    Command.version: ((t.uint32_t, ), True),
+    Command.device_state_changed: ((t.uint8_t, t.uint8_t), False),
+    Command.aps_data_indication: (
         (t.uint16_t, t.uint8_t, t.DeconzAddress, t.uint8_t, t.DeconzAddress,
             t.uint8_t, t.uint16_t, t.uint16_t, t.LVBytes, t.uint8_t,
             t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t,
             t.int8s),
         True
     ),
-    'aps_data_request': (0x12, (t.uint16_t, t.uint8_t, t.uint8_t), True),
-    'aps_data_confirm': (
-        0x04,
+    Command.aps_data_request: ((t.uint16_t, t.uint8_t, t.uint8_t), True),
+    Command.aps_data_confirm: (
         (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
             t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t),
         True
     ),
-    'mac_poll': (0x1C, (t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
-    'zigbee_green_power': (0x19, (t.LVBytes, ), False),
-    'simplified_beacon': (0x1f, (t.uint16_t, t.uint16_t, t.uint16_t, t.uint8_t,
-                          t.uint8_t, t.uint8_t), False)
+    Command.mac_poll: ((t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
+    Command.zigbee_green_power: ((t.LVBytes, ), False),
+    Command.simplified_beacon: (
+        (t.uint16_t, t.uint16_t, t.uint16_t, t.uint8_t, t.uint8_t, t.uint8_t),
+        False)
 }
 
 NETWORK_PARAMETER = {
@@ -106,7 +119,6 @@ class Deconz:
     def __init__(self):
         self._uart = None
         self._seq = 1
-        self._commands_by_id = {v[0]: k for k, v in RX_COMMANDS.items()}
         self._awaiting = {}
         self._app = None
         self._cmd_mode_future = None
@@ -124,23 +136,23 @@ class Deconz:
     def close(self):
         return self._uart.close()
 
-    async def _command(self, name, *args):
-        LOGGER.debug("Command %s %s", name, args)
-        data, seq = self._api_frame(name, *args)
+    async def _command(self, cmd, *args):
+        LOGGER.debug("Command %s %s", cmd, args)
+        data, seq = self._api_frame(cmd, *args)
         self._uart.send(data)
         fut = asyncio.Future()
         self._awaiting[seq] = fut
         try:
             return await asyncio.wait_for(fut, timeout=COMMAND_TIMEOUT)
         except asyncio.TimeoutError:
-            LOGGER.warning("No response to '%s' command", name)
+            LOGGER.warning("No response to '%s' command", cmd)
             self._awaiting.pop(seq)
             raise
 
-    def _api_frame(self, name, *args):
-        cmd_id, schema = TX_COMMANDS[name]
+    def _api_frame(self, cmd, *args):
+        schema = TX_COMMANDS[cmd]
         d = t.serialize(args, schema)
-        data = t.uint8_t(cmd_id).serialize()
+        data = t.uint8_t(cmd).serialize()
         self._seq = (self._seq % 255) + 1
         data += t.uint8_t(self._seq).serialize()
         data += t.uint8_t(0).serialize()
@@ -150,9 +162,9 @@ class Deconz:
 
     def data_received(self, data):
         try:
-            command = self._commands_by_id[data[0]]
-            _, schema, solicited = RX_COMMANDS[command]
-        except KeyError:
+            command = Command(data[0])
+            schema, solicited = RX_COMMANDS[command]
+        except ValueError:
             LOGGER.debug("Unknown command received: 0x%02x", data[0])
             return
         seq = data[1]
@@ -176,23 +188,23 @@ class Deconz:
                                                              status, )))
                 return
             fut.set_result(data)
-        getattr(self, '_handle_%s' % (command, ))(data)
+        getattr(self, '_handle_%s' % (command.name, ))(data)
 
     def device_state(self):
-        return self._command('device_state', 0, 0, 0)
+        return self._command(Command.device_state, 0, 0, 0)
 
     def _handle_device_state(self, data):
         LOGGER.debug("Device state response: %s", data)
         self._handle_device_state_value(data[0])
 
     def change_network_state(self, state):
-        return self._command('change_network_state', state)
+        return self._command(Command.change_network_state, state)
 
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NETWORK_STATE(data[0]).name)
 
     def read_parameter(self, id_):
-        return self._command('read_parameter', 1, id_)
+        return self._command(Command.read_parameter, 1, id_)
 
     def _handle_read_parameter(self, data):
         LOGGER.debug("Read parameter %s response: %s", NETWORK_PARAMETER_BY_ID[data[1]][0], data[2])
@@ -200,13 +212,13 @@ class Deconz:
     def write_parameter(self, id_, value):
         v = NETWORK_PARAMETER_BY_ID[id_][1](value).serialize()
         length = len(v) + 1
-        return self._command('write_parameter', length, id_, v)
+        return self._command(Command.write_parameter, length, id_, v)
 
     def _handle_write_parameter(self, data):
         LOGGER.debug("Write parameter %s: SUCCESS", NETWORK_PARAMETER_BY_ID[data[1]][0])
 
     def version(self):
-        return self._command('version')
+        return self._command(Command.version)
 
     def _handle_version(self, data):
         LOGGER.debug("Version response: %x", data[0])
@@ -217,7 +229,7 @@ class Deconz:
 
     async def _aps_data_indication(self):
         try:
-            r = await self._command('aps_data_indication', 1, 1)
+            r = await self._command(Command.aps_data_indication, 1, 1)
             LOGGER.debug(("'aps_data_indication' response from %s, ep: %s, "
                           "profile: 0x%04x, cluster_id: 0x%04x, data: %s"),
                          r[4], r[5], r[6], r[7], binascii.hexlify(r[8]))
@@ -245,9 +257,9 @@ class Deconz:
         delays = (0.5, 1.0, 1.5, None)
         for delay in delays:
             try:
-                return await self._command('aps_data_request', length, req_id,
-                                           0, dst_addr_ep, profile, cluster,
-                                           src_ep, aps_payload, 2, 0)
+                return await self._command(Command.aps_data_request, length,
+                                           req_id, 0, dst_addr_ep, profile,
+                                           cluster, src_ep, aps_payload, 2, 0)
             except CommandError as ex:
                 LOGGER.debug("'aps_data_request' failure: %s", ex)
                 if delay is not None and ex.status == STATUS.BUSY:
@@ -262,7 +274,7 @@ class Deconz:
 
     async def _aps_data_confirm(self):
         try:
-            r = await self._command('aps_data_confirm', 0)
+            r = await self._command(Command.aps_data_confirm, 0)
             LOGGER.debug(("Request id: 0x%02x 'aps_data_confirm' for %s, "
                           "status: 0x%02x"), r[2], r[3], r[5])
             return r

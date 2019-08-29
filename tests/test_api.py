@@ -36,23 +36,15 @@ def test_close(api):
 
 
 def test_commands():
-    import string
-    anum = string.ascii_letters + string.digits + '_'
-    for cmd_name, cmd_opts in deconz_api.RX_COMMANDS.items():
-        assert isinstance(cmd_name, str) is True
-        assert all([c in anum for c in cmd_name]), cmd_name
-        assert len(cmd_opts) == 3
-        cmd_id, schema, reply = cmd_opts
-        assert isinstance(cmd_id, int) is True
-        assert isinstance(schema, tuple) is True
-        assert reply is None or isinstance(reply, bool)
-
-    for cmd_name, cmd_opts in deconz_api.TX_COMMANDS.items():
-        assert isinstance(cmd_name, str) is True
-        assert all([c in anum for c in cmd_name]), cmd_name
+    for cmd, cmd_opts in deconz_api.RX_COMMANDS.items():
         assert len(cmd_opts) == 2
-        cmd_id, schema = cmd_opts
-        assert isinstance(cmd_id, int) is True
+        schema, solicited = cmd_opts
+        assert isinstance(cmd, int) is True
+        assert isinstance(schema, tuple) is True
+        assert isinstance(solicited, bool)
+
+    for cmd, schema in deconz_api.TX_COMMANDS.items():
+        assert isinstance(cmd, int) is True
         assert isinstance(schema, tuple) is True
 
 
@@ -67,11 +59,11 @@ async def test_command(api, monkeypatch):
         return mock.sentinel.cmd_result
     monkeypatch.setattr(asyncio, 'Future', mock_fut)
 
-    for cmd_name, cmd_opts in deconz_api.TX_COMMANDS.items():
-        ret = await api._command(cmd_name, mock.sentinel.cmd_data)
+    for cmd, cmd_opts in deconz_api.TX_COMMANDS.items():
+        ret = await api._command(cmd, mock.sentinel.cmd_data)
         assert ret is mock.sentinel.cmd_result
         assert api._api_frame.call_count == 1
-        assert api._api_frame.call_args[0][0] == cmd_name
+        assert api._api_frame.call_args[0][0] == cmd
         assert api._api_frame.call_args[0][1] == mock.sentinel.cmd_data
         assert api._uart.send.call_count == 1
         assert api._uart.send.call_args[0][0] == mock.sentinel.api_frame_data
@@ -88,11 +80,11 @@ async def test_command_timeout(api, monkeypatch):
 
     monkeypatch.setattr(deconz_api, 'COMMAND_TIMEOUT', 0.1)
 
-    for cmd_name, cmd_opts in deconz_api.TX_COMMANDS.items():
+    for cmd, cmd_opts in deconz_api.TX_COMMANDS.items():
         with pytest.raises(asyncio.TimeoutError):
-            await api._command(cmd_name, mock.sentinel.cmd_data)
+            await api._command(cmd, mock.sentinel.cmd_data)
         assert api._api_frame.call_count == 1
-        assert api._api_frame.call_args[0][0] == cmd_name
+        assert api._api_frame.call_args[0][0] == cmd
         assert api._api_frame.call_args[0][1] == mock.sentinel.cmd_data
         assert api._uart.send.call_count == 1
         assert api._uart.send.call_args[0][0] == mock.sentinel.api_frame_data
@@ -105,13 +97,12 @@ def test_api_frame(api):
     addr.address_mode = t.ADDRESS_MODE.NWK
     addr.address = t.uint8_t(0)
     addr.endpoint = t.uint8_t(0)
-    for cmd_name, cmd_opts in deconz_api.TX_COMMANDS.items():
-        _, schema = cmd_opts
+    for cmd, schema in deconz_api.TX_COMMANDS.items():
         if schema:
             args = [addr if isinstance(a(), t.DeconzAddressEndpoint) else a() for a in schema]
-            api._api_frame(cmd_name, *args)
+            api._api_frame(cmd, *args)
         else:
-            api._api_frame(cmd_name)
+            api._api_frame(cmd)
 
 
 def test_data_received(api, monkeypatch):
@@ -120,10 +111,9 @@ def test_data_received(api, monkeypatch):
     my_handler = mock.MagicMock()
 
     for cmd, cmd_opts in deconz_api.RX_COMMANDS.items():
-        cmd_id = cmd_opts[0]
         payload = b'\x01\x02\x03\x04'
-        data = cmd_id.to_bytes(1, 'big') + b'\x00\x00\x00\x00' + payload
-        setattr(api, '_handle_{}'.format(cmd), my_handler)
+        data = cmd.serialize() + b'\x00\x00\x00\x00' + payload
+        setattr(api, '_handle_{}'.format(cmd.name), my_handler)
         api._awaiting[0] = mock.MagicMock()
         api.data_received(data)
         assert t.deserialize.call_count == 1
@@ -140,12 +130,11 @@ def test_data_received_unk_status(api, monkeypatch):
     my_handler = mock.MagicMock()
 
     for cmd, cmd_opts in deconz_api.RX_COMMANDS.items():
-        cmd_id, unsolicited = cmd_opts[0], cmd_opts[2]
+        _, unsolicited = cmd_opts
         payload = b'\x01\x02\x03\x04'
         status = t.uint8_t(0xfe).serialize()
-        data = cmd_id.to_bytes(1, 'big') + b'\x00' + \
-            status + b'\x00\x00' + payload
-        setattr(api, '_handle_{}'.format(cmd), my_handler)
+        data = cmd.serialize() + b'\x00' + status + b'\x00\x00' + payload
+        setattr(api, '_handle_{}'.format(cmd.name), my_handler)
         api._awaiting[0] = mock.MagicMock()
         api.data_received(data)
         assert t.deserialize.call_count == 1
@@ -162,9 +151,7 @@ def test_data_received_unk_cmd(api, monkeypatch):
     monkeypatch.setattr(t, 'deserialize', mock.MagicMock(
         return_value=(mock.sentinel.deserialize_data, b'')))
 
-    for cmd_id in range(0, 255):
-        if cmd_id in api._commands_by_id:
-            continue
+    for cmd_id in range(253, 255):
         payload = b'\x01\x02\x03\x04'
         status = t.uint8_t(0x00).serialize()
         data = cmd_id.to_bytes(1, 'big') + b'\x00' + \
