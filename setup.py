@@ -2,9 +2,11 @@
 
 from setuptools import find_packages, setup
 
+import zigpy_deconz
+
 setup(
     name="zigpy-deconz",
-    version="0.2.2",
+    version=zigpy_deconz.__version__,
     description="A library which communicates with Deconz radios for zigpy",
     url="http://github.com/zigpy/zigpy-deconz",
     author="Daniel Schmidt",
