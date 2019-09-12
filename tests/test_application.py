@@ -1,28 +1,22 @@
 import asyncio
+import logging
 from unittest import mock
 
 import pytest
 
-from zigpy.exceptions import DeliveryError
 import zigpy.device
-from zigpy.types import EUI64
 import zigpy.zdo.types as zdo_t
-from zigpy_deconz.api import Deconz
-import zigpy_deconz.zigbee.application
-from zigpy_deconz.zigbee import application
+import zigpy_deconz.exception
+import zigpy_deconz.zigbee.application as application
+from zigpy.types import EUI64
 from zigpy_deconz import types as t
+from zigpy_deconz.api import Deconz
 
 
 @pytest.fixture
 def app(monkeypatch, database_file=None):
-    app = zigpy_deconz.zigbee.application.ControllerApplication(
+    app = application.ControllerApplication(
         Deconz(), database_file=database_file)
-    monkeypatch.setattr(zigpy_deconz.zigbee.application,
-                        'TIMEOUT_REPLY_ENDDEV',
-                        .1)
-    monkeypatch.setattr(zigpy_deconz.zigbee.application,
-                        'TIMEOUT_REPLY_ROUTER',
-                        .1)
     return app
 
 
@@ -52,10 +46,8 @@ def addr_nwk(nwk):
     return addr
 
 
-def _test_rx(app, addr_ieee, addr_nwk, device, deserialized):
+def _test_rx(app, addr_ieee, addr_nwk, device, data):
     app.get_device = mock.MagicMock(return_value=device)
-    app.deserialize = mock.MagicMock(return_value=deserialized)
-
     app.devices = (EUI64(addr_ieee.address), )
 
     app.handle_rx(
@@ -64,46 +56,73 @@ def _test_rx(app, addr_ieee, addr_nwk, device, deserialized):
         mock.sentinel.dst_ep,
         mock.sentinel.profile_id,
         mock.sentinel.cluster_id,
-        b'',
+        data,
         mock.sentinel.lqi,
         mock.sentinel.rssi,
     )
-
-    assert app.deserialize.call_count == 1
 
 
 def test_rx(app, addr_ieee, addr_nwk):
     device = mock.MagicMock()
     app.handle_message = mock.MagicMock()
-    _test_rx(app, addr_ieee, addr_nwk, device, (1, 2, False, []))
+    _test_rx(app, addr_ieee, addr_nwk, device, mock.sentinel.args)
     assert app.handle_message.call_count == 1
-    assert app.handle_message.call_args == ((
-        device,
-        False,
-        mock.sentinel.profile_id,
-        mock.sentinel.cluster_id,
-        mock.sentinel.src_ep,
-        mock.sentinel.dst_ep,
-        1,
-        2,
-        [],
-    ), )
+    assert app.handle_message.call_args == (
+        (
+            device,
+            mock.sentinel.profile_id,
+            mock.sentinel.cluster_id,
+            mock.sentinel.src_ep,
+            mock.sentinel.dst_ep,
+            mock.sentinel.args,
+        ),
+    )
 
 
-def test_rx_reply(app, addr_ieee, addr_nwk):
-    app._handle_reply = mock.MagicMock()
-    _test_rx(app, addr_ieee, addr_nwk, mock.MagicMock(), (1, 2, True, []))
-    assert app._handle_reply.call_count == 1
-
-
-def test_rx_failed_deserialize(app, addr_ieee, addr_nwk, caplog):
-    app._handle_reply = mock.MagicMock()
+def test_rx_ieee(app, addr_ieee, addr_nwk):
+    device = mock.MagicMock()
     app.handle_message = mock.MagicMock()
-    app.get_device = mock.MagicMock(return_value=mock.MagicMock())
-    app.deserialize = mock.MagicMock(side_effect=ValueError)
+    _test_rx(app, addr_ieee, addr_ieee, device, mock.sentinel.args)
+    assert app.handle_message.call_count == 1
+    assert app.handle_message.call_args == (
+        (
+            device,
+            mock.sentinel.profile_id,
+            mock.sentinel.cluster_id,
+            mock.sentinel.src_ep,
+            mock.sentinel.dst_ep,
+            mock.sentinel.args,
+        ),
+    )
+
+
+def test_rx_wrong_addr_mode(app, addr_ieee, addr_nwk, caplog):
+    device = mock.MagicMock()
+    app.handle_message = mock.MagicMock()
+    app.get_device = mock.MagicMock(return_value=device)
 
     app.devices = (EUI64(addr_ieee.address), )
 
+    with pytest.raises(Exception):  # TODO: don't use broad exceptions
+        addr_nwk.address_mode = 0x22
+        app.handle_rx(
+            addr_nwk,
+            mock.sentinel.src_ep,
+            mock.sentinel.dst_ep,
+            mock.sentinel.profile_id,
+            mock.sentinel.cluster_id,
+            b'',
+            mock.sentinel.lqi,
+            mock.sentinel.rssi,
+        )
+
+    assert app.handle_message.call_count == 0
+
+
+def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
+    app.handle_message = mock.MagicMock()
+
+    caplog.set_level(logging.DEBUG)
     app.handle_rx(
         addr_nwk,
         mock.sentinel.src_ep,
@@ -115,9 +134,7 @@ def test_rx_failed_deserialize(app, addr_ieee, addr_nwk, caplog):
         mock.sentinel.rssi,
     )
 
-    assert any(record.levelname == 'ERROR' for record in caplog.records)
-
-    assert app._handle_reply.call_count == 0
+    assert "Received frame from unknown device" in caplog.text
     assert app.handle_message.call_count == 0
 
 
@@ -140,7 +157,7 @@ async def test_form_network(app):
 
 
 @pytest.mark.asyncio
-async def test_startup(app, version=0):
+async def test_startup(app, monkeypatch, version=0):
 
     async def _version():
         return [version]
@@ -152,12 +169,12 @@ async def test_startup(app, version=0):
     app._api.version = mock.MagicMock(
         side_effect=_version)
 
-    with mock.patch('zigpy_deconz.zigbee.application.ConBeeDevice') as con:
-        con.new.side_effect = asyncio.coroutine(mock.MagicMock())
-        await app.startup(auto_form=False)
-        assert app.form_network.call_count == 0
-        await app.startup(auto_form=True)
-        assert app.form_network.call_count == 1
+    new_mock = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
+    monkeypatch.setattr(application.ConBeeDevice, 'new', new_mock)
+    await app.startup(auto_form=False)
+    assert app.form_network.call_count == 0
+    await app.startup(auto_form=True)
+    assert app.form_network.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -170,51 +187,101 @@ async def test_permit(app, nwk):
     assert app._api.write_parameter.call_args_list[0][0][1] == time_s
 
 
-async def _test_request(app, do_reply=True, expect_reply=True,
-                        send_success=True, **kwargs):
+async def _test_request(app, send_success=True, aps_data_error=False,
+                        **kwargs):
     seq = 123
     nwk = 0x2345
 
-    def aps_data_request(req_id, dst_addr_ep, profile, cluster, src_ep, data):
+    async def req_mock(req_id, dst_addr_ep, profile, cluster, src_ep, data):
+        if aps_data_error:
+            raise zigpy_deconz.exception.CommandError(1, "Command Error")
         if send_success:
-            app._pending[req_id].send.set_result(0)
+            app._pending[req_id].result.set_result(0)
         else:
-            app._pending[req_id].send.set_result(mock.sentinel.send_fail)
-        if expect_reply:
-            if do_reply:
-                app._pending[req_id].reply.set_result(mock.sentinel.reply_result)
+            app._pending[req_id].result.set_result(1)
 
-    app._api.aps_data_request = mock.MagicMock(
-        side_effect=asyncio.coroutine(aps_data_request))
+    app._api.aps_data_request = mock.MagicMock(side_effect=req_mock)
     app.get_device = mock.MagicMock(
         return_value=zigpy.device.Device(app,
                                          mock.sentinel.ieee,
                                          nwk))
 
-    return await app.request(nwk, 0x0260, 1, 2, 3, seq, b'\x01\x02\x03', expect_reply=expect_reply, **kwargs)
+    return await app.request(nwk, 0x0260, 1, 2, 3, seq, b'\x01\x02\x03', **kwargs)
 
 
 @pytest.mark.asyncio
-async def test_request_with_reply(app):
-    assert await _test_request(app, True, True) == mock.sentinel.reply_result
+async def test_request_send_success(app):
+    req_id = mock.sentinel.req_id
+    app.get_sequence = mock.MagicMock(return_value=req_id)
+    r = await _test_request(app, True)
+    assert r[0] == 0
 
 
 @pytest.mark.asyncio
-async def test_request_expect_no_reply(app):
-    assert await _test_request(app, False, False, tries=2, timeout=0.1) is None
+async def test_request_send_fail(app):
+    req_id = mock.sentinel.req_id
+    app.get_sequence = mock.MagicMock(return_value=req_id)
+    r = await _test_request(app, False)
+    assert r[0] != 0
 
 
 @pytest.mark.asyncio
-async def test_request_no_reply(app):
-    with pytest.raises(asyncio.TimeoutError):
-        await _test_request(app, False, True, tries=2, timeout=0.1)
+async def test_request_send_aps_data_error(app):
+    req_id = mock.sentinel.req_id
+    app.get_sequence = mock.MagicMock(return_value=req_id)
+    r = await _test_request(app, False, aps_data_error=True)
+    assert r[0] != 0
+
+
+async def _test_broadcast(app, send_success=True, aps_data_error=False,
+                          **kwargs):
+    seq = mock.sentinel.req_id
+
+    async def req_mock(req_id, dst_addr_ep, profile, cluster, src_ep, data):
+        if aps_data_error:
+            raise zigpy_deconz.exception.CommandError(1, "Command Error")
+        if send_success:
+            app._pending[req_id].result.set_result(0)
+        else:
+            app._pending[req_id].result.set_result(1)
+
+    app._api.aps_data_request = mock.MagicMock(side_effect=req_mock)
+    app.get_device = mock.MagicMock(spec_set=zigpy.device.Device)
+
+    r = await app.broadcast(
+        mock.sentinel.profile, mock.sentinel.cluster, 2,
+        mock.sentinel.dst_ep, mock.sentinel.grp_id, mock.sentinel.radius,
+        seq, b'\x01\x02\x03', **kwargs)
+    assert app._api.aps_data_request.call_count == 1
+    assert app._api.aps_data_request.call_args[0][0] is seq
+    assert app._api.aps_data_request.call_args[0][2] is mock.sentinel.profile
+    assert app._api.aps_data_request.call_args[0][3] is mock.sentinel.cluster
+    assert app._api.aps_data_request.call_args[0][5] == b'\x01\x02\x03'
+    return r
 
 
 @pytest.mark.asyncio
-async def test_request_send_failure(app):
-    with pytest.raises(DeliveryError):
-        await _test_request(app, False, True, send_success=False,
-                            tries=2, timeout=0.1)
+async def test_broadcast_send_success(app):
+    req_id = mock.sentinel.req_id
+    app.get_sequence = mock.MagicMock(return_value=req_id)
+    r = await _test_broadcast(app, True)
+    assert r[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_broadcast_send_fail(app):
+    req_id = mock.sentinel.req_id
+    app.get_sequence = mock.MagicMock(return_value=req_id)
+    r = await _test_broadcast(app, False)
+    assert r[0] != 0
+
+
+@pytest.mark.asyncio
+async def test_broadcast_send_aps_data_error(app):
+    req_id = mock.sentinel.req_id
+    app.get_sequence = mock.MagicMock(return_value=req_id)
+    r = await _test_broadcast(app, False, aps_data_error=True)
+    assert r[0] != 0
 
 
 def _handle_reply(app, tsn):
@@ -231,37 +298,6 @@ def _handle_reply(app, tsn):
     )
 
 
-def test_handle_reply(app):
-    tsn = 123
-    with app._pending.new(tsn, True) as req:
-        _handle_reply(app, tsn)
-    assert app.handle_message.call_count == 0
-    assert req.reply.result() == mock.sentinel.args
-
-
-def test_handle_reply_dup(app):
-    tsn = 123
-    with app._pending.new(tsn, True) as req:
-        req.reply.set_result(mock.sentinel.reply_result)
-        _handle_reply(app, tsn)
-    assert app.handle_message.call_count == 0
-
-
-def test_handle_reply_unexpected(app):
-    tsn = 123
-    _handle_reply(app, tsn)
-    assert app.handle_message.call_count == 1
-    assert app.handle_message.call_args[0][0] == mock.sentinel.device
-    assert app.handle_message.call_args[0][1] is True
-    assert app.handle_message.call_args[0][2] == mock.sentinel.profile
-    assert app.handle_message.call_args[0][3] == mock.sentinel.cluster
-    assert app.handle_message.call_args[0][4] == mock.sentinel.src_ep
-    assert app.handle_message.call_args[0][5] == mock.sentinel.dst_ep
-    assert app.handle_message.call_args[0][6] == tsn
-    assert app.handle_message.call_args[0][7] == mock.sentinel.command_id
-    assert app.handle_message.call_args[0][8] == mock.sentinel.args
-
-
 @pytest.mark.asyncio
 async def test_shutdown(app):
     app._api.close = mock.MagicMock()
@@ -275,10 +311,7 @@ def test_rx_device_annce(app, addr_ieee, addr_nwk):
     device = mock.MagicMock()
     device.status = zigpy.device.Status.NEW
     app.get_device = mock.MagicMock(return_value=device)
-    app.deserialize = mock.MagicMock(return_value=(mock.sentinel.tsn,
-                                                   mock.sentinel.cmd_id,
-                                                   False,
-                                                   mock.sentinel.args, ))
+
     app.handle_join = mock.MagicMock()
     app._handle_reply = mock.MagicMock()
     app.handle_message = mock.MagicMock()
@@ -299,10 +332,6 @@ def test_rx_device_annce(app, addr_ieee, addr_nwk):
         mock.sentinel.rssi,
     )
 
-    assert app.deserialize.call_count == 1
-    assert app.deserialize.call_args[0][2] == cluster_id
-    assert app.deserialize.call_args[0][3] == data
-    assert app._handle_reply.call_count == 0
     assert app.handle_message.call_count == 1
     assert app.handle_join.call_count == 1
     assert app.handle_join.call_args[0][0] == addr_nwk.address
@@ -359,7 +388,7 @@ async def test_conbee_new(app, nwk, monkeypatch):
     monkeypatch.setattr(zigpy.device.Device, '_initialize', mock_init)
 
     conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
-    assert isinstance(conbee, zigpy_deconz.zigbee.application.ConBeeDevice)
+    assert isinstance(conbee, application.ConBeeDevice)
     assert mock_init.call_count == 1
     mock_init.reset_mock()
 
@@ -369,5 +398,31 @@ async def test_conbee_new(app, nwk, monkeypatch):
                           22: mock.MagicMock()}
     app.devices[mock.sentinel.ieee] = mock_dev
     conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
-    assert isinstance(conbee, zigpy_deconz.zigbee.application.ConBeeDevice)
+    assert isinstance(conbee, application.ConBeeDevice)
     assert mock_init.call_count == 0
+
+
+def test_tx_confirm_success(app):
+    tsn = 123
+    req = app._pending[tsn] = mock.MagicMock()
+    app.handle_tx_confirm(tsn, mock.sentinel.status)
+    assert req.result.set_result.call_count == 1
+    assert req.result.set_result.call_args[0][0] is mock.sentinel.status
+
+
+def test_tx_confirm_dup(app, caplog):
+    caplog.set_level(logging.DEBUG)
+    tsn = 123
+    req = app._pending[tsn] = mock.MagicMock()
+    req.result.set_result.side_effect = asyncio.InvalidStateError
+    app.handle_tx_confirm(tsn, mock.sentinel.status)
+    assert req.result.set_result.call_count == 1
+    assert req.result.set_result.call_args[0][0] is mock.sentinel.status
+    assert any(r.levelname == 'DEBUG' for r in caplog.records)
+    assert "probably duplicate response" in caplog.text
+
+
+def test_tx_confirm_unexpcted(app, caplog):
+    app.handle_tx_confirm(123, 0x00)
+    assert any(r.levelname == 'WARNING' for r in caplog.records)
+    assert "Unexpected transmit confirm for request id" in caplog.text
