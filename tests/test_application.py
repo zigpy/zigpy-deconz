@@ -190,7 +190,6 @@ async def test_permit(app, nwk):
 async def _test_request(app, send_success=True, aps_data_error=False,
                         **kwargs):
     seq = 123
-    nwk = 0x2345
 
     async def req_mock(req_id, dst_addr_ep, profile, cluster, src_ep, data):
         if aps_data_error:
@@ -201,12 +200,10 @@ async def _test_request(app, send_success=True, aps_data_error=False,
             app._pending[req_id].result.set_result(1)
 
     app._api.aps_data_request = mock.MagicMock(side_effect=req_mock)
-    app.get_device = mock.MagicMock(
-        return_value=zigpy.device.Device(app,
-                                         mock.sentinel.ieee,
-                                         nwk))
+    device = zigpy.device.Device(app, mock.sentinel.ieee, 0x1122)
+    app.get_device = mock.MagicMock(return_value=device)
 
-    return await app.request(nwk, 0x0260, 1, 2, 3, seq, b'\x01\x02\x03', **kwargs)
+    return await app.request(device, 0x0260, 1, 2, 3, seq, b'\x01\x02\x03', **kwargs)
 
 
 @pytest.mark.asyncio
@@ -214,6 +211,9 @@ async def test_request_send_success(app):
     req_id = mock.sentinel.req_id
     app.get_sequence = mock.MagicMock(return_value=req_id)
     r = await _test_request(app, True)
+    assert r[0] == 0
+
+    r = await _test_request(app, True, use_ieee=True)
     assert r[0] == 0
 
 
