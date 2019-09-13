@@ -84,15 +84,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         raise Exception("Could not form network.")
 
     @zigpy.util.retryable_request
-    async def request(self, nwk, profile, cluster, src_ep, dst_ep, sequence, data,
-                      timeout=SEND_CONFIRM_TIMEOUT):
+    async def request(self, device, profile, cluster, src_ep, dst_ep, sequence, data,
+                      expect_reply=True, use_ieee=False):
         req_id = self.get_sequence()
         LOGGER.debug("Sending Zigbee request with tsn %s under %s request id, data: %s",
                      sequence, req_id, binascii.hexlify(data))
         dst_addr_ep = t.DeconzAddressEndpoint()
-        dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
-        dst_addr_ep.address = t.uint16_t(nwk)
         dst_addr_ep.endpoint = t.uint8_t(dst_ep)
+        if use_ieee:
+            dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.IEEE)
+            dst_addr_ep.address = device.ieee
+        else:
+            dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK)
+            dst_addr_ep.address = device.nwk
 
         with self._pending.new(req_id) as req:
             try:
@@ -107,7 +111,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             except zigpy_deconz.exception.CommandError as ex:
                 return ex.status, "Couldn't enqueue send data request: {}".format(ex)
 
-            r = await asyncio.wait_for(req.result, timeout)
+            r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
 
             if r:
                 LOGGER.warning("Error while sending %s req id frame: 0x%02x", req_id, r)
