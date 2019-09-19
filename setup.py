@@ -15,7 +15,7 @@ setup(
     packages=find_packages(exclude=['*.tests']),
     install_requires=[
         'pyserial-asyncio',
-        'zigpy-homeassistant>=0.9.0a3',
+        'zigpy-homeassistant>=0.9.0',
     ],
     tests_require=[
         'pytest',
