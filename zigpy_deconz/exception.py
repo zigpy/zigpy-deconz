@@ -1,11 +1,11 @@
 from zigpy.exceptions import ZigbeeException
 
 
-class DeconException(ZigbeeException):
+class DeconzException(ZigbeeException):
     pass
 
 
-class CommandError(DeconException):
+class CommandError(DeconzException):
     def __init__(self, status, *args, **kwargs):
         self._status = status
         super().__init__(*args, **kwargs)
