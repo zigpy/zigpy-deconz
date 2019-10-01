@@ -41,8 +41,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def startup(self, auto_form=False):
         """Perform a complete application startup"""
-        r = await self._api.version()
-        self.version = r[0]
+        self.version = await self._api.version()
         await self._api.device_state()
         ieee = await self._api[NetworkParameter.mac_address]
         self._ieee = zigpy.types.EUI64(ieee)
@@ -163,7 +162,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self.handle_join(nwk, ieee, 0)
 
         try:
-            if src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
+            if src_addr.address_mode == t.ADDRESS_MODE.NWK_AND_IEEE:
+                device = self.get_device(ieee=src_addr.ieee)
+            elif src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
                 device = self.get_device(nwk=src_addr.address)
             elif src_addr.address_mode == t.ADDRESS_MODE.IEEE.value:
                 device = self.get_device(ieee=src_addr.address)
