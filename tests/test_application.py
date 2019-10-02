@@ -166,8 +166,12 @@ async def test_startup(app, monkeypatch, version=0):
         side_effect=asyncio.coroutine(mock.MagicMock()))
     app._api._command = mock.MagicMock(
         side_effect=asyncio.coroutine(mock.MagicMock()))
+    app._api.read_parameter = mock.MagicMock(
+        side_effect=asyncio.coroutine(mock.MagicMock()))
     app._api.version = mock.MagicMock(
         side_effect=_version)
+    app._api.write_parameter = mock.MagicMock(
+        side_effect=asyncio.coroutine(mock.MagicMock()))
 
     new_mock = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
     monkeypatch.setattr(application.ConBeeDevice, 'new', new_mock)
