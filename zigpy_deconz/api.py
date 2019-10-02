@@ -67,25 +67,42 @@ RX_COMMANDS = {
     Command.zigbee_green_power: ((t.LVBytes, ), False),
 }
 
-NETWORK_PARAMETER = {
-    'mac_address': (0x01, t.uint64_t),
-    'nwk_panid': (0x05, t.uint16_t),
-    'nwk_address': (0x07, t.uint16_t),
-    'nwk_extended_panid': (0x08, t.uint64_t),
-    'aps_designed_coordinator': (0x09, t.uint8_t),
-    'channel_mask': (0x0A, t.uint32_t),
-    'aps_extended_panid': (0x0B, t.uint64_t),
-    'trust_center_address': (0x0E, t.uint64_t),
-    'security_mode': (0x10, t.uint8_t),
-    'network_key': (0x18, t.uint8_t),
-    'current_channel': (0x1C, t.uint8_t),
-    'permit_join': (0x21, t.uint8_t),
-    'protocol_version': (0x22, t.uint16_t),
-    'nwk_update_id': (0x24, t.uint8_t),
-    'watchdog_ttl': (0x26, t.uint32_t),
-}
 
-NETWORK_PARAMETER_BY_ID = {v[0]: (k, v[1]) for k, v in NETWORK_PARAMETER.items()}
+class NetworkParameter(t.uint8_t, enum.Enum):
+    mac_address = 0x01
+    nwk_panid = 0x05
+    nwk_address = 0x07
+    nwk_extended_panid = 0x08
+    aps_designed_coordinator = 0x09
+    channel_mask = 0x0A
+    aps_extended_panid = 0x0B
+    trust_center_address = 0x0E
+    security_mode = 0x10
+    network_key = 0x18
+    current_channel = 0x1C
+    permit_join = 0x21
+    protocol_version = 0x22
+    nwk_update_id = 0x24
+    watchdog_ttl = 0x26
+
+
+NETWORK_PARAMETER_SCHEMA = {
+    NetworkParameter.mac_address: t.EUI64,
+    NetworkParameter.nwk_panid: t.uint16_t,
+    NetworkParameter.nwk_address: t.uint16_t,
+    NetworkParameter.nwk_extended_panid: t.uint64_t,
+    NetworkParameter.aps_designed_coordinator: t.uint8_t,
+    NetworkParameter.channel_mask: t.uint32_t,
+    NetworkParameter.aps_extended_panid: t.uint64_t,
+    NetworkParameter.trust_center_address: t.uint64_t,
+    NetworkParameter.security_mode: t.uint8_t,
+    NetworkParameter.network_key: t.uint8_t,
+    NetworkParameter.current_channel: t.uint8_t,
+    NetworkParameter.permit_join: t.uint8_t,
+    NetworkParameter.protocol_version: t.uint16_t,
+    NetworkParameter.nwk_update_id: t.uint8_t,
+    NetworkParameter.watchdog_ttl: t.uint32_t,
+}
 
 
 class Status(t.uint8_t, enum.Enum):
@@ -206,19 +223,44 @@ class Deconz:
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
-    def read_parameter(self, id_):
-        return self._command(Command.read_parameter, 1, id_)
+    async def read_parameter(self, id_):
+        try:
+            if isinstance(id_, str):
+                param = NetworkParameter[id_]
+            else:
+                param = NetworkParameter(id_)
+        except (KeyError, ValueError):
+            raise KeyError("Unknown parameter id: %s" % (id_, ))
+
+        r = await self._command(Command.read_parameter, 1, param)
+        data = NETWORK_PARAMETER_SCHEMA[param].deserialize(r[2])[0]
+        LOGGER.debug("Read parameter %s response: %s", param.name, data)
+        return data
 
     def _handle_read_parameter(self, data):
-        LOGGER.debug("Read parameter %s response: %s", NETWORK_PARAMETER_BY_ID[data[1]][0], data[2])
+        pass
 
     def write_parameter(self, id_, value):
-        v = NETWORK_PARAMETER_BY_ID[id_][1](value).serialize()
+        try:
+            if isinstance(id_, str):
+                param = NetworkParameter[id_]
+            else:
+                param = NetworkParameter(id_)
+        except (KeyError, ValueError):
+            raise KeyError("Unknown parameter id: %s write request" % (id_,))
+
+        v = NETWORK_PARAMETER_SCHEMA[param](value).serialize()
         length = len(v) + 1
-        return self._command(Command.write_parameter, length, id_, v)
+        return self._command(Command.write_parameter, length, param, v)
 
     def _handle_write_parameter(self, data):
-        LOGGER.debug("Write parameter %s: SUCCESS", NETWORK_PARAMETER_BY_ID[data[1]][0])
+        try:
+            param = NetworkParameter(data[1])
+        except ValueError:
+            LOGGER.error("Received unknown network param id '%s' response",
+                         data[1])
+            return
+        LOGGER.debug("Write parameter %s: SUCCESS", param.name)
 
     def version(self):
         return self._command(Command.version)
@@ -317,3 +359,9 @@ class Deconz:
         if DeviceState.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
             self._data_confirm = True
             asyncio.ensure_future(self._aps_data_confirm())
+
+    def __getitem__(self, key):
+        return self.read_parameter(key)
+
+    def __setitem__(self, key, value):
+        return asyncio.ensure_future(self.write_parameter(key, value))

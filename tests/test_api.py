@@ -289,3 +289,64 @@ async def test_aps_data_request_busy(api, monkeypatch):
     with pytest.raises(zigpy_deconz.exception.CommandError):
         await api.aps_data_request(*params)
         assert mock_cmd.call_count == 4
+
+
+def test_handle_read_parameter(api):
+    api._handle_read_parameter(mock.sentinel.data)
+
+
+@pytest.mark.asyncio
+async def test_read_parameter(api):
+    api._command = mock.MagicMock()
+    api._command.side_effect = asyncio.coroutine(
+        mock.MagicMock(return_value=(mock.sentinel.len,
+                                     mock.sentinel.param_id,
+                                     b'\xaa\x55')))
+
+    r = await api.read_parameter(deconz_api.NetworkParameter.nwk_panid)
+    assert api._command.call_count == 1
+    assert r == 0x55aa
+
+    api._command.reset_mock()
+    r = await api.read_parameter(0x05)
+    assert api._command.call_count == 1
+    assert r == 0x55aa
+
+    with pytest.raises(KeyError):
+        await api.read_parameter('unknown_param')
+
+    unk_param = 0xff
+    assert unk_param not in list(deconz_api.NetworkParameter)
+    with pytest.raises(KeyError):
+        await api.read_parameter(unk_param)
+
+
+def test_handle_write_parameter(api):
+    param_id = 0x05
+    api._handle_write_parameter([mock.sentinel.len, param_id])
+
+    unk_param = 0xff
+    assert unk_param not in list(deconz_api.NetworkParameter)
+    api._handle_write_parameter([mock.sentinel.len, unk_param])
+
+
+@pytest.mark.asyncio
+async def test_write_parameter(api):
+    api._command = mock.MagicMock()
+    api._command.side_effect = asyncio.coroutine(
+        mock.MagicMock())
+
+    await api.write_parameter(deconz_api.NetworkParameter.nwk_panid, 0x55aa)
+    assert api._command.call_count == 1
+
+    api._command.reset_mock()
+    await api.write_parameter(0x05, 0x55aa)
+    assert api._command.call_count == 1
+
+    with pytest.raises(KeyError):
+        await api.write_parameter('unknown_param', 0x55aa)
+
+    unk_param = 0xff
+    assert unk_param not in list(deconz_api.NetworkParameter)
+    with pytest.raises(KeyError):
+        await api.write_parameter(unk_param, 0x55aa)
