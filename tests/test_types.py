@@ -52,3 +52,11 @@ def test_deconz_address_nwk_and_ieee():
     assert addr.address == 0xaa55
 
     assert addr.serialize() == data
+
+
+def test_pan_id():
+    t.PanId()
+
+
+def test_extended_pan_id():
+    t.ExtendedPanId()

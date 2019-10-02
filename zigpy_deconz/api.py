@@ -89,13 +89,13 @@ class NetworkParameter(t.uint8_t, enum.Enum):
 
 NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.mac_address: t.EUI64,
-    NetworkParameter.nwk_panid: t.uint16_t,
-    NetworkParameter.nwk_address: t.uint16_t,
-    NetworkParameter.nwk_extended_panid: t.uint64_t,
+    NetworkParameter.nwk_panid: t.PanId,
+    NetworkParameter.nwk_address: t.NWK,
+    NetworkParameter.nwk_extended_panid: t.ExtendedPanId,
     NetworkParameter.aps_designed_coordinator: t.uint8_t,
     NetworkParameter.channel_mask: t.uint32_t,
-    NetworkParameter.aps_extended_panid: t.uint64_t,
-    NetworkParameter.trust_center_address: t.uint64_t,
+    NetworkParameter.aps_extended_panid: t.ExtendedPanId,
+    NetworkParameter.trust_center_address: t.EUI64,
     NetworkParameter.security_mode: t.uint8_t,
     NetworkParameter.network_key: t.uint8_t,
     NetworkParameter.current_channel: t.uint8_t,

@@ -180,17 +180,23 @@ class EUI64(list):
 
 
 class HexRepr:
-    _hex_len = 2
-
     def __repr__(self):
-        return ('0x{:0' + str(self._hex_len) + 'x}').format(self)
+        return ('0x{:0' + str(self._size * 2) + 'x}').format(self)
 
     def __str__(self):
-        return ('0x{:0' + str(self._hex_len) + 'x}').format(self)
+        return ('0x{:0' + str(self._size * 2) + 'x}').format(self)
 
 
 class NWK(HexRepr, uint16_t):
-    _hex_len = 4
+    pass
+
+
+class PanId(HexRepr, uint16_t):
+    pass
+
+
+class ExtendedPanId(EUI64):
+    pass
 
 
 class DeconzAddress(Struct):
