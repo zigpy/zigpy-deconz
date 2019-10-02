@@ -11,6 +11,7 @@ LOGGER = logging.getLogger(__name__)
 
 COMMAND_TIMEOUT = 2
 DECONZ_BAUDRATE = 38400
+MIN_PROTO_VERSION = 0x010B
 
 
 class Command(t.uint8_t, enum.Enum):
@@ -145,6 +146,8 @@ class Deconz:
         self.network_state = NetworkState.OFFLINE
         self._data_indication = False
         self._data_confirm = False
+        self._proto_ver = None
+        self._aps_data_ind_flags = 0x01
 
     def set_application(self, app):
         self._app = app
@@ -262,8 +265,12 @@ class Deconz:
             return
         LOGGER.debug("Write parameter %s: SUCCESS", param.name)
 
-    def version(self):
-        return self._command(Command.version)
+    async def version(self):
+        self._proto_ver = await self[NetworkParameter.protocol_version]
+        version = await self._command(Command.version)
+        if self._proto_ver >= MIN_PROTO_VERSION and (version[0] & 0x0000FF00) == 0x00000500:
+            self._aps_data_ind_flags = 0x04
+        return version[0]
 
     def _handle_version(self, data):
         LOGGER.debug("Version response: %x", data[0])
@@ -274,7 +281,7 @@ class Deconz:
 
     async def _aps_data_indication(self):
         try:
-            r = await self._command(Command.aps_data_indication, 1, 1)
+            r = await self._command(Command.aps_data_indication, 1, self._aps_data_ind_flags)
             LOGGER.debug(("'aps_data_indication' response from %s, ep: %s, "
                           "profile: 0x%04x, cluster_id: 0x%04x, data: %s"),
                          r[4], r[5], r[6], r[7], binascii.hexlify(r[8]))
