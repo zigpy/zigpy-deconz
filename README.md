@@ -7,6 +7,15 @@
 
 This uses the deCONZ serial protocol for communicating with [ConBee](https://www.dresden-elektronik.de/conbee/), [ConBee II (ConBee 2)](https://shop.dresden-elektronik.de/conbee-2.html), and [RaspBee](https://www.dresden-elektronik.de/raspbee/) adapters from [Dresden-Elektronik](https://github.com/dresden-elektronik/).
 
+# Releases via PyPI
+Tagged versions are also released via PyPI
+
+- https://pypi.org/project/zigpy-deconz/
+- https://pypi.org/project/zigpy-deconz/#history
+- https://pypi.org/project/zigpy-deconz/#files
+
+# External documentation and reference
+
 Note! Latest official documentation for the deCONZ serial protocol can currently be obtained by contacting Dresden-Elektronik employees via GitHub here
 -  https://github.com/dresden-elektronik/deconz-rest-plugin/issues/158
 
