@@ -223,7 +223,7 @@ class Deconz:
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
-    def read_parameter(self, id_):
+    async def read_parameter(self, id_):
         try:
             if isinstance(id_, str):
                 param = NetworkParameter[id_]
@@ -232,16 +232,13 @@ class Deconz:
         except (KeyError, ValueError):
             raise KeyError("Unknown parameter id: %s" % (id_, ))
 
-        return self._command(Command.read_parameter, 1, param)
+        r = await self._command(Command.read_parameter, 1, param)
+        data = NETWORK_PARAMETER_SCHEMA[param].deserialize(r[2])[0]
+        LOGGER.debug("Read parameter %s response: %s", param.name, data)
+        return data
 
     def _handle_read_parameter(self, data):
-        try:
-            param = NetworkParameter(data[1])
-        except ValueError:
-            LOGGER.error("Received unknown network param id '%s' response %s",
-                         data[1], data[2])
-            return
-        LOGGER.debug("Read parameter %s response: %s", param.name, data[2])
+        pass
 
     def write_parameter(self, id_, value):
         try:

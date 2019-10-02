@@ -44,8 +44,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         r = await self._api.version()
         self.version = r[0]
         await self._api.device_state()
-        r = await self._api[NetworkParameter.mac_address]
-        self._ieee = zigpy.types.EUI64([zigpy.types.uint8_t(r[2][i]) for i in range(7, -1, -1)])
+        ieee = await self._api[NetworkParameter.mac_address]
+        self._ieee = zigpy.types.EUI64(ieee)
         await self._api[NetworkParameter.nwk_panid]
         await self._api[NetworkParameter.nwk_address]
         await self._api[NetworkParameter.nwk_extended_panid]
