@@ -350,3 +350,29 @@ async def test_write_parameter(api):
     assert unk_param not in list(deconz_api.NetworkParameter)
     with pytest.raises(KeyError):
         await api.write_parameter(unk_param, 0x55aa)
+
+
+@pytest.mark.parametrize(
+    "protocol_ver, firmware_version, flags",
+    [
+        (0x010A, 0x123405dd, 0x01),
+        (0x010B, 0x123405dd, 0x04),
+        (0x010A, 0x123407dd, 0x01),
+        (0x010B, 0x123407dd, 0x01),
+    ],
+)
+@pytest.mark.asyncio
+async def test_version(protocol_ver, firmware_version, flags, api):
+    api.read_parameter = mock.MagicMock()
+    api.read_parameter.side_effect = asyncio.coroutine(
+        mock.MagicMock(return_value=protocol_ver))
+    api._command = mock.MagicMock()
+    api._command.side_effect = asyncio.coroutine(
+        mock.MagicMock(return_value=[firmware_version]))
+    r = await api.version()
+    assert r == firmware_version
+    assert api._aps_data_ind_flags == flags
+
+
+def test_handle_version(api):
+    api._handle_version([mock.sentinel.version])

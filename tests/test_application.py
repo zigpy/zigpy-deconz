@@ -46,6 +46,15 @@ def addr_nwk(nwk):
     return addr
 
 
+@pytest.fixture
+def addr_nwk_and_ieee(nwk, ieee):
+    addr = t.DeconzAddress()
+    addr.address_mode = t.ADDRESS_MODE.NWK_AND_IEEE
+    addr.address = nwk
+    addr.ieee = ieee
+    return addr
+
+
 def _test_rx(app, addr_ieee, addr_nwk, device, data):
     app.get_device = mock.MagicMock(return_value=device)
     app.devices = (EUI64(addr_ieee.address), )
@@ -83,6 +92,23 @@ def test_rx_ieee(app, addr_ieee, addr_nwk):
     device = mock.MagicMock()
     app.handle_message = mock.MagicMock()
     _test_rx(app, addr_ieee, addr_ieee, device, mock.sentinel.args)
+    assert app.handle_message.call_count == 1
+    assert app.handle_message.call_args == (
+        (
+            device,
+            mock.sentinel.profile_id,
+            mock.sentinel.cluster_id,
+            mock.sentinel.src_ep,
+            mock.sentinel.dst_ep,
+            mock.sentinel.args,
+        ),
+    )
+
+
+def test_rx_nwk_ieee(app, addr_ieee, addr_nwk_and_ieee):
+    device = mock.MagicMock()
+    app.handle_message = mock.MagicMock()
+    _test_rx(app, addr_ieee, addr_nwk_and_ieee, device, mock.sentinel.args)
     assert app.handle_message.call_count == 1
     assert app.handle_message.call_args == (
         (
@@ -160,7 +186,7 @@ async def test_form_network(app):
 async def test_startup(app, monkeypatch, version=0):
 
     async def _version():
-        return [version]
+        return version
 
     app.form_network = mock.MagicMock(
         side_effect=asyncio.coroutine(mock.MagicMock()))
