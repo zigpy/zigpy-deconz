@@ -159,21 +159,44 @@ class Struct:
         return r
 
 
-class EUI64(list):
+class List(list):
+    _length = None
+    _itemtype = None
+
     def serialize(self):
-        assert len(self) == 8
-        return b''.join([i.serialize() for i in self[::-1]])
+        assert self._length is None or len(self) == self._length
+        return b"".join([self._itemtype(i).serialize() for i in self])
 
     @classmethod
     def deserialize(cls, data):
-        r = []
-        for i in range(8):
-            item, data = uint8_t.deserialize(data)
+        assert cls._itemtype is not None
+        r = cls()
+        while data:
+            item, data = cls._itemtype.deserialize(data)
             r.append(item)
-        return cls(r[::-1]), data
+        return r, data
+
+
+class FixedList(List):
+    _length = None
+    _itemtype = None
+
+    @classmethod
+    def deserialize(cls, data):
+        assert cls._itemtype is not None
+        r = cls()
+        for i in range(cls._length):
+            item, data = cls._itemtype.deserialize(data)
+            r.append(item)
+        return r, data
+
+
+class EUI64(FixedList):
+    _length = 8
+    _itemtype = uint8_t
 
     def __repr__(self):
-        return ':'.join('%02x' % i for i in self)
+        return ':'.join('%02x' % i for i in self[::-1])
 
     def __hash__(self):
         return hash(repr(self))
