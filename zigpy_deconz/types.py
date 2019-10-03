@@ -274,3 +274,8 @@ class DeconzAddressEndpoint(Struct):
             e, data = uint8_t.deserialize(data)
         setattr(r, cls._fields[2][0], e)
         return r, data
+
+
+class Key(FixedList):
+    _itemtype = uint8_t
+    _length = 16

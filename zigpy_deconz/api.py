@@ -38,7 +38,7 @@ TX_COMMANDS = {
     ),
     Command.change_network_state: (t.uint8_t, ),
     Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
-    Command.read_parameter: (t.uint16_t, t.uint8_t),
+    Command.read_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
     Command.version: (),
     Command.write_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
 }
@@ -88,21 +88,21 @@ class NetworkParameter(t.uint8_t, enum.Enum):
 
 
 NETWORK_PARAMETER_SCHEMA = {
-    NetworkParameter.mac_address: t.EUI64,
-    NetworkParameter.nwk_panid: t.PanId,
-    NetworkParameter.nwk_address: t.NWK,
-    NetworkParameter.nwk_extended_panid: t.ExtendedPanId,
-    NetworkParameter.aps_designed_coordinator: t.uint8_t,
-    NetworkParameter.channel_mask: t.uint32_t,
-    NetworkParameter.aps_extended_panid: t.ExtendedPanId,
-    NetworkParameter.trust_center_address: t.EUI64,
-    NetworkParameter.security_mode: t.uint8_t,
-    NetworkParameter.network_key: t.uint8_t,
-    NetworkParameter.current_channel: t.uint8_t,
-    NetworkParameter.permit_join: t.uint8_t,
-    NetworkParameter.protocol_version: t.uint16_t,
-    NetworkParameter.nwk_update_id: t.uint8_t,
-    NetworkParameter.watchdog_ttl: t.uint32_t,
+    NetworkParameter.mac_address: (t.EUI64, ),
+    NetworkParameter.nwk_panid: (t.PanId, ),
+    NetworkParameter.nwk_address: (t.NWK, ),
+    NetworkParameter.nwk_extended_panid: (t.ExtendedPanId, ),
+    NetworkParameter.aps_designed_coordinator: (t.uint8_t, ),
+    NetworkParameter.channel_mask: (t.uint32_t, ),
+    NetworkParameter.aps_extended_panid: (t.ExtendedPanId, ),
+    NetworkParameter.trust_center_address: (t.EUI64, ),
+    NetworkParameter.security_mode: (t.uint8_t, ),
+    NetworkParameter.network_key: (t.uint8_t, t.Key, ),
+    NetworkParameter.current_channel: (t.uint8_t, ),
+    NetworkParameter.permit_join: (t.uint8_t, ),
+    NetworkParameter.protocol_version: (t.uint16_t, ),
+    NetworkParameter.nwk_update_id: (t.uint8_t, ),
+    NetworkParameter.watchdog_ttl: (t.uint32_t, ),
 }
 
 
@@ -231,7 +231,7 @@ class Deconz:
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
-    async def read_parameter(self, id_):
+    async def read_parameter(self, id_, *args):
         try:
             if isinstance(id_, str):
                 param = NetworkParameter[id_]
@@ -240,15 +240,16 @@ class Deconz:
         except (KeyError, ValueError):
             raise KeyError("Unknown parameter id: %s" % (id_, ))
 
-        r = await self._command(Command.read_parameter, 1, param)
-        data = NETWORK_PARAMETER_SCHEMA[param].deserialize(r[2])[0]
+        data = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
+        r = await self._command(Command.read_parameter, 1 + len(data), param, data)
+        data = t.deserialize(r[2], NETWORK_PARAMETER_SCHEMA[param])[0]
         LOGGER.debug("Read parameter %s response: %s", param.name, data)
         return data
 
     def _handle_read_parameter(self, data):
         pass
 
-    def write_parameter(self, id_, value):
+    def write_parameter(self, id_, *args):
         try:
             if isinstance(id_, str):
                 param = NetworkParameter[id_]
@@ -257,7 +258,7 @@ class Deconz:
         except (KeyError, ValueError):
             raise KeyError("Unknown parameter id: %s write request" % (id_,))
 
-        v = NETWORK_PARAMETER_SCHEMA[param](value).serialize()
+        v = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
         length = len(v) + 1
         return self._command(Command.write_parameter, length, param, v)
 
@@ -271,7 +272,7 @@ class Deconz:
         LOGGER.debug("Write parameter %s: SUCCESS", param.name)
 
     async def version(self):
-        self._proto_ver = await self[NetworkParameter.protocol_version]
+        self._proto_ver, = await self[NetworkParameter.protocol_version]
         version = await self._command(Command.version)
         if self.protocol_version >= MIN_PROTO_VERSION and \
                 (version[0] & 0x0000FF00) == 0x00000500:
