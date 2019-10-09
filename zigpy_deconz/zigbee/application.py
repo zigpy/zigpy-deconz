@@ -16,6 +16,7 @@ LOGGER = logging.getLogger(__name__)
 
 CHANGE_NETWORK_WAIT = 1
 SEND_CONFIRM_TIMEOUT = 60
+PROTO_VER_WATCHDOG = 0x0108
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -57,7 +58,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._api[NetworkParameter.nwk_update_id]
         self._api[NetworkParameter.aps_designed_coordinator] = 1
 
-        if self.version > 0x261f0500:
+        if self._api.protocol_version >= PROTO_VER_WATCHDOG:
             asyncio.ensure_future(self._reset_watchdog())
 
         if auto_form:

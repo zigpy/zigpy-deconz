@@ -149,6 +149,11 @@ class Deconz:
         self._proto_ver = None
         self._aps_data_ind_flags = 0x01
 
+    @property
+    def protocol_version(self):
+        """Protocol Version."""
+        return self._proto_ver
+
     def set_application(self, app):
         self._app = app
 
@@ -268,7 +273,8 @@ class Deconz:
     async def version(self):
         self._proto_ver = await self[NetworkParameter.protocol_version]
         version = await self._command(Command.version)
-        if self._proto_ver >= MIN_PROTO_VERSION and (version[0] & 0x0000FF00) == 0x00000500:
+        if self.protocol_version >= MIN_PROTO_VERSION and \
+                (version[0] & 0x0000FF00) == 0x00000500:
             self._aps_data_ind_flags = 0x04
         return version[0]
 

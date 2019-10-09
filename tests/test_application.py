@@ -182,12 +182,23 @@ async def test_form_network(app):
     assert app._api.device_state.call_count == 10
 
 
+@pytest.mark.parametrize(
+    "protocol_ver, watchdog_cc",
+    [
+        (0x0107, False,),
+        (0x0108, True, ),
+        (0x010B, True, ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_startup(app, monkeypatch, version=0):
+async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
 
     async def _version():
+        app._api._proto_ver = protocol_ver
         return version
 
+    app._reset_watchdog = mock.MagicMock(
+        side_effect=asyncio.coroutine(mock.MagicMock()))
     app.form_network = mock.MagicMock(
         side_effect=asyncio.coroutine(mock.MagicMock()))
     app._api._command = mock.MagicMock(
@@ -203,6 +214,7 @@ async def test_startup(app, monkeypatch, version=0):
     monkeypatch.setattr(application.ConBeeDevice, 'new', new_mock)
     await app.startup(auto_form=False)
     assert app.form_network.call_count == 0
+    assert app._reset_watchdog.call_count == watchdog_cc
     await app.startup(auto_form=True)
     assert app.form_network.call_count == 1
 
