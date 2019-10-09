@@ -305,12 +305,12 @@ async def test_read_parameter(api):
 
     r = await api.read_parameter(deconz_api.NetworkParameter.nwk_panid)
     assert api._command.call_count == 1
-    assert r == 0x55aa
+    assert r[0] == 0x55aa
 
     api._command.reset_mock()
     r = await api.read_parameter(0x05)
     assert api._command.call_count == 1
-    assert r == 0x55aa
+    assert r[0] == 0x55aa
 
     with pytest.raises(KeyError):
         await api.read_parameter('unknown_param')
@@ -365,7 +365,7 @@ async def test_write_parameter(api):
 async def test_version(protocol_ver, firmware_version, flags, api):
     api.read_parameter = mock.MagicMock()
     api.read_parameter.side_effect = asyncio.coroutine(
-        mock.MagicMock(return_value=protocol_ver))
+        mock.MagicMock(return_value=[protocol_ver]))
     api._command = mock.MagicMock()
     api._command.side_effect = asyncio.coroutine(
         mock.MagicMock(return_value=[firmware_version]))
