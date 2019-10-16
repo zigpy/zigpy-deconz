@@ -1,3 +1,7 @@
+from unittest import mock
+
+import pytest
+
 import zigpy_deconz.types as t
 
 
@@ -85,3 +89,144 @@ def test_key():
     assert key == [49, 57, 99, 50, 48, 101, 97, 99, 54, 54, 50, 99, 97, 56, 48, 53]
 
     assert key.serialize() == data
+
+
+def test_bytes():
+    data = b'abcde\x00\xff'
+
+    r, rest = t.Bytes.deserialize(data)
+    assert rest == b''
+    assert r == data
+
+    assert r.serialize() == data
+
+
+def test_lvbytes():
+    data = b'abcde\x00\xff'
+    extra = b'\xffrest of the data\x00'
+
+    r, rest = t.LVBytes.deserialize(len(data).to_bytes(2, "little") + data + extra)
+    assert rest == extra
+    assert r == data
+
+    assert r.serialize() == len(data).to_bytes(2, "little") + data
+
+
+def test_struct():
+    class TestStruct(t.Struct):
+        _fields = [("a", t.uint8_t), ("b", t.uint8_t)]
+
+    ts = TestStruct()
+    ts.a = t.uint8_t(0xAA)
+    ts.b = t.uint8_t(0xBB)
+    ts2 = TestStruct(ts)
+    assert ts2.a == ts.a
+    assert ts2.b == ts.b
+
+    r = repr(ts)
+    assert "TestStruct" in r
+    assert r.startswith("<") and r.endswith(">")
+
+    s = ts2.serialize()
+    assert s == b"\xaa\xbb"
+
+    extra = b"\x00extra data\xff"
+    d, rest = TestStruct.deserialize(s + extra)
+    assert rest == extra
+    assert d.a == ts.a
+    assert d.b == ts.b
+
+
+def test_list():
+    class TestList(t.List):
+        _itemtype = t.uint16_t
+
+    r = TestList([1, 2, 3, 0x55aa])
+    assert r.serialize() == b'\x01\x00\x02\x00\x03\x00\xaa\x55'
+
+
+def test_list_deserialize():
+    class TestList(t.List):
+        _itemtype = t.uint16_t
+
+    data = b"\x34\x12\x55\xaa\x89\xab"
+    extra = b"\x00\xff"
+
+    r, rest = TestList.deserialize(data + extra)
+    assert rest == b''
+    assert r[0] == 0x1234
+    assert r[1] == 0xaa55
+    assert r[2] == 0xab89
+    assert r[3] == 0xff00
+
+
+def test_fixed_list():
+    class TestList(t.FixedList):
+        _length = 3
+        _itemtype = t.uint16_t
+
+    with pytest.raises(AssertionError):
+        r = TestList([1, 2, 3, 0x55aa])
+        r.serialize()
+
+    with pytest.raises(AssertionError):
+        r = TestList([1, 2])
+        r.serialize()
+
+    r = TestList([1, 2, 3])
+
+    assert r.serialize() == b'\x01\x00\x02\x00\x03\x00'
+
+
+def test_fixed_list_deserialize():
+    class TestList(t.FixedList):
+        _length = 3
+        _itemtype = t.uint16_t
+
+    data = b"\x34\x12\x55\xaa\x89\xab"
+    extra = b"\x00\xff"
+
+    r, rest = TestList.deserialize(data + extra)
+    assert rest == extra
+    assert r[0] == 0x1234
+    assert r[1] == 0xaa55
+    assert r[2] == 0xab89
+
+
+def test_eui64():
+    r = t.EUI64([0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08])
+    ieee = '08:09:0a:0b:0c:0d:0e:0f'
+    assert repr(r) == ieee
+    i = {}
+    i[r] = mock.sentinel.data
+
+
+def test_hexrepr():
+    class TestHR(t.HexRepr, t.uint16_t):
+        pass
+
+    i = TestHR(0xaa55)
+    assert repr(i) == "0xaa55"
+    assert str(i) == "0xaa55"
+
+
+def test_addr_ep_nwk():
+    data = b"\x02\xaa\x55\xcc"
+    extra = b"\x00extra data\xff"
+
+    r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
+    assert rest == extra
+    assert r.address_mode == t.ADDRESS_MODE.NWK
+    assert r.address == 0x55aa
+    assert r.endpoint == 0xcc
+
+
+def test_addr_ep_ieee():
+    data = b"\x0387654321\xcc"
+    extra = b"\x00extra data\xff"
+
+    r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
+    assert rest == extra
+    assert r.address_mode == t.ADDRESS_MODE.IEEE
+    assert repr(r.address) == "31:32:33:34:35:36:37:38"
+    assert r.endpoint == 0xcc

@@ -28,9 +28,8 @@ class LVBytes(bytes):
 
     @classmethod
     def deserialize(cls, data, byteorder='little'):
-        bytes = int.from_bytes(data[:2], byteorder)
-        s = data[2:bytes + 2]
-        return s, data[bytes + 2:]
+        length, data = uint16_t.deserialize(data)
+        return cls(data[:length]), data[length:]
 
 
 class int_t(int):
