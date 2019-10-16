@@ -44,7 +44,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         """Perform a complete application startup"""
         self.version = await self._api.version()
         await self._api.device_state()
-        ieee = await self._api[NetworkParameter.mac_address]
+        ieee, = await self._api[NetworkParameter.mac_address]
         self._ieee = zigpy.types.EUI64(ieee)
         await self._api[NetworkParameter.nwk_panid]
         await self._api[NetworkParameter.nwk_address]

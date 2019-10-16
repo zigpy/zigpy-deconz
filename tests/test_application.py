@@ -195,7 +195,7 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
 
     async def _version():
         app._api._proto_ver = protocol_ver
-        return version
+        return [version]
 
     app._reset_watchdog = mock.MagicMock(
         side_effect=asyncio.coroutine(mock.MagicMock()))
@@ -204,7 +204,8 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
     app._api._command = mock.MagicMock(
         side_effect=asyncio.coroutine(mock.MagicMock()))
     app._api.read_parameter = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock()))
+        side_effect=asyncio.coroutine(
+            mock.MagicMock(return_value=[[0]])))
     app._api.version = mock.MagicMock(
         side_effect=_version)
     app._api.write_parameter = mock.MagicMock(
