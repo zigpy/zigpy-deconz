@@ -230,3 +230,48 @@ def test_addr_ep_ieee():
     assert r.address_mode == t.ADDRESS_MODE.IEEE
     assert repr(r.address) == "31:32:33:34:35:36:37:38"
     assert r.endpoint == 0xcc
+
+
+def test_deconz_addr_ep():
+    data = b'\x01\xaa\x55'
+    extra = b'the rest of the owl'
+
+    r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
+    assert rest == extra
+    assert r.address_mode == t.ADDRESS_MODE.GROUP
+    assert r.address == 0x55aa
+    assert r.serialize() == data
+    a = t.DeconzAddressEndpoint()
+    a.address_mode = 1
+    a.address = 0x55aa
+    assert a.serialize() == data
+
+    data = b'\x02\xaa\x55\xcc'
+    r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
+    assert rest == extra
+    assert r.address_mode == t.ADDRESS_MODE.NWK
+    assert r.address == 0x55aa
+    assert r.endpoint == 0xcc
+    assert r.serialize() == data
+    a = t.DeconzAddressEndpoint()
+    a.address_mode = 2
+    a.address = 0x55aa
+    with pytest.raises(AttributeError):
+        a.serialize()
+    a.endpoint = 0xcc
+    assert a.serialize() == data
+
+    data = b'\x03\x31\x32\x33\x34\x35\x36\x37\x38\xcc'
+    r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
+    assert rest == extra
+    assert r.address_mode == t.ADDRESS_MODE.IEEE
+    assert r.address == [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]
+    assert r.endpoint == 0xcc
+    assert r.serialize() == data
+    a = t.DeconzAddressEndpoint()
+    a.address_mode = 3
+    a.address = [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]
+    with pytest.raises(AttributeError):
+        a.serialize()
+    a.endpoint = 0xcc
+    assert a.serialize() == data

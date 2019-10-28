@@ -209,6 +209,10 @@ class HexRepr:
         return ('0x{:0' + str(self._size * 2) + 'x}').format(self)
 
 
+class GroupId(HexRepr, uint16_t):
+    pass
+
+
 class NWK(HexRepr, uint16_t):
     pass
 
@@ -225,7 +229,7 @@ class DeconzAddress(Struct):
     _fields = [
         # The address format (AddressMode)
         ('address_mode', ADDRESS_MODE),
-        ('address', uint64_t),
+        ('address', EUI64),
     ]
 
     @classmethod
@@ -254,7 +258,7 @@ class DeconzAddressEndpoint(Struct):
     _fields = [
         # The address format (AddressMode)
         ('address_mode', ADDRESS_MODE),
-        ('address', uint64_t),
+        ('address', EUI64),
         ('endpoint', uint8_t)
     ]
 
@@ -264,7 +268,9 @@ class DeconzAddressEndpoint(Struct):
         mode, data = ADDRESS_MODE.deserialize(data)
         r.address_mode = mode
         a = e = None
-        if mode in [ADDRESS_MODE.GROUP, ADDRESS_MODE.NWK]:
+        if mode == ADDRESS_MODE.GROUP:
+            a, data = GroupId.deserialize(data)
+        elif mode == ADDRESS_MODE.NWK:
             a, data = NWK.deserialize(data)
         elif mode == ADDRESS_MODE.IEEE:
             a, data = EUI64.deserialize(data)
@@ -273,6 +279,18 @@ class DeconzAddressEndpoint(Struct):
             e, data = uint8_t.deserialize(data)
         setattr(r, cls._fields[2][0], e)
         return r, data
+
+    def serialize(self):
+        r = uint8_t(self.address_mode).serialize()
+        if self.address_mode == ADDRESS_MODE.NWK:
+            r += NWK(self.address).serialize()
+        elif self.address_mode == ADDRESS_MODE.GROUP:
+            r += GroupId(self.address).serialize()
+        elif self.address_mode == ADDRESS_MODE.IEEE:
+            r += EUI64(self.address).serialize()
+        if self.address_mode in (ADDRESS_MODE.NWK, ADDRESS_MODE.IEEE, ):
+            r += uint8_t(self.endpoint).serialize()
+        return r
 
 
 class Key(FixedList):
