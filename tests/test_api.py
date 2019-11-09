@@ -93,7 +93,7 @@ async def test_command_timeout(api, monkeypatch):
 
 
 def test_api_frame(api):
-    addr = t.DeconzAddress()
+    addr = t.DeconzAddressEndpoint()
     addr.address_mode = t.ADDRESS_MODE.NWK
     addr.address = t.uint8_t(0)
     addr.endpoint = t.uint8_t(0)

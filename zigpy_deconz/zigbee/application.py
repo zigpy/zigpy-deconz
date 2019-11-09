@@ -10,7 +10,7 @@ import zigpy.types
 import zigpy.util
 import zigpy_deconz.exception
 from zigpy_deconz import types as t
-from zigpy_deconz.api import NetworkParameter, NetworkState
+from zigpy_deconz.api import NetworkParameter, NetworkState, Status
 
 LOGGER = logging.getLogger(__name__)
 
@@ -82,6 +82,61 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 return
             await asyncio.sleep(CHANGE_NETWORK_WAIT)
         raise Exception("Could not form network.")
+
+    async def mrequest(
+        self,
+        group_id,
+        profile,
+        cluster,
+        src_ep,
+        sequence,
+        data,
+        *,
+        hops=0,
+        non_member_radius=3
+    ):
+        """Submit and send data out as a multicast transmission.
+
+        :param group_id: destination multicast address
+        :param profile: Zigbee Profile ID to use for outgoing message
+        :param cluster: cluster id where the message is being sent
+        :param src_ep: source endpoint id
+        :param sequence: transaction sequence number of the message
+        :param data: Zigbee message payload
+        :param hops: the message will be delivered to all nodes within this number of
+                     hops of the sender. A value of zero is converted to MAX_HOPS
+        :param non_member_radius: the number of hops that the message will be forwarded
+                                  by devices that are not members of the group. A value
+                                  of 7 or greater is treated as infinite
+        :returns: return a tuple of a status and an error_message. Original requestor
+                  has more context to provide a more meaningful error message
+        """
+        req_id = self.get_sequence()
+        LOGGER.debug("Sending Zigbee multicast with tsn %s under %s request id, data: %s",
+                     sequence, req_id, binascii.hexlify(data))
+        dst_addr_ep = t.DeconzAddressEndpoint()
+        dst_addr_ep.address_mode = t.ADDRESS_MODE.GROUP
+        dst_addr_ep.address = group_id
+
+        with self._pending.new(req_id) as req:
+            try:
+                await self._api.aps_data_request(
+                    req_id,
+                    dst_addr_ep,
+                    profile,
+                    cluster,
+                    min(1, src_ep),
+                    data
+                )
+            except zigpy_deconz.exception.CommandError as ex:
+                return ex.status, "Couldn't enqueue send data request: {}".format(ex)
+
+            r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
+            if r:
+                LOGGER.warning("Error while sending %s req id frame: 0x%02x", req_id, r)
+                return r, "message send failure"
+
+        return Status.SUCCESS, "message send success"
 
     @zigpy.util.retryable_request
     async def request(self, device, profile, cluster, src_ep, dst_ep, sequence, data,
