@@ -30,13 +30,21 @@ class Command(t.uint8_t, enum.Enum):
 
 
 TX_COMMANDS = {
-    Command.aps_data_confirm: (t.uint16_t, ),
+    Command.aps_data_confirm: (t.uint16_t,),
     Command.aps_data_indication: (t.uint16_t, t.uint8_t),
     Command.aps_data_request: (
-        t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
-        t.uint16_t, t.uint16_t, t.uint8_t, t.LVBytes, t.uint8_t, t.uint8_t,
+        t.uint16_t,
+        t.uint8_t,
+        t.uint8_t,
+        t.DeconzAddressEndpoint,
+        t.uint16_t,
+        t.uint16_t,
+        t.uint8_t,
+        t.LVBytes,
+        t.uint8_t,
+        t.uint8_t,
     ),
-    Command.change_network_state: (t.uint8_t, ),
+    Command.change_network_state: (t.uint8_t,),
     Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
     Command.read_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
     Command.version: (),
@@ -45,27 +53,55 @@ TX_COMMANDS = {
 
 RX_COMMANDS = {
     Command.aps_data_confirm: (
-        (t.uint16_t, t.uint8_t, t.uint8_t, t.DeconzAddressEndpoint,
-         t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t),
-        True),
+        (
+            t.uint16_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.DeconzAddressEndpoint,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+        ),
+        True,
+    ),
     Command.aps_data_indication: (
-        (t.uint16_t, t.uint8_t, t.DeconzAddress, t.uint8_t, t.DeconzAddress,
-         t.uint8_t, t.uint16_t, t.uint16_t, t.LVBytes, t.uint8_t,
-         t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t, t.uint8_t,
-         t.int8s),
-        True),
+        (
+            t.uint16_t,
+            t.uint8_t,
+            t.DeconzAddress,
+            t.uint8_t,
+            t.DeconzAddress,
+            t.uint8_t,
+            t.uint16_t,
+            t.uint16_t,
+            t.LVBytes,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.uint8_t,
+            t.int8s,
+        ),
+        True,
+    ),
     Command.aps_data_request: ((t.uint16_t, t.uint8_t, t.uint8_t), True),
-    Command.change_network_state: ((t.uint8_t, ), True),
+    Command.change_network_state: ((t.uint8_t,), True),
     Command.device_state: ((t.uint8_t, t.uint8_t, t.uint8_t), True),
     Command.device_state_changed: ((t.uint8_t, t.uint8_t), False),
     Command.mac_poll: ((t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
     Command.read_parameter: ((t.uint16_t, t.uint8_t, t.Bytes), True),
     Command.simplified_beacon: (
         (t.uint16_t, t.uint16_t, t.uint16_t, t.uint8_t, t.uint8_t, t.uint8_t),
-        False),
-    Command.version: ((t.uint32_t, ), True),
+        False,
+    ),
+    Command.version: ((t.uint32_t,), True),
     Command.write_parameter: ((t.uint16_t, t.uint8_t), True),
-    Command.zigbee_green_power: ((t.LVBytes, ), False),
+    Command.zigbee_green_power: ((t.LVBytes,), False),
 }
 
 
@@ -88,21 +124,21 @@ class NetworkParameter(t.uint8_t, enum.Enum):
 
 
 NETWORK_PARAMETER_SCHEMA = {
-    NetworkParameter.mac_address: (t.EUI64, ),
-    NetworkParameter.nwk_panid: (t.PanId, ),
-    NetworkParameter.nwk_address: (t.NWK, ),
-    NetworkParameter.nwk_extended_panid: (t.ExtendedPanId, ),
-    NetworkParameter.aps_designed_coordinator: (t.uint8_t, ),
-    NetworkParameter.channel_mask: (t.uint32_t, ),
-    NetworkParameter.aps_extended_panid: (t.ExtendedPanId, ),
-    NetworkParameter.trust_center_address: (t.EUI64, ),
-    NetworkParameter.security_mode: (t.uint8_t, ),
-    NetworkParameter.network_key: (t.uint8_t, t.Key, ),
-    NetworkParameter.current_channel: (t.uint8_t, ),
-    NetworkParameter.permit_join: (t.uint8_t, ),
-    NetworkParameter.protocol_version: (t.uint16_t, ),
-    NetworkParameter.nwk_update_id: (t.uint8_t, ),
-    NetworkParameter.watchdog_ttl: (t.uint32_t, ),
+    NetworkParameter.mac_address: (t.EUI64,),
+    NetworkParameter.nwk_panid: (t.PanId,),
+    NetworkParameter.nwk_address: (t.NWK,),
+    NetworkParameter.nwk_extended_panid: (t.ExtendedPanId,),
+    NetworkParameter.aps_designed_coordinator: (t.uint8_t,),
+    NetworkParameter.channel_mask: (t.uint32_t,),
+    NetworkParameter.aps_extended_panid: (t.ExtendedPanId,),
+    NetworkParameter.trust_center_address: (t.EUI64,),
+    NetworkParameter.security_mode: (t.uint8_t,),
+    NetworkParameter.network_key: (t.uint8_t, t.Key),
+    NetworkParameter.current_channel: (t.uint8_t,),
+    NetworkParameter.permit_join: (t.uint8_t,),
+    NetworkParameter.protocol_version: (t.uint16_t,),
+    NetworkParameter.nwk_update_id: (t.uint8_t,),
+    NetworkParameter.watchdog_ttl: (t.uint32_t,),
 }
 
 
@@ -212,11 +248,11 @@ class Deconz:
             fut = self._awaiting.pop(seq)
             if status != Status.SUCCESS:
                 fut.set_exception(
-                    CommandError(status, '%s, status: %s' % (command,
-                                                             status, )))
+                    CommandError(status, "%s, status: %s" % (command, status))
+                )
                 return
             fut.set_result(data)
-        getattr(self, '_handle_%s' % (command.name, ))(data)
+        getattr(self, "_handle_%s" % (command.name,))(data)
 
     def device_state(self):
         return self._command(Command.device_state, 0, 0, 0)
@@ -238,7 +274,7 @@ class Deconz:
             else:
                 param = NetworkParameter(id_)
         except (KeyError, ValueError):
-            raise KeyError("Unknown parameter id: %s" % (id_, ))
+            raise KeyError("Unknown parameter id: %s" % (id_,))
 
         data = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
         r = await self._command(Command.read_parameter, 1 + len(data), param, data)
@@ -266,16 +302,17 @@ class Deconz:
         try:
             param = NetworkParameter(data[1])
         except ValueError:
-            LOGGER.error("Received unknown network param id '%s' response",
-                         data[1])
+            LOGGER.error("Received unknown network param id '%s' response", data[1])
             return
         LOGGER.debug("Write parameter %s: SUCCESS", param.name)
 
     async def version(self):
-        self._proto_ver, = await self[NetworkParameter.protocol_version]
+        (self._proto_ver,) = await self[NetworkParameter.protocol_version]
         version = await self._command(Command.version)
-        if self.protocol_version >= MIN_PROTO_VERSION and \
-                (version[0] & 0x0000FF00) == 0x00000500:
+        if (
+            self.protocol_version >= MIN_PROTO_VERSION
+            and (version[0] & 0x0000FF00) == 0x00000500
+        ):
             self._aps_data_ind_flags = 0x04
         return version[0]
 
@@ -288,10 +325,20 @@ class Deconz:
 
     async def _aps_data_indication(self):
         try:
-            r = await self._command(Command.aps_data_indication, 1, self._aps_data_ind_flags)
-            LOGGER.debug(("'aps_data_indication' response from %s, ep: %s, "
-                          "profile: 0x%04x, cluster_id: 0x%04x, data: %s"),
-                         r[4], r[5], r[6], r[7], binascii.hexlify(r[8]))
+            r = await self._command(
+                Command.aps_data_indication, 1, self._aps_data_ind_flags
+            )
+            LOGGER.debug(
+                (
+                    "'aps_data_indication' response from %s, ep: %s, "
+                    "profile: 0x%04x, cluster_id: 0x%04x, data: %s"
+                ),
+                r[4],
+                r[5],
+                r[6],
+                r[7],
+                binascii.hexlify(r[8]),
+            )
             return r
         except asyncio.TimeoutError:
             self._data_indication = False
@@ -301,24 +348,38 @@ class Deconz:
         self._data_indication = False
         self._handle_device_state_value(data[1])
         if self._app:
-            self._app.handle_rx(data[4],    # src_addr
-                                data[5],    # src_ep
-                                data[3],    # dst_ep
-                                data[6],    # profile_id
-                                data[7],    # cluster_id
-                                data[8],    # APS payload
-                                data[11],   # lqi
-                                data[16])   # rssi
+            self._app.handle_rx(
+                data[4],  # src_addr
+                data[5],  # src_ep
+                data[3],  # dst_ep
+                data[6],  # profile_id
+                data[7],  # cluster_id
+                data[8],  # APS payload
+                data[11],  # lqi
+                data[16],
+            )  # rssi
 
-    async def aps_data_request(self, req_id, dst_addr_ep, profile, cluster, src_ep, aps_payload):
+    async def aps_data_request(
+        self, req_id, dst_addr_ep, profile, cluster, src_ep, aps_payload
+    ):
         dst = dst_addr_ep.serialize()
         length = len(dst) + len(aps_payload) + 11
         delays = (0.5, 1.0, 1.5, None)
         for delay in delays:
             try:
-                return await self._command(Command.aps_data_request, length,
-                                           req_id, 0, dst_addr_ep, profile,
-                                           cluster, src_ep, aps_payload, 2, 0)
+                return await self._command(
+                    Command.aps_data_request,
+                    length,
+                    req_id,
+                    0,
+                    dst_addr_ep,
+                    profile,
+                    cluster,
+                    src_ep,
+                    aps_payload,
+                    2,
+                    0,
+                )
             except CommandError as ex:
                 LOGGER.debug("'aps_data_request' failure: %s", ex)
                 if delay is not None and ex.status == Status.BUSY:
@@ -334,14 +395,20 @@ class Deconz:
     async def _aps_data_confirm(self):
         try:
             r = await self._command(Command.aps_data_confirm, 0)
-            LOGGER.debug(("Request id: 0x%02x 'aps_data_confirm' for %s, "
-                          "status: 0x%02x"), r[2], r[3], r[5])
+            LOGGER.debug(
+                ("Request id: 0x%02x 'aps_data_confirm' for %s, " "status: 0x%02x"),
+                r[2],
+                r[3],
+                r[5],
+            )
             return r
         except asyncio.TimeoutError:
             self._data_confirm = False
 
     def _handle_aps_data_confirm(self, data):
-        LOGGER.debug("APS data confirm response for request with id %s: %02x", data[2], data[5])
+        LOGGER.debug(
+            "APS data confirm response for request with id %s: %02x", data[2], data[5]
+        )
         self._data_confirm = False
         self._handle_device_state_value(data[1])
         self._app.handle_tx_confirm(data[2], data[5])
@@ -353,17 +420,26 @@ class Deconz:
         pass
 
     def _handle_simplified_beacon(self, data):
-        LOGGER.debug(("Received simplified beacon frame: source=0x%04x, "
-                      "pan_id=0x%04x, channel=%s, flags=0x%02x, "
-                      "update_id=0x%02x"),
-                     data[1], data[2], data[3], data[4], data[5])
+        LOGGER.debug(
+            (
+                "Received simplified beacon frame: source=0x%04x, "
+                "pan_id=0x%04x, channel=%s, flags=0x%02x, "
+                "update_id=0x%02x"
+            ),
+            data[1],
+            data[2],
+            data[3],
+            data[4],
+            data[5],
+        )
 
     def _handle_device_state_value(self, value):
         flags = DeviceState.flags(value)
         ns = NetworkState(value & 0x03)
         if ns != self.network_state:
-            LOGGER.debug("Network state transition: %s -> %s",
-                         self.network_state.name, ns.name)
+            LOGGER.debug(
+                "Network state transition: %s -> %s", self.network_state.name, ns.name
+            )
         self.network_state = ns
         if DeviceState.APSDE_DATA_REQUEST not in flags:
             LOGGER.debug("Data request queue full.")
