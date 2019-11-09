@@ -15,14 +15,13 @@ from zigpy_deconz.api import Deconz
 
 @pytest.fixture
 def app(monkeypatch, database_file=None):
-    app = application.ControllerApplication(
-        Deconz(), database_file=database_file)
+    app = application.ControllerApplication(Deconz(), database_file=database_file)
     return app
 
 
 @pytest.fixture
 def ieee():
-    return EUI64.deserialize(b'\x00\x01\x02\x03\x04\x05\x06\x07')[0]
+    return EUI64.deserialize(b"\x00\x01\x02\x03\x04\x05\x06\x07")[0]
 
 
 @pytest.fixture
@@ -57,7 +56,7 @@ def addr_nwk_and_ieee(nwk, ieee):
 
 def _test_rx(app, addr_ieee, addr_nwk, device, data):
     app.get_device = mock.MagicMock(return_value=device)
-    app.devices = (EUI64(addr_ieee.address), )
+    app.devices = (EUI64(addr_ieee.address),)
 
     app.handle_rx(
         addr_nwk,
@@ -127,7 +126,7 @@ def test_rx_wrong_addr_mode(app, addr_ieee, addr_nwk, caplog):
     app.handle_message = mock.MagicMock()
     app.get_device = mock.MagicMock(return_value=device)
 
-    app.devices = (EUI64(addr_ieee.address), )
+    app.devices = (EUI64(addr_ieee.address),)
 
     with pytest.raises(Exception):  # TODO: don't use broad exceptions
         addr_nwk.address_mode = 0x22
@@ -137,7 +136,7 @@ def test_rx_wrong_addr_mode(app, addr_ieee, addr_nwk, caplog):
             mock.sentinel.dst_ep,
             mock.sentinel.profile_id,
             mock.sentinel.cluster_id,
-            b'',
+            b"",
             mock.sentinel.lqi,
             mock.sentinel.rssi,
         )
@@ -155,7 +154,7 @@ def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
         mock.sentinel.dst_ep,
         mock.sentinel.profile_id,
         mock.sentinel.cluster_id,
-        b'',
+        b"",
         mock.sentinel.lqi,
         mock.sentinel.rssi,
     )
@@ -167,9 +166,11 @@ def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
 @pytest.mark.asyncio
 async def test_form_network(app):
     app._api.change_network_state = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock()))
+        side_effect=asyncio.coroutine(mock.MagicMock())
+    )
     app._api.device_state = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock()))
+        side_effect=asyncio.coroutine(mock.MagicMock())
+    )
 
     app._api.network_state = 2
     await app.form_network()
@@ -183,36 +184,29 @@ async def test_form_network(app):
 
 
 @pytest.mark.parametrize(
-    "protocol_ver, watchdog_cc",
-    [
-        (0x0107, False,),
-        (0x0108, True, ),
-        (0x010B, True, ),
-    ],
+    "protocol_ver, watchdog_cc", [(0x0107, False), (0x0108, True), (0x010B, True)]
 )
 @pytest.mark.asyncio
 async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
-
     async def _version():
         app._api._proto_ver = protocol_ver
         return [version]
 
     app._reset_watchdog = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock()))
-    app.form_network = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock()))
-    app._api._command = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock()))
+        side_effect=asyncio.coroutine(mock.MagicMock())
+    )
+    app.form_network = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
+    app._api._command = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
     app._api.read_parameter = mock.MagicMock(
-        side_effect=asyncio.coroutine(
-            mock.MagicMock(return_value=[[0]])))
-    app._api.version = mock.MagicMock(
-        side_effect=_version)
+        side_effect=asyncio.coroutine(mock.MagicMock(return_value=[[0]]))
+    )
+    app._api.version = mock.MagicMock(side_effect=_version)
     app._api.write_parameter = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock()))
+        side_effect=asyncio.coroutine(mock.MagicMock())
+    )
 
     new_mock = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
-    monkeypatch.setattr(application.ConBeeDevice, 'new', new_mock)
+    monkeypatch.setattr(application.ConBeeDevice, "new", new_mock)
     await app.startup(auto_form=False)
     assert app.form_network.call_count == 0
     assert app._reset_watchdog.call_count == watchdog_cc
@@ -223,15 +217,15 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
 @pytest.mark.asyncio
 async def test_permit(app, nwk):
     app._api.write_parameter = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock()))
+        side_effect=asyncio.coroutine(mock.MagicMock())
+    )
     time_s = 30
     await app.permit_ncp(time_s)
     assert app._api.write_parameter.call_count == 1
     assert app._api.write_parameter.call_args_list[0][0][1] == time_s
 
 
-async def _test_request(app, send_success=True, aps_data_error=False,
-                        **kwargs):
+async def _test_request(app, send_success=True, aps_data_error=False, **kwargs):
     seq = 123
 
     async def req_mock(req_id, dst_addr_ep, profile, cluster, src_ep, data):
@@ -246,7 +240,7 @@ async def _test_request(app, send_success=True, aps_data_error=False,
     device = zigpy.device.Device(app, mock.sentinel.ieee, 0x1122)
     app.get_device = mock.MagicMock(return_value=device)
 
-    return await app.request(device, 0x0260, 1, 2, 3, seq, b'\x01\x02\x03', **kwargs)
+    return await app.request(device, 0x0260, 1, 2, 3, seq, b"\x01\x02\x03", **kwargs)
 
 
 @pytest.mark.asyncio
@@ -276,8 +270,7 @@ async def test_request_send_aps_data_error(app):
     assert r[0] != 0
 
 
-async def _test_broadcast(app, send_success=True, aps_data_error=False,
-                          **kwargs):
+async def _test_broadcast(app, send_success=True, aps_data_error=False, **kwargs):
     seq = mock.sentinel.req_id
 
     async def req_mock(req_id, dst_addr_ep, profile, cluster, src_ep, data):
@@ -292,14 +285,21 @@ async def _test_broadcast(app, send_success=True, aps_data_error=False,
     app.get_device = mock.MagicMock(spec_set=zigpy.device.Device)
 
     r = await app.broadcast(
-        mock.sentinel.profile, mock.sentinel.cluster, 2,
-        mock.sentinel.dst_ep, mock.sentinel.grp_id, mock.sentinel.radius,
-        seq, b'\x01\x02\x03', **kwargs)
+        mock.sentinel.profile,
+        mock.sentinel.cluster,
+        2,
+        mock.sentinel.dst_ep,
+        mock.sentinel.grp_id,
+        mock.sentinel.radius,
+        seq,
+        b"\x01\x02\x03",
+        **kwargs
+    )
     assert app._api.aps_data_request.call_count == 1
     assert app._api.aps_data_request.call_args[0][0] is seq
     assert app._api.aps_data_request.call_args[0][2] is mock.sentinel.profile
     assert app._api.aps_data_request.call_args[0][3] is mock.sentinel.cluster
-    assert app._api.aps_data_request.call_args[0][5] == b'\x01\x02\x03'
+    assert app._api.aps_data_request.call_args[0][5] == b"\x01\x02\x03"
     return r
 
 
@@ -337,7 +337,7 @@ def _handle_reply(app, tsn):
         mock.sentinel.dst_ep,
         tsn,
         mock.sentinel.command_id,
-        mock.sentinel.args
+        mock.sentinel.args,
     )
 
 
@@ -359,10 +359,10 @@ def test_rx_device_annce(app, addr_ieee, addr_nwk):
     app._handle_reply = mock.MagicMock()
     app.handle_message = mock.MagicMock()
 
-    data = t.uint8_t(0xaa).serialize()
+    data = t.uint8_t(0xAA).serialize()
     data += addr_nwk.address.serialize()
     data += addr_ieee.address.serialize()
-    data += t.uint8_t(0x8e).serialize()
+    data += t.uint8_t(0x8E).serialize()
 
     app.handle_rx(
         addr_nwk,
@@ -389,10 +389,11 @@ async def test_conbee_dev_add_to_group(app, nwk):
     app._groups.add_group.return_value = group
 
     conbee = application.ConBeeDevice(app, mock.sentinel.ieee, nwk)
-    conbee.endpoints = {0: mock.sentinel.zdo,
-                        1: mock.sentinel.ep1,
-                        2: mock.sentinel.ep2
-                        }
+    conbee.endpoints = {
+        0: mock.sentinel.zdo,
+        1: mock.sentinel.ep1,
+        2: mock.sentinel.ep2,
+    }
 
     await conbee.add_to_group(mock.sentinel.grp_id, mock.sentinel.grp_name)
     assert group.add_member.call_count == 2
@@ -406,12 +407,12 @@ async def test_conbee_dev_add_to_group(app, nwk):
 async def test_conbee_dev_remove_from_group(app, nwk):
     group = mock.MagicMock()
     app.groups[mock.sentinel.grp_id] = group
-    conbee = application.ConBeeDevice(app,
-                                      mock.sentinel.ieee, nwk)
-    conbee.endpoints = {0: mock.sentinel.zdo,
-                        1: mock.sentinel.ep1,
-                        2: mock.sentinel.ep2
-                        }
+    conbee = application.ConBeeDevice(app, mock.sentinel.ieee, nwk)
+    conbee.endpoints = {
+        0: mock.sentinel.zdo,
+        1: mock.sentinel.ep1,
+        2: mock.sentinel.ep2,
+    }
 
     await conbee.remove_from_group(mock.sentinel.grp_id)
     assert group.remove_member.call_count == 2
@@ -425,10 +426,8 @@ def test_conbee_props(nwk):
 
 @pytest.mark.asyncio
 async def test_conbee_new(app, nwk, monkeypatch):
-    mock_init = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock())
-    )
-    monkeypatch.setattr(zigpy.device.Device, '_initialize', mock_init)
+    mock_init = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
+    monkeypatch.setattr(zigpy.device.Device, "_initialize", mock_init)
 
     conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
     assert isinstance(conbee, application.ConBeeDevice)
@@ -436,9 +435,11 @@ async def test_conbee_new(app, nwk, monkeypatch):
     mock_init.reset_mock()
 
     mock_dev = mock.MagicMock()
-    mock_dev.endpoints = {0: mock.MagicMock(),
-                          1: mock.MagicMock(),
-                          22: mock.MagicMock()}
+    mock_dev.endpoints = {
+        0: mock.MagicMock(),
+        1: mock.MagicMock(),
+        22: mock.MagicMock(),
+    }
     app.devices[mock.sentinel.ieee] = mock_dev
     conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
     assert isinstance(conbee, application.ConBeeDevice)
@@ -461,18 +462,17 @@ def test_tx_confirm_dup(app, caplog):
     app.handle_tx_confirm(tsn, mock.sentinel.status)
     assert req.result.set_result.call_count == 1
     assert req.result.set_result.call_args[0][0] is mock.sentinel.status
-    assert any(r.levelname == 'DEBUG' for r in caplog.records)
+    assert any(r.levelname == "DEBUG" for r in caplog.records)
     assert "probably duplicate response" in caplog.text
 
 
 def test_tx_confirm_unexpcted(app, caplog):
     app.handle_tx_confirm(123, 0x00)
-    assert any(r.levelname == 'WARNING' for r in caplog.records)
+    assert any(r.levelname == "WARNING" for r in caplog.records)
     assert "Unexpected transmit confirm for request id" in caplog.text
 
 
-async def _test_mrequest(app, send_success=True, aps_data_error=False,
-                         **kwargs):
+async def _test_mrequest(app, send_success=True, aps_data_error=False, **kwargs):
     seq = 123
     req_id = mock.sentinel.req_id
     app.get_sequence = mock.MagicMock(return_value=req_id)
@@ -489,7 +489,7 @@ async def _test_mrequest(app, send_success=True, aps_data_error=False,
     device = zigpy.device.Device(app, mock.sentinel.ieee, 0x1122)
     app.get_device = mock.MagicMock(return_value=device)
 
-    return await app.mrequest(0x55aa, 0x0260, 1, 2, seq, b'\x01\x02\x03', **kwargs)
+    return await app.mrequest(0x55AA, 0x0260, 1, 2, seq, b"\x01\x02\x03", **kwargs)
 
 
 @pytest.mark.asyncio
