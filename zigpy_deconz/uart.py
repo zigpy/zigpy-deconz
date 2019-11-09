@@ -9,13 +9,13 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Gateway(asyncio.Protocol):
-    END = b'\xC0'
-    ESC = b'\xDB'
-    ESC_END = b'\xDC'
-    ESC_ESC = b'\xDD'
+    END = b"\xC0"
+    ESC = b"\xDB"
+    ESC_END = b"\xDC"
+    ESC_ESC = b"\xDD"
 
     def __init__(self, api, connected_future=None):
-        self._buffer = b''
+        self._buffer = b""
         self._connected_future = connected_future
         self._api = api
 
@@ -45,18 +45,20 @@ class Gateway(asyncio.Protocol):
                 return None
 
             frame = self._buffer[:end]
-            self._buffer = self._buffer[(end + 1):]
+            self._buffer = self._buffer[(end + 1) :]
             frame = self._unescape(frame)
 
-            if (len(frame) < 4):
+            if len(frame) < 4:
                 continue
 
             checksum = frame[-2:]
             frame = frame[:-2]
             if self._checksum(frame) != checksum:
-                LOGGER.warning("Invalid checksum: 0x%s, data: 0x%s",
-                               binascii.hexlify(checksum).decode(),
-                               binascii.hexlify(frame).decode())
+                LOGGER.warning(
+                    "Invalid checksum: 0x%s, data: 0x%s",
+                    binascii.hexlify(checksum).decode(),
+                    binascii.hexlify(frame).decode(),
+                )
                 continue
 
             LOGGER.debug("Frame received: 0x%s", binascii.hexlify(frame).decode())

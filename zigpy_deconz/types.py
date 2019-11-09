@@ -10,7 +10,7 @@ def deserialize(data, schema):
 
 
 def serialize(data, schema):
-    return b''.join(t(v).serialize() for t, v in zip(schema, data))
+    return b"".join(t(v).serialize() for t, v in zip(schema, data))
 
 
 class Bytes(bytes):
@@ -19,7 +19,7 @@ class Bytes(bytes):
 
     @classmethod
     def deserialize(cls, data):
-        return cls(data), b''
+        return cls(data), b""
 
 
 class LVBytes(bytes):
@@ -27,7 +27,7 @@ class LVBytes(bytes):
         return uint16_t(len(self)).serialize() + self
 
     @classmethod
-    def deserialize(cls, data, byteorder='little'):
+    def deserialize(cls, data, byteorder="little"):
         length, data = uint16_t.deserialize(data)
         return cls(data[:length]), data[length:]
 
@@ -36,14 +36,14 @@ class int_t(int):
     _signed = True
     _size = 0
 
-    def serialize(self, byteorder='little'):
+    def serialize(self, byteorder="little"):
         return self.to_bytes(self._size, byteorder, signed=self._signed)
 
     @classmethod
-    def deserialize(cls, data, byteorder='little'):
+    def deserialize(cls, data, byteorder="little"):
         # Work around https://bugs.python.org/issue23640
-        r = cls(int.from_bytes(data[:cls._size], byteorder, signed=cls._signed))
-        data = data[cls._size:]
+        r = cls(int.from_bytes(data[: cls._size], byteorder, signed=cls._signed))
+        data = data[cls._size :]
         return r, data
 
 
@@ -135,7 +135,7 @@ class Struct:
                     setattr(self, field[0], getattr(args[0], field[0]))
 
     def serialize(self):
-        r = b''
+        r = b""
         for field in self._fields:
             if hasattr(self, field[0]):
                 r += getattr(self, field[0]).serialize()
@@ -150,11 +150,11 @@ class Struct:
         return r, data
 
     def __repr__(self):
-        r = '<%s ' % (self.__class__.__name__, )
-        r += ' '.join(
-            ['%s=%s' % (f[0], getattr(self, f[0], None)) for f in self._fields]
+        r = "<%s " % (self.__class__.__name__,)
+        r += " ".join(
+            ["%s=%s" % (f[0], getattr(self, f[0], None)) for f in self._fields]
         )
-        r += '>'
+        r += ">"
         return r
 
 
@@ -195,7 +195,7 @@ class EUI64(FixedList):
     _itemtype = uint8_t
 
     def __repr__(self):
-        return ':'.join('%02x' % i for i in self[::-1])
+        return ":".join("%02x" % i for i in self[::-1])
 
     def __hash__(self):
         return hash(repr(self))
@@ -203,10 +203,10 @@ class EUI64(FixedList):
 
 class HexRepr:
     def __repr__(self):
-        return ('0x{:0' + str(self._size * 2) + 'x}').format(self)
+        return ("0x{:0" + str(self._size * 2) + "x}").format(self)
 
     def __str__(self):
-        return ('0x{:0' + str(self._size * 2) + 'x}').format(self)
+        return ("0x{:0" + str(self._size * 2) + "x}").format(self)
 
 
 class GroupId(HexRepr, uint16_t):
@@ -228,8 +228,8 @@ class ExtendedPanId(EUI64):
 class DeconzAddress(Struct):
     _fields = [
         # The address format (AddressMode)
-        ('address_mode', ADDRESS_MODE),
-        ('address', EUI64),
+        ("address_mode", ADDRESS_MODE),
+        ("address", EUI64),
     ]
 
     @classmethod
@@ -237,9 +237,7 @@ class DeconzAddress(Struct):
         r = cls()
         mode, data = ADDRESS_MODE.deserialize(data)
         r.address_mode = mode
-        if mode in [ADDRESS_MODE.GROUP,
-                    ADDRESS_MODE.NWK,
-                    ADDRESS_MODE.NWK_AND_IEEE]:
+        if mode in [ADDRESS_MODE.GROUP, ADDRESS_MODE.NWK, ADDRESS_MODE.NWK_AND_IEEE]:
             r.address, data = NWK.deserialize(data)
         elif mode == ADDRESS_MODE.IEEE:
             r.address, data = EUI64.deserialize(data)
@@ -257,9 +255,9 @@ class DeconzAddress(Struct):
 class DeconzAddressEndpoint(Struct):
     _fields = [
         # The address format (AddressMode)
-        ('address_mode', ADDRESS_MODE),
-        ('address', EUI64),
-        ('endpoint', uint8_t)
+        ("address_mode", ADDRESS_MODE),
+        ("address", EUI64),
+        ("endpoint", uint8_t),
     ]
 
     @classmethod
@@ -288,7 +286,7 @@ class DeconzAddressEndpoint(Struct):
             r += GroupId(self.address).serialize()
         elif self.address_mode == ADDRESS_MODE.IEEE:
             r += EUI64(self.address).serialize()
-        if self.address_mode in (ADDRESS_MODE.NWK, ADDRESS_MODE.IEEE, ):
+        if self.address_mode in (ADDRESS_MODE.NWK, ADDRESS_MODE.IEEE):
             r += uint8_t(self.endpoint).serialize()
         return r
 
