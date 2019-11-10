@@ -268,7 +268,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 status,
                 exc,
             )
-        except asyncio.futures.InvalidStateError as exc:
+        except asyncio.InvalidStateError as exc:
             LOGGER.debug(
                 "Invalid state on future - probably duplicate response: %s", exc
             )
