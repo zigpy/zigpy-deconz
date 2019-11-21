@@ -26,3 +26,11 @@ For reference, here is a list of unrelated projects that also use the same deCON
 - https://github.com/mozilla-iot/deconz-api
 - https://github.com/adetante/deconz-sp
 - https://github.com/frederic34/plugin-nodeBee
+
+# How to contribute
+
+If you are looking to make a contribution to this project we suggest that you follow the steps in these guides:
+- https://github.com/firstcontributions/first-contributions/blob/master/README.md
+- https://github.com/firstcontributions/first-contributions/blob/master/github-desktop-tutorial.md
+
+Some developers might also be interested in receiving donations in the form of hardware such as Zigbee modules or devices, and even if such donations are most often donated with no strings attached it could in many cases help the developers motivation and indirect improve the development of this project.
