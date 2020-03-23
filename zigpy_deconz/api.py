@@ -30,7 +30,7 @@ class DeviceState(enum.IntFlag):
     APSDE_DATA_CONFIRM = 0x04
     APSDE_DATA_INDICATION = 0x08
     CONF_CHANGED = 0x10
-    APSDE_DATA_REQUEST = 0x20
+    APSDE_DATA_REQUEST_SLOTS_AVAILABLE = 0x20
 
     @classmethod
     def deserialize(cls, data) -> typing.Tuple["DeviceState", bytes]:
@@ -457,7 +457,7 @@ class Deconz:
                 state.network_state.name,
             )
         self._device_state = state
-        if DeviceState.APSDE_DATA_REQUEST not in state:
+        if DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE not in state:
             LOGGER.debug("Data request queue full.")
         if DeviceState.APSDE_DATA_INDICATION in state and not self._data_indication:
             self._data_indication = True
