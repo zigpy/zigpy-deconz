@@ -107,3 +107,17 @@ def test_checksum(gw):
     checksum = b"\x44\xFF"
     r = gw._checksum(data)
     assert r == checksum
+
+
+def test_connection_lost_exc(gw):
+    gw.connection_lost(mock.sentinel.exception)
+
+    conn_lost = gw._api.connection_lost
+    assert conn_lost.call_count == 1
+    assert conn_lost.call_args[0][0] is mock.sentinel.exception
+
+
+def test_connection_closed(gw):
+    gw.connection_lost(None)
+
+    assert gw._api.connection_lost.call_count == 0
