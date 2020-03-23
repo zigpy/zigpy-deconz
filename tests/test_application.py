@@ -10,12 +10,14 @@ import zigpy_deconz.exception
 import zigpy_deconz.zigbee.application as application
 from zigpy.types import EUI64
 from zigpy_deconz import types as t
-from zigpy_deconz.api import Deconz
+import zigpy_deconz.api as deconz_api
 
 
 @pytest.fixture
 def app(monkeypatch, database_file=None):
-    app = application.ControllerApplication(Deconz(), database_file=database_file)
+    app = application.ControllerApplication(
+        deconz_api.Deconz(), database_file=database_file
+    )
     return app
 
 
@@ -172,11 +174,11 @@ async def test_form_network(app):
         side_effect=asyncio.coroutine(mock.MagicMock())
     )
 
-    app._api.network_state = 2
+    app._api._device_state = deconz_api.DeviceState(2)
     await app.form_network()
     assert app._api.device_state.call_count == 0
 
-    app._api.network_state = 0
+    app._api._device_state = deconz_api.DeviceState(0)
     application.CHANGE_NETWORK_WAIT = 0.001
     with pytest.raises(Exception):
         await app.form_network()
