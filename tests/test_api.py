@@ -1,6 +1,8 @@
 import asyncio
+import logging
 from unittest import mock
 
+import asynctest
 import pytest
 
 from zigpy_deconz import api as deconz_api, types as t, uart
@@ -414,3 +416,54 @@ def test_device_state_network_state(data, network_state):
         assert rest == extra
         assert state.network_state == deconz_api.NetworkState[network_state]
         assert state.serialize() == new_data
+
+
+@pytest.mark.asyncio
+async def test_reconnect_multiple_disconnects(monkeypatch, caplog):
+    api = deconz_api.Deconz()
+    dev = mock.sentinel.uart
+    connect_mock = asynctest.CoroutineMock()
+    connect_mock.return_value = asyncio.Future()
+    connect_mock.return_value.set_result(True)
+    monkeypatch.setattr(uart, "connect", connect_mock)
+
+    await api.connect(dev, 115200)
+
+    caplog.set_level(logging.DEBUG)
+    connected = asyncio.Future()
+    connected.set_result(mock.sentinel.uart_reconnect)
+    connect_mock.reset_mock()
+    connect_mock.side_effect = [asyncio.Future(), connected]
+    api.connection_lost("connection lost")
+    await asyncio.sleep(0.3)
+    api.connection_lost("connection lost 2")
+    await asyncio.sleep(0.3)
+
+    assert "Cancelling reconnection attempt" in caplog.messages
+    assert api._uart is mock.sentinel.uart_reconnect
+    assert connect_mock.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_reconnect_multiple_attempts(monkeypatch, caplog):
+    api = deconz_api.Deconz()
+    dev = mock.sentinel.uart
+    connect_mock = asynctest.CoroutineMock()
+    connect_mock.return_value = asyncio.Future()
+    connect_mock.return_value.set_result(True)
+    monkeypatch.setattr(uart, "connect", connect_mock)
+
+    await api.connect(dev, 115200)
+
+    caplog.set_level(logging.DEBUG)
+    connected = asyncio.Future()
+    connected.set_result(mock.sentinel.uart_reconnect)
+    connect_mock.reset_mock()
+    connect_mock.side_effect = [asyncio.TimeoutError, OSError, connected]
+
+    with asynctest.mock.patch("asyncio.sleep"):
+        api.connection_lost("connection lost")
+        await api._conn_lost_task
+
+    assert api._uart is mock.sentinel.uart_reconnect
+    assert connect_mock.call_count == 3
