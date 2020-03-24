@@ -17,6 +17,7 @@ LOGGER = logging.getLogger(__name__)
 CHANGE_NETWORK_WAIT = 1
 SEND_CONFIRM_TIMEOUT = 60
 PROTO_VER_WATCHDOG = 0x0108
+WATCHDOG_TTL = 600
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -33,8 +34,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def _reset_watchdog(self):
         while True:
-            await self._api.write_parameter(NetworkParameter.watchdog_ttl, 3600)
-            await asyncio.sleep(1200)
+            try:
+                await self._api.write_parameter(
+                    NetworkParameter.watchdog_ttl, WATCHDOG_TTL
+                )
+            except asyncio.TimeoutError:
+                LOGGER.warning("No watchdog response")
+            await asyncio.sleep(WATCHDOG_TTL * 0.75)
 
     async def shutdown(self):
         """Shutdown application."""
