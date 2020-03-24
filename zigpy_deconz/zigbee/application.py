@@ -8,9 +8,11 @@ import zigpy.endpoint
 import zigpy.exceptions
 import zigpy.types
 import zigpy.util
-import zigpy_deconz.exception
+import serial
+
 from zigpy_deconz import types as t
 from zigpy_deconz.api import NetworkParameter, NetworkState, Status
+import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 await self._api.write_parameter(
                     NetworkParameter.watchdog_ttl, WATCHDOG_TTL
                 )
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, AttributeError, serial.SerialException):
                 LOGGER.warning("No watchdog response")
             await asyncio.sleep(WATCHDOG_TTL * 0.75)
 
