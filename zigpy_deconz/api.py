@@ -236,11 +236,6 @@ class Deconz:
     async def _reconnect_till_done(self) -> None:
         attempt = 1
         while True:
-            LOGGER.debug(
-                "Reconnecting serial %s port %s attempt",
-                self._uart_conn_info[0],
-                attempt,
-            )
             try:
                 await asyncio.wait_for(self.reconnect(), timeout=10)
                 break
