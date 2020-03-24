@@ -15,9 +15,10 @@ class Gateway(asyncio.Protocol):
     ESC_ESC = b"\xDD"
 
     def __init__(self, api, connected_future=None):
+        self._api = api
         self._buffer = b""
         self._connected_future = connected_future
-        self._api = api
+        self._transport = None
 
     def connection_lost(self, exc) -> None:
         """Port was closed expecteddly or unexpectedly."""

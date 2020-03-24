@@ -186,7 +186,7 @@ NETWORK_PARAMETER_SCHEMA = {
 class Deconz:
     def __init__(self):
         self._uart = None
-        self._uart_conn_info = None
+        self._uart_path = None
         self._seq = 1
         self._awaiting = {}
         self._app = None
@@ -213,13 +213,13 @@ class Deconz:
 
     async def connect(self, device: str, baudrate: int = DECONZ_BAUDRATE) -> None:
         assert self._uart is None
-        self._uart_conn_info = (device, baudrate)
+        self._uart_path = device
         self._uart = await uart.connect(device, DECONZ_BAUDRATE, self)
 
     def connection_lost(self, exc: Exception) -> None:
         """Lost serial connection."""
         LOGGER.warning(
-            "Serial %s connection lost unexpectedly: %s", self._uart_conn_info[0], exc
+            "Serial '%s' connection lost unexpectedly: %s", self._uart_path, exc
         )
         self._uart = None
         if self._conn_lost_task and not self._conn_lost_task.done():
@@ -243,15 +243,15 @@ class Deconz:
                 wait = 2 ** min(attempt, 5)
                 attempt += 1
                 LOGGER.debug(
-                    "Couldn't re-open %s serial port, retrying in %ss: %s",
-                    self._uart_conn_info[0],
+                    "Couldn't re-open '%s' serial port, retrying in %ss: %s",
+                    self._uart_path,
                     wait,
                     str(exc),
                 )
                 await asyncio.sleep(wait)
 
         LOGGER.debug(
-            "Reconnected %s serial on %s attempt", self._uart_conn_info[0], attempt
+            "Reconnected '%s' serial port after %s attempts", self._uart_path, attempt
         )
 
     def close(self):
@@ -341,12 +341,8 @@ class Deconz:
 
     def reconnect(self):
         """Reconnect using saved parameters."""
-        LOGGER.debug(
-            "Reconnecting %s serial port using %s baudrate",
-            self._uart_conn_info[0],
-            self._uart_conn_info[1],
-        )
-        return self.connect(self._uart_conn_info[0], self._uart_conn_info[1])
+        LOGGER.debug("Reconnecting '%s' serial port", self._uart_path)
+        return self.connect(self._uart_path)
 
     def _handle_read_parameter(self, data):
         pass
