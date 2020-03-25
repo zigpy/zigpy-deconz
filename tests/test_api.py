@@ -398,3 +398,19 @@ async def test_version(protocol_ver, firmware_version, flags, api):
 
 def test_handle_version(api):
     api._handle_version([mock.sentinel.version])
+
+
+@pytest.mark.parametrize(
+    "data, network_state",
+    ((0x00, "OFFLINE"), (0x01, "JOINING"), (0x02, "CONNECTED"), (0x03, "LEAVING")),
+)
+def test_device_state_network_state(data, network_state):
+    """Test device state flag."""
+    extra = b"the rest of the data\xaa\x55"
+
+    for other_fields in (0x04, 0x08, 0x0C, 0x10, 0x24, 0x28, 0x30, 0x2C):
+        new_data = t.uint8_t(data | other_fields).serialize()
+        state, rest = deconz_api.DeviceState.deserialize(new_data + extra)
+        assert rest == extra
+        assert state.network_state == deconz_api.NetworkState[network_state]
+        assert state.serialize() == new_data
