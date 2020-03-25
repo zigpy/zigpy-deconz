@@ -259,6 +259,9 @@ class Deconz:
 
     async def _command(self, cmd, *args):
         LOGGER.debug("Command %s %s", cmd, args)
+        if self._uart is None:
+            # connection was lost
+            raise CommandError(Status.ERROR, "API is not running")
         data, seq = self._api_frame(cmd, *args)
         self._uart.send(data)
         fut = asyncio.Future()

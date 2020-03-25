@@ -97,6 +97,22 @@ async def test_command_timeout(api, monkeypatch):
         api._uart.send.reset_mock()
 
 
+@pytest.mark.asyncio
+async def test_command_not_connected(api):
+    api._uart = None
+
+    def mock_api_frame(name, *args):
+        return mock.sentinel.api_frame_data, api._seq
+
+    api._api_frame = mock.MagicMock(side_effect=mock_api_frame)
+
+    for cmd, cmd_opts in deconz_api.TX_COMMANDS.items():
+        with pytest.raises(deconz_api.CommandError):
+            await api._command(cmd, mock.sentinel.cmd_data)
+        assert api._api_frame.call_count == 0
+        api._api_frame.reset_mock()
+
+
 def test_api_frame(api):
     addr = t.DeconzAddressEndpoint()
     addr.address_mode = t.ADDRESS_MODE.NWK
