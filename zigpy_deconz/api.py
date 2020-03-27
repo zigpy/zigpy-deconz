@@ -4,7 +4,9 @@ import enum
 import logging
 import typing
 
-from zigpy_deconz.exception import CommandError
+import serial
+
+from zigpy_deconz.exception import APIException, CommandError
 
 from . import types as t, uart
 
@@ -12,6 +14,7 @@ LOGGER = logging.getLogger(__name__)
 
 COMMAND_TIMEOUT = 2
 DECONZ_BAUDRATE = 38400
+PROBE_TIMEOUT = 3
 MIN_PROTO_VERSION = 0x010B
 
 
@@ -255,7 +258,9 @@ class Deconz:
         )
 
     def close(self):
-        return self._uart.close()
+        if self._uart:
+            self._uart.close()
+            self._uart = None
 
     async def _command(self, cmd, *args):
         LOGGER.debug("Command %s %s", cmd, args)
@@ -326,6 +331,26 @@ class Deconz:
 
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
+
+    @classmethod
+    async def probe(cls, device: str, baudrate: int = DECONZ_BAUDRATE) -> bool:
+        """Probe port for the device presence."""
+        api = cls()
+        try:
+            await asyncio.wait_for(api._probe(device, baudrate), timeout=PROBE_TIMEOUT)
+            return True
+        except (asyncio.TimeoutError, serial.SerialException, APIException) as exc:
+            LOGGER.debug("Unsuccessful radio probe of '%s' port", exc_info=exc)
+        finally:
+            api.close()
+
+        return False
+
+    async def _probe(self, device: str, baudrate: int = DECONZ_BAUDRATE) -> None:
+        """Open port and try sending a command"""
+        await self.connect(device, baudrate)
+        await self.device_state()
+        self.close()
 
     async def read_parameter(self, id_, *args):
         try:

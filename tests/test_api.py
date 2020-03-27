@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from unittest import mock
 
-import asynctest
+from asynctest import CoroutineMock, mock
 import pytest
+import serial
 
 from zigpy_deconz import api as deconz_api, types as t, uart
 import zigpy_deconz.exception
@@ -32,9 +32,10 @@ async def test_connect(monkeypatch):
 
 
 def test_close(api):
-    api._uart.close = mock.MagicMock()
+    uart = api._uart
     api.close()
-    assert api._uart.close.call_count == 1
+    assert api._uart is None
+    assert uart.close.call_count == 1
 
 
 def test_commands():
@@ -438,7 +439,7 @@ def test_device_state_network_state(data, network_state):
 async def test_reconnect_multiple_disconnects(monkeypatch, caplog):
     api = deconz_api.Deconz()
     dev = mock.sentinel.uart
-    connect_mock = asynctest.CoroutineMock()
+    connect_mock = CoroutineMock()
     connect_mock.return_value = asyncio.Future()
     connect_mock.return_value.set_result(True)
     monkeypatch.setattr(uart, "connect", connect_mock)
@@ -464,7 +465,7 @@ async def test_reconnect_multiple_disconnects(monkeypatch, caplog):
 async def test_reconnect_multiple_attempts(monkeypatch, caplog):
     api = deconz_api.Deconz()
     dev = mock.sentinel.uart
-    connect_mock = asynctest.CoroutineMock()
+    connect_mock = CoroutineMock()
     connect_mock.return_value = asyncio.Future()
     connect_mock.return_value.set_result(True)
     monkeypatch.setattr(uart, "connect", connect_mock)
@@ -477,9 +478,57 @@ async def test_reconnect_multiple_attempts(monkeypatch, caplog):
     connect_mock.reset_mock()
     connect_mock.side_effect = [asyncio.TimeoutError, OSError, connected]
 
-    with asynctest.mock.patch("asyncio.sleep"):
+    with mock.patch("asyncio.sleep"):
         api.connection_lost("connection lost")
         await api._conn_lost_task
 
     assert api._uart is mock.sentinel.uart_reconnect
     assert connect_mock.call_count == 3
+
+
+@pytest.mark.asyncio
+@mock.patch.object(deconz_api.Deconz, "device_state", new_callable=CoroutineMock)
+@mock.patch.object(uart, "connect")
+async def test_probe_success(mock_connect, mock_device_state):
+    """Test device probing."""
+
+    res = await deconz_api.Deconz.probe(mock.sentinel.uart, mock.sentinel.baud)
+    assert res is True
+    assert mock_connect.call_count == 1
+    assert mock_connect.await_count == 1
+    assert mock_connect.call_args[0][0] is mock.sentinel.uart
+    assert mock_device_state.call_count == 1
+    assert mock_connect.return_value.close.call_count == 1
+
+    mock_connect.reset_mock()
+    mock_device_state.reset_mock()
+    mock_connect.reset_mock()
+    res = await deconz_api.Deconz.probe(mock.sentinel.uart, mock.sentinel.baud)
+    assert res is True
+    assert mock_connect.call_count == 1
+    assert mock_connect.await_count == 1
+    assert mock_connect.call_args[0][0] is mock.sentinel.uart
+    assert mock_device_state.call_count == 1
+    assert mock_connect.return_value.close.call_count == 1
+
+
+@pytest.mark.asyncio
+@mock.patch.object(deconz_api.Deconz, "device_state", new_callable=CoroutineMock)
+@mock.patch.object(uart, "connect")
+@pytest.mark.parametrize(
+    "exception",
+    (asyncio.TimeoutError, serial.SerialException, zigpy_deconz.exception.CommandError),
+)
+async def test_probe_fail(mock_connect, mock_device_state, exception):
+    """Test device probing fails."""
+
+    mock_device_state.side_effect = exception
+    mock_device_state.reset_mock()
+    mock_connect.reset_mock()
+    res = await deconz_api.Deconz.probe(mock.sentinel.uart, mock.sentinel.baud)
+    assert res is False
+    assert mock_connect.call_count == 1
+    assert mock_connect.await_count == 1
+    assert mock_connect.call_args[0][0] is mock.sentinel.uart
+    assert mock_device_state.call_count == 1
+    assert mock_connect.return_value.close.call_count == 1
