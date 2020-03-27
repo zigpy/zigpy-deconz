@@ -1,17 +1,61 @@
 import asyncio
-import logging
-import enum
 import binascii
+import enum
+import logging
+import typing
 
-from . import uart
-from . import types as t
-from zigpy_deconz.exception import CommandError
+import serial
+
+from zigpy_deconz.exception import APIException, CommandError
+
+from . import types as t, uart
 
 LOGGER = logging.getLogger(__name__)
 
 COMMAND_TIMEOUT = 2
 DECONZ_BAUDRATE = 38400
+PROBE_TIMEOUT = 3
 MIN_PROTO_VERSION = 0x010B
+
+
+class Status(t.uint8_t, enum.Enum):
+    SUCCESS = 0
+    FAILURE = 1
+    BUSY = 2
+    TIMEOUT = 3
+    UNSUPPORTED = 4
+    ERROR = 5
+    NO_NETWORK = 6
+    INVALID_VALUE = 7
+
+
+class DeviceState(enum.IntFlag):
+    APSDE_DATA_CONFIRM = 0x04
+    APSDE_DATA_INDICATION = 0x08
+    CONF_CHANGED = 0x10
+    APSDE_DATA_REQUEST_SLOTS_AVAILABLE = 0x20
+
+    @classmethod
+    def deserialize(cls, data) -> typing.Tuple["DeviceState", bytes]:
+        """Deserialize DevceState."""
+        state, data = t.uint8_t.deserialize(data)
+        return cls(state), data
+
+    def serialize(self) -> bytes:
+        """Serialize data."""
+        return t.uint8_t(self).serialize()
+
+    @property
+    def network_state(self) -> "NetworkState":
+        """Return network state."""
+        return NetworkState(self & 0x03)
+
+
+class NetworkState(t.uint8_t, enum.Enum):
+    OFFLINE = 0
+    JOINING = 1
+    CONNECTED = 2
+    LEAVING = 3
 
 
 class Command(t.uint8_t, enum.Enum):
@@ -55,7 +99,7 @@ RX_COMMANDS = {
     Command.aps_data_confirm: (
         (
             t.uint16_t,
-            t.uint8_t,
+            DeviceState,
             t.uint8_t,
             t.DeconzAddressEndpoint,
             t.uint8_t,
@@ -70,7 +114,7 @@ RX_COMMANDS = {
     Command.aps_data_indication: (
         (
             t.uint16_t,
-            t.uint8_t,
+            DeviceState,
             t.DeconzAddress,
             t.uint8_t,
             t.DeconzAddress,
@@ -89,10 +133,10 @@ RX_COMMANDS = {
         ),
         True,
     ),
-    Command.aps_data_request: ((t.uint16_t, t.uint8_t, t.uint8_t), True),
+    Command.aps_data_request: ((t.uint16_t, DeviceState, t.uint8_t), True),
     Command.change_network_state: ((t.uint8_t,), True),
-    Command.device_state: ((t.uint8_t, t.uint8_t, t.uint8_t), True),
-    Command.device_state_changed: ((t.uint8_t, t.uint8_t), False),
+    Command.device_state: ((DeviceState, t.uint8_t, t.uint8_t), True),
+    Command.device_state_changed: ((DeviceState, t.uint8_t), False),
     Command.mac_poll: ((t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
     Command.read_parameter: ((t.uint16_t, t.uint8_t, t.Bytes), True),
     Command.simplified_beacon: (
@@ -142,48 +186,25 @@ NETWORK_PARAMETER_SCHEMA = {
 }
 
 
-class Status(t.uint8_t, enum.Enum):
-    SUCCESS = 0
-    FAILURE = 1
-    BUSY = 2
-    TIMEOUT = 3
-    UNSUPPORTED = 4
-    ERROR = 5
-    NO_NETWORK = 6
-    INVALID_VALUE = 7
-
-
-class DeviceState(t.uint8_t, enum.Enum):
-    APSDE_DATA_CONFIRM = 0x04
-    APSDE_DATA_INDICATION = 0x08
-    CONF_CHANGED = 0x10
-    APSDE_DATA_REQUEST = 0x20
-
-    @classmethod
-    def flags(cls, value: int):
-        """Make it into list of flags, until we deprecate py35 and py36."""
-        return [flag for flag in cls if (value & flag) == flag]
-
-
-class NetworkState(t.uint8_t, enum.Enum):
-    OFFLINE = 0
-    JOINING = 1
-    CONNECTED = 2
-    LEAVING = 3
-
-
 class Deconz:
     def __init__(self):
         self._uart = None
+        self._uart_path = None
         self._seq = 1
         self._awaiting = {}
         self._app = None
         self._cmd_mode_future = None
-        self.network_state = NetworkState.OFFLINE
+        self._conn_lost_task = None
+        self._device_state = DeviceState(NetworkState.OFFLINE)
         self._data_indication = False
         self._data_confirm = False
         self._proto_ver = None
         self._aps_data_ind_flags = 0x01
+
+    @property
+    def network_state(self) -> NetworkState:
+        """Return current network state."""
+        return self._device_state.network_state
 
     @property
     def protocol_version(self):
@@ -193,15 +214,59 @@ class Deconz:
     def set_application(self, app):
         self._app = app
 
-    async def connect(self, device, baudrate=DECONZ_BAUDRATE):
+    async def connect(self, device: str, baudrate: int = DECONZ_BAUDRATE) -> None:
         assert self._uart is None
+        self._uart_path = device
         self._uart = await uart.connect(device, DECONZ_BAUDRATE, self)
 
+    def connection_lost(self, exc: Exception) -> None:
+        """Lost serial connection."""
+        LOGGER.warning(
+            "Serial '%s' connection lost unexpectedly: %s", self._uart_path, exc
+        )
+        self._uart = None
+        if self._conn_lost_task and not self._conn_lost_task.done():
+            self._conn_lost_task.cancel()
+        self._conn_lost_task = asyncio.ensure_future(self._connection_lost())
+
+    async def _connection_lost(self) -> None:
+        """Reconnect serial port."""
+        try:
+            await self._reconnect_till_done()
+        except asyncio.CancelledError:
+            LOGGER.debug("Cancelling reconnection attempt")
+
+    async def _reconnect_till_done(self) -> None:
+        attempt = 1
+        while True:
+            try:
+                await asyncio.wait_for(self.reconnect(), timeout=10)
+                break
+            except (asyncio.TimeoutError, OSError) as exc:
+                wait = 2 ** min(attempt, 5)
+                attempt += 1
+                LOGGER.debug(
+                    "Couldn't re-open '%s' serial port, retrying in %ss: %s",
+                    self._uart_path,
+                    wait,
+                    str(exc),
+                )
+                await asyncio.sleep(wait)
+
+        LOGGER.debug(
+            "Reconnected '%s' serial port after %s attempts", self._uart_path, attempt
+        )
+
     def close(self):
-        return self._uart.close()
+        if self._uart:
+            self._uart.close()
+            self._uart = None
 
     async def _command(self, cmd, *args):
         LOGGER.debug("Command %s %s", cmd, args)
+        if self._uart is None:
+            # connection was lost
+            raise CommandError(Status.ERROR, "API is not running")
         data, seq = self._api_frame(cmd, *args)
         self._uart.send(data)
         fut = asyncio.Future()
@@ -267,6 +332,26 @@ class Deconz:
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
+    @classmethod
+    async def probe(cls, device: str, baudrate: int = DECONZ_BAUDRATE) -> bool:
+        """Probe port for the device presence."""
+        api = cls()
+        try:
+            await asyncio.wait_for(api._probe(device, baudrate), timeout=PROBE_TIMEOUT)
+            return True
+        except (asyncio.TimeoutError, serial.SerialException, APIException) as exc:
+            LOGGER.debug("Unsuccessful radio probe of '%s' port", exc_info=exc)
+        finally:
+            api.close()
+
+        return False
+
+    async def _probe(self, device: str, baudrate: int = DECONZ_BAUDRATE) -> None:
+        """Open port and try sending a command"""
+        await self.connect(device, baudrate)
+        await self.device_state()
+        self.close()
+
     async def read_parameter(self, id_, *args):
         try:
             if isinstance(id_, str):
@@ -281,6 +366,11 @@ class Deconz:
         data = t.deserialize(r[2], NETWORK_PARAMETER_SCHEMA[param])[0]
         LOGGER.debug("Read parameter %s response: %s", param.name, data)
         return data
+
+    def reconnect(self):
+        """Reconnect using saved parameters."""
+        LOGGER.debug("Reconnecting '%s' serial port", self._uart_path)
+        return self.connect(self._uart_path)
 
     def _handle_read_parameter(self, data):
         pass
@@ -433,20 +523,20 @@ class Deconz:
             data[5],
         )
 
-    def _handle_device_state_value(self, value):
-        flags = DeviceState.flags(value)
-        ns = NetworkState(value & 0x03)
-        if ns != self.network_state:
+    def _handle_device_state_value(self, state: DeviceState) -> None:
+        if state.network_state != self.network_state:
             LOGGER.debug(
-                "Network state transition: %s -> %s", self.network_state.name, ns.name
+                "Network state transition: %s -> %s",
+                self.network_state.name,
+                state.network_state.name,
             )
-        self.network_state = ns
-        if DeviceState.APSDE_DATA_REQUEST not in flags:
+        self._device_state = state
+        if DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE not in state:
             LOGGER.debug("Data request queue full.")
-        if DeviceState.APSDE_DATA_INDICATION in flags and not self._data_indication:
+        if DeviceState.APSDE_DATA_INDICATION in state and not self._data_indication:
             self._data_indication = True
             asyncio.ensure_future(self._aps_data_indication())
-        if DeviceState.APSDE_DATA_CONFIRM in flags and not self._data_confirm:
+        if DeviceState.APSDE_DATA_CONFIRM in state and not self._data_confirm:
             self._data_confirm = True
             asyncio.ensure_future(self._aps_data_confirm())
 

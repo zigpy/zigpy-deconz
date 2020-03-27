@@ -1,8 +1,8 @@
 import asyncio
-import logging
-import serial
 import binascii
+import logging
 
+import serial
 import serial_asyncio
 
 LOGGER = logging.getLogger(__name__)
@@ -15,9 +15,24 @@ class Gateway(asyncio.Protocol):
     ESC_ESC = b"\xDD"
 
     def __init__(self, api, connected_future=None):
+        self._api = api
         self._buffer = b""
         self._connected_future = connected_future
-        self._api = api
+        self._transport = None
+
+    def connection_lost(self, exc) -> None:
+        """Port was closed expecteddly or unexpectedly."""
+        if self._connected_future and not self._connected_future.done():
+            if exc is None:
+                self._connected_future.set_result(True)
+            else:
+                self._connected_future.set_exception(exc)
+        if exc is None:
+            LOGGER.debug("Closed serial connection")
+            return
+
+        LOGGER.error("Lost serial connection: %s", exc)
+        self._api.connection_lost(exc)
 
     def connection_made(self, transport):
         """Callback when the uart is connected"""
