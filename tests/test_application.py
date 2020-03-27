@@ -524,7 +524,7 @@ async def test_reset_watchdog(app):
         assert mock_api.call_count == 1
 
     with asynctest.patch.object(app._api, "write_parameter") as mock_api:
-        mock_api.side_effect = zigpy_deconz.exception.ZigbeeException
+        mock_api.side_effect = zigpy_deconz.exception.CommandError
         dog = asyncio.ensure_future(app._reset_watchdog())
         await asyncio.sleep(0.3)
         dog.cancel()
