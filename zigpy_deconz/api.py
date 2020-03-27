@@ -1,12 +1,12 @@
 import asyncio
-import logging
-import enum
 import binascii
+import enum
+import logging
 import typing
 
-from . import uart
-from . import types as t
 from zigpy_deconz.exception import CommandError
+
+from . import types as t, uart
 
 LOGGER = logging.getLogger(__name__)
 
