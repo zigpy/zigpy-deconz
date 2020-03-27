@@ -1,11 +1,7 @@
-from zigpy.exceptions import ZigbeeException
+from zigpy.exceptions import APIException
 
 
-class DeconzException(ZigbeeException):
-    pass
-
-
-class CommandError(DeconzException):
+class CommandError(APIException):
     def __init__(self, status, *args, **kwargs):
         self._status = status
         super().__init__(*args, **kwargs)

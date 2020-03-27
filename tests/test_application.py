@@ -2,6 +2,7 @@ import asyncio
 import logging
 from unittest import mock
 
+import asynctest
 import pytest
 
 import zigpy.device
@@ -510,3 +511,21 @@ async def test_mrequest_send_fail(app):
 async def test_mrequest_send_aps_data_error(app):
     r = await _test_mrequest(app, False, aps_data_error=True)
     assert r[0] != 0
+
+
+@pytest.mark.asyncio
+@mock.patch.object(application, "WATCHDOG_TTL", new=1)
+async def test_reset_watchdog(app):
+    """Test watchdog."""
+    with asynctest.patch.object(app._api, "write_parameter") as mock_api:
+        dog = asyncio.ensure_future(app._reset_watchdog())
+        await asyncio.sleep(0.3)
+        dog.cancel()
+        assert mock_api.call_count == 1
+
+    with asynctest.patch.object(app._api, "write_parameter") as mock_api:
+        mock_api.side_effect = zigpy_deconz.exception.CommandError
+        dog = asyncio.ensure_future(app._reset_watchdog())
+        await asyncio.sleep(0.3)
+        dog.cancel()
+        assert mock_api.call_count == 1
