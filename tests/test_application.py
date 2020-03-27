@@ -4,14 +4,14 @@ from unittest import mock
 
 import asynctest
 import pytest
-
 import zigpy.device
-import zigpy.zdo.types as zdo_t
-import zigpy_deconz.exception
-import zigpy_deconz.zigbee.application as application
 from zigpy.types import EUI64
+import zigpy.zdo.types as zdo_t
+
 from zigpy_deconz import types as t
 import zigpy_deconz.api as deconz_api
+import zigpy_deconz.exception
+import zigpy_deconz.zigbee.application as application
 
 
 @pytest.fixture
