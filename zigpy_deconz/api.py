@@ -339,7 +339,11 @@ class Deconz:
             await asyncio.wait_for(api._probe(), timeout=PROBE_TIMEOUT)
             return True
         except (asyncio.TimeoutError, serial.SerialException, APIException) as exc:
-            LOGGER.debug("Unsuccessful radio probe of '%s' port", exc_info=exc)
+            LOGGER.debug(
+                "Unsuccessful radio probe of '%s' port",
+                device_config[CONF_DEVICE_PATH],
+                exc_info=exc,
+            )
         finally:
             api.close()
 
