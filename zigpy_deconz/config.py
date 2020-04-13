@@ -11,7 +11,7 @@ CONF_WATCHDOG_TTL_DEFAULT = 600
 CONFIG_SCHEMA = CONFIG_SCHEMA.extend(
     {
         vol.Optional(CONF_WATCHDOG_TTL, default=CONF_WATCHDOG_TTL_DEFAULT): vol.All(
-            int, vol.Range(min_included=180)
+            int, vol.Range(min=180)
         )
     }
 )
