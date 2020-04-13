@@ -1,8 +1,10 @@
 import asyncio
 import binascii
 import logging
+from typing import Any, Dict
 
 import zigpy.application
+import zigpy.config
 import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
@@ -11,6 +13,7 @@ import zigpy.util
 
 from zigpy_deconz import types as t
 from zigpy_deconz.api import NetworkParameter, NetworkState, Status
+from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA
 import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
@@ -22,26 +25,24 @@ WATCHDOG_TTL = 600
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
-    def __init__(self, api, database_file=None):
-        super().__init__(database_file=database_file)
-        self._api = api
-        api.set_application(self)
+    SCHEMA = CONFIG_SCHEMA
 
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config=zigpy.config.ZIGPY_SCHEMA(config))
+        self._api = None
         self._pending = zigpy.util.Requests()
-
         self._nwk = 0
-        self.discovering = False
         self.version = 0
 
     async def _reset_watchdog(self):
         while True:
             try:
                 await self._api.write_parameter(
-                    NetworkParameter.watchdog_ttl, WATCHDOG_TTL
+                    NetworkParameter.watchdog_ttl, self._config[CONF_WATCHDOG_TTL]
                 )
             except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
                 LOGGER.warning("No watchdog response")
-            await asyncio.sleep(WATCHDOG_TTL * 0.75)
+            await asyncio.sleep(self._config[CONF_WATCHDOG_TTL] * 0.75)
 
     async def shutdown(self):
         """Shutdown application."""
