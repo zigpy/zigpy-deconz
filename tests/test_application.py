@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from unittest import mock
 
-import asynctest
+from asynctest import CoroutineMock, mock
 import pytest
+import zigpy.config
 import zigpy.device
 from zigpy.types import EUI64
 import zigpy.zdo.types as zdo_t
@@ -15,10 +15,16 @@ import zigpy_deconz.zigbee.application as application
 
 
 @pytest.fixture
-def app(monkeypatch, database_file=None):
-    app = application.ControllerApplication(
-        deconz_api.Deconz(), database_file=database_file
+def app(database_file=None):
+    config = application.ControllerApplication.SCHEMA(
+        {
+            zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: "/dev/null"},
+            zigpy.config.CONF_DATABASE: database_file,
+        }
     )
+
+    app = application.ControllerApplication(config)
+    app._api = deconz_api.Deconz(app, config[zigpy.config.CONF_DEVICE])
     return app
 
 
@@ -168,21 +174,24 @@ def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
 
 @pytest.mark.asyncio
 async def test_form_network(app):
-    app._api.change_network_state = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock())
-    )
-    app._api.device_state = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock())
+    app._api.change_network_state = CoroutineMock()
+    app._api.device_state = CoroutineMock(
+        return_value=deconz_api.NetworkState.CONNECTED
     )
 
-    app._api._device_state = deconz_api.DeviceState(2)
+    app._api._device_state = deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED)
     await app.form_network()
-    assert app._api.device_state.call_count == 0
+    assert app._api.change_network_state.call_count == 0
+    assert app._api.change_network_state.await_count == 0
+    assert app._api.device_state.await_count == 0
 
-    app._api._device_state = deconz_api.DeviceState(0)
+    app._api._device_state = deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE)
     application.CHANGE_NETWORK_WAIT = 0.001
     with pytest.raises(Exception):
         await app.form_network()
+    assert app._api.change_network_state.call_count == 1
+    assert app._api.change_network_state.await_count == 1
+    assert app._api.device_state.await_count == 10
     assert app._api.device_state.call_count == 10
 
 
@@ -195,26 +204,24 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
         app._api._proto_ver = protocol_ver
         return [version]
 
-    app._reset_watchdog = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock())
-    )
-    app.form_network = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
-    app._api._command = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
-    app._api.read_parameter = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock(return_value=[[0]]))
-    )
-    app._api.version = mock.MagicMock(side_effect=_version)
-    app._api.write_parameter = mock.MagicMock(
-        side_effect=asyncio.coroutine(mock.MagicMock())
-    )
+    app._reset_watchdog = CoroutineMock()
+    app.form_network = CoroutineMock()
 
-    new_mock = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
-    monkeypatch.setattr(application.ConBeeDevice, "new", new_mock)
-    await app.startup(auto_form=False)
-    assert app.form_network.call_count == 0
-    assert app._reset_watchdog.call_count == watchdog_cc
-    await app.startup(auto_form=True)
-    assert app.form_network.call_count == 1
+    app._api._command = CoroutineMock()
+    api = deconz_api.Deconz(app, app._config[zigpy.config.CONF_DEVICE])
+    api.connect = CoroutineMock()
+    api._command = CoroutineMock()
+    api.read_parameter = CoroutineMock(return_value=[[0]])
+    api.version = mock.MagicMock(side_effect=_version)
+    api.write_parameter = CoroutineMock()
+
+    monkeypatch.setattr(application.ConBeeDevice, "new", CoroutineMock())
+    with mock.patch.object(application, "Deconz", return_value=api):
+        await app.startup(auto_form=False)
+        assert app.form_network.call_count == 0
+        assert app._reset_watchdog.call_count == watchdog_cc
+        await app.startup(auto_form=True)
+        assert app.form_network.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -514,16 +521,15 @@ async def test_mrequest_send_aps_data_error(app):
 
 
 @pytest.mark.asyncio
-@mock.patch.object(application, "WATCHDOG_TTL", new=1)
 async def test_reset_watchdog(app):
     """Test watchdog."""
-    with asynctest.patch.object(app._api, "write_parameter") as mock_api:
+    with mock.patch.object(app._api, "write_parameter") as mock_api:
         dog = asyncio.ensure_future(app._reset_watchdog())
         await asyncio.sleep(0.3)
         dog.cancel()
         assert mock_api.call_count == 1
 
-    with asynctest.patch.object(app._api, "write_parameter") as mock_api:
+    with mock.patch.object(app._api, "write_parameter") as mock_api:
         mock_api.side_effect = zigpy_deconz.exception.CommandError
         dog = asyncio.ensure_future(app._reset_watchdog())
         await asyncio.sleep(0.3)
