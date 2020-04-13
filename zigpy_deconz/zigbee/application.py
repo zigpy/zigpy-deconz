@@ -12,7 +12,7 @@ import zigpy.types
 import zigpy.util
 
 from zigpy_deconz import types as t
-from zigpy_deconz.api import NetworkParameter, NetworkState, Status
+from zigpy_deconz.api import Deconz, NetworkParameter, NetworkState, Status
 from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA
 import zigpy_deconz.exception
 
@@ -50,6 +50,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def startup(self, auto_form=False):
         """Perform a complete application startup"""
+        self._api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
+        await self._api.connect()
         self.version = await self._api.version()
         await self._api.device_state()
         (ieee,) = await self._api[NetworkParameter.mac_address]
