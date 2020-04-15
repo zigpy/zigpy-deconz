@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
+from zigpy.types import APSStatus
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -73,6 +74,18 @@ class Command(t.uint8_t, enum.Enum):
     simplified_beacon = 0x1F
 
 
+class TXStatus(t.uint8_t, enum.Enum):
+    SUCCESS = 0x00
+
+    @classmethod
+    def _missing_(cls, value):
+        chained = APSStatus(value)
+        status = t.uint8_t.__new__(cls, chained.value)
+        status._name_ = chained.name
+        status._value_ = value
+        return status
+
+
 TX_COMMANDS = {
     Command.aps_data_confirm: (t.uint16_t,),
     Command.aps_data_indication: (t.uint16_t, t.uint8_t),
@@ -103,7 +116,7 @@ RX_COMMANDS = {
             t.uint8_t,
             t.DeconzAddressEndpoint,
             t.uint8_t,
-            t.uint8_t,
+            TXStatus,
             t.uint8_t,
             t.uint8_t,
             t.uint8_t,
