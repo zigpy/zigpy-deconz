@@ -536,3 +536,30 @@ async def test_probe_fail(mock_connect, mock_device_state, exception):
     assert mock_connect.call_args[0][0] is DEVICE_CONFIG
     assert mock_device_state.call_count == 1
     assert mock_connect.return_value.close.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "value, name",
+    (
+        (0x00, "SUCCESS"),
+        (0xA0, "APS_ASDU_TOO_LONG"),
+        (0x01, "MAC_PAN_AT_CAPACITY"),
+        (0xC9, "NWK_UNSUPPORTED_ATTRIBUTE"),
+        (0xFE, "undefined_0xfe"),
+    ),
+)
+def test_tx_status(value, name):
+    """Test tx status undefined values."""
+    i = deconz_api.TXStatus(value)
+    assert i == value
+    assert i.value == value
+    assert i.name == name
+
+    extra = b"\xaa\55"
+    data = t.uint8_t(value).serialize()
+    status, rest = deconz_api.TXStatus.deserialize(data + extra)
+    assert rest == extra
+    assert isinstance(status, deconz_api.TXStatus)
+    assert status == value
+    assert status.value == value
+    assert status.name == name
