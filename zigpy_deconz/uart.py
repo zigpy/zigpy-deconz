@@ -1,11 +1,16 @@
 import asyncio
 import binascii
 import logging
+from typing import Callable, Dict
 
 import serial
 import serial_asyncio
+from zigpy.config import CONF_DEVICE_PATH
 
 LOGGER = logging.getLogger(__name__)
+
+
+DECONZ_BAUDRATE = 38400
 
 
 class Gateway(asyncio.Protocol):
@@ -118,7 +123,7 @@ class Gateway(asyncio.Protocol):
         return bytes(ret)
 
 
-async def connect(port, baudrate, api, loop=None):
+async def connect(config: Dict[str, str], api: Callable, loop=None) -> Gateway:
     if loop is None:
         loop = asyncio.get_event_loop()
 
@@ -128,8 +133,8 @@ async def connect(port, baudrate, api, loop=None):
     _, protocol = await serial_asyncio.create_serial_connection(
         loop,
         lambda: protocol,
-        url=port,
-        baudrate=baudrate,
+        url=config[CONF_DEVICE_PATH],
+        baudrate=DECONZ_BAUDRATE,
         parity=serial.PARITY_NONE,
         stopbits=serial.STOPBITS_ONE,
         xonxoff=False,

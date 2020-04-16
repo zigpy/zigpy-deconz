@@ -1,8 +1,10 @@
 import asyncio
 import binascii
 import logging
+from typing import Any, Dict
 
 import zigpy.application
+import zigpy.config
 import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
@@ -10,7 +12,8 @@ import zigpy.types
 import zigpy.util
 
 from zigpy_deconz import types as t
-from zigpy_deconz.api import NetworkParameter, NetworkState, Status
+from zigpy_deconz.api import Deconz, NetworkParameter, NetworkState, Status
+from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA
 import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
@@ -22,26 +25,24 @@ WATCHDOG_TTL = 600
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
-    def __init__(self, api, database_file=None):
-        super().__init__(database_file=database_file)
-        self._api = api
-        api.set_application(self)
+    SCHEMA = CONFIG_SCHEMA
 
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config=zigpy.config.ZIGPY_SCHEMA(config))
+        self._api = None
         self._pending = zigpy.util.Requests()
-
         self._nwk = 0
-        self.discovering = False
         self.version = 0
 
     async def _reset_watchdog(self):
         while True:
             try:
                 await self._api.write_parameter(
-                    NetworkParameter.watchdog_ttl, WATCHDOG_TTL
+                    NetworkParameter.watchdog_ttl, self._config[CONF_WATCHDOG_TTL]
                 )
             except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
                 LOGGER.warning("No watchdog response")
-            await asyncio.sleep(WATCHDOG_TTL * 0.75)
+            await asyncio.sleep(self._config[CONF_WATCHDOG_TTL] * 0.75)
 
     async def shutdown(self):
         """Shutdown application."""
@@ -49,6 +50,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def startup(self, auto_form=False):
         """Perform a complete application startup"""
+        self._api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
+        await self._api.connect()
         self.version = await self._api.version()
         await self._api.device_state()
         (ieee,) = await self._api[NetworkParameter.mac_address]
@@ -138,7 +141,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
             r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
             if r:
-                LOGGER.warning("Error while sending %s req id frame: 0x%02x", req_id, r)
+                LOGGER.warning("Error while sending %s req id frame: %s", req_id, r)
                 return r, "message send failure"
 
         return Status.SUCCESS, "message send success"
@@ -183,7 +186,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
 
             if r:
-                LOGGER.warning("Error while sending %s req id frame: 0x%02x", req_id, r)
+                LOGGER.warning("Error while sending %s req id frame: %s", req_id, r)
                 return r, "message send failure"
 
             return r, "message send success"
@@ -225,9 +228,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
 
             if r:
-                LOGGER.warning(
-                    "Error while sending %s req id broadcast: 0x%02x", req_id, r
-                )
+                LOGGER.warning("Error while sending %s req id broadcast: %s", req_id, r)
                 return r, "broadcast send failure"
             return r, "broadcast send success"
 
@@ -268,12 +269,11 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         try:
             self._pending[req_id].result.set_result(status)
             return
-        except KeyError as exc:
+        except KeyError:
             LOGGER.warning(
-                "Unexpected transmit confirm for request id %s, Status: 0x%02x, %s",
+                "Unexpected transmit confirm for request id %s, Status: %s",
                 req_id,
                 status,
-                exc,
             )
         except asyncio.InvalidStateError as exc:
             LOGGER.debug(

@@ -2,18 +2,19 @@ import asyncio
 import binascii
 import enum
 import logging
-import typing
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import serial
+from zigpy.config import CONF_DEVICE_PATH
+from zigpy.types import APSStatus
 
 from zigpy_deconz.exception import APIException, CommandError
-
-from . import types as t, uart
+import zigpy_deconz.types as t
+import zigpy_deconz.uart
 
 LOGGER = logging.getLogger(__name__)
 
 COMMAND_TIMEOUT = 2
-DECONZ_BAUDRATE = 38400
 PROBE_TIMEOUT = 3
 MIN_PROTO_VERSION = 0x010B
 
@@ -36,7 +37,7 @@ class DeviceState(enum.IntFlag):
     APSDE_DATA_REQUEST_SLOTS_AVAILABLE = 0x20
 
     @classmethod
-    def deserialize(cls, data) -> typing.Tuple["DeviceState", bytes]:
+    def deserialize(cls, data) -> Tuple["DeviceState", bytes]:
         """Deserialize DevceState."""
         state, data = t.uint8_t.deserialize(data)
         return cls(state), data
@@ -73,6 +74,18 @@ class Command(t.uint8_t, enum.Enum):
     simplified_beacon = 0x1F
 
 
+class TXStatus(t.uint8_t, enum.Enum):
+    SUCCESS = 0x00
+
+    @classmethod
+    def _missing_(cls, value):
+        chained = APSStatus(value)
+        status = t.uint8_t.__new__(cls, chained.value)
+        status._name_ = chained.name
+        status._value_ = value
+        return status
+
+
 TX_COMMANDS = {
     Command.aps_data_confirm: (t.uint16_t,),
     Command.aps_data_indication: (t.uint16_t, t.uint8_t),
@@ -103,7 +116,7 @@ RX_COMMANDS = {
             t.uint8_t,
             t.DeconzAddressEndpoint,
             t.uint8_t,
-            t.uint8_t,
+            TXStatus,
             t.uint8_t,
             t.uint8_t,
             t.uint8_t,
@@ -187,19 +200,18 @@ NETWORK_PARAMETER_SCHEMA = {
 
 
 class Deconz:
-    def __init__(self):
-        self._uart = None
-        self._uart_path = None
-        self._seq = 1
+    def __init__(self, app: Callable, device_config: Dict[str, Any]):
+        self._app = app
+        self._aps_data_ind_flags: int = 0x01
         self._awaiting = {}
-        self._app = None
-        self._cmd_mode_future = None
-        self._conn_lost_task = None
+        self._config = device_config
+        self._conn_lost_task: Optional[asyncio.Task] = None
+        self._data_indication: bool = False
+        self._data_confirm: bool = False
         self._device_state = DeviceState(NetworkState.OFFLINE)
-        self._data_indication = False
-        self._data_confirm = False
-        self._proto_ver = None
-        self._aps_data_ind_flags = 0x01
+        self._seq = 1
+        self._proto_ver: Optional[int] = None
+        self._uart: Optional[zigpy_deconz.uart.Gateway] = None
 
     @property
     def network_state(self) -> NetworkState:
@@ -211,18 +223,16 @@ class Deconz:
         """Protocol Version."""
         return self._proto_ver
 
-    def set_application(self, app):
-        self._app = app
-
-    async def connect(self, device: str, baudrate: int = DECONZ_BAUDRATE) -> None:
+    async def connect(self) -> None:
         assert self._uart is None
-        self._uart_path = device
-        self._uart = await uart.connect(device, DECONZ_BAUDRATE, self)
+        self._uart = await zigpy_deconz.uart.connect(self._config, self)
 
     def connection_lost(self, exc: Exception) -> None:
         """Lost serial connection."""
         LOGGER.warning(
-            "Serial '%s' connection lost unexpectedly: %s", self._uart_path, exc
+            "Serial '%s' connection lost unexpectedly: %s",
+            self._config[CONF_DEVICE_PATH],
+            exc,
         )
         self._uart = None
         if self._conn_lost_task and not self._conn_lost_task.done():
@@ -247,14 +257,16 @@ class Deconz:
                 attempt += 1
                 LOGGER.debug(
                     "Couldn't re-open '%s' serial port, retrying in %ss: %s",
-                    self._uart_path,
+                    self._config[CONF_DEVICE_PATH],
                     wait,
                     str(exc),
                 )
                 await asyncio.sleep(wait)
 
         LOGGER.debug(
-            "Reconnected '%s' serial port after %s attempts", self._uart_path, attempt
+            "Reconnected '%s' serial port after %s attempts",
+            self._config[CONF_DEVICE_PATH],
+            attempt,
         )
 
     def close(self):
@@ -333,22 +345,26 @@ class Deconz:
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
     @classmethod
-    async def probe(cls, device: str, baudrate: int = DECONZ_BAUDRATE) -> bool:
+    async def probe(cls, device_config: Dict[str, Any]) -> bool:
         """Probe port for the device presence."""
-        api = cls()
+        api = cls(None, device_config)
         try:
-            await asyncio.wait_for(api._probe(device, baudrate), timeout=PROBE_TIMEOUT)
+            await asyncio.wait_for(api._probe(), timeout=PROBE_TIMEOUT)
             return True
         except (asyncio.TimeoutError, serial.SerialException, APIException) as exc:
-            LOGGER.debug("Unsuccessful radio probe of '%s' port", exc_info=exc)
+            LOGGER.debug(
+                "Unsuccessful radio probe of '%s' port",
+                device_config[CONF_DEVICE_PATH],
+                exc_info=exc,
+            )
         finally:
             api.close()
 
         return False
 
-    async def _probe(self, device: str, baudrate: int = DECONZ_BAUDRATE) -> None:
+    async def _probe(self) -> None:
         """Open port and try sending a command"""
-        await self.connect(device, baudrate)
+        await self.connect()
         await self.device_state()
         self.close()
 
@@ -369,8 +385,8 @@ class Deconz:
 
     def reconnect(self):
         """Reconnect using saved parameters."""
-        LOGGER.debug("Reconnecting '%s' serial port", self._uart_path)
-        return self.connect(self._uart_path)
+        LOGGER.debug("Reconnecting '%s' serial port", self._config[CONF_DEVICE_PATH])
+        return self.connect()
 
     def _handle_read_parameter(self, data):
         pass
