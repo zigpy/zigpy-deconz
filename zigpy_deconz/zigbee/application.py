@@ -1,6 +1,7 @@
 import asyncio
 import binascii
 import logging
+import re
 from typing import Any, Dict
 
 import zigpy.application
@@ -73,7 +74,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         if auto_form:
             await self.form_network()
-        self.devices[self.ieee] = await ConBeeDevice.new(self, self.ieee, self.nwk)
+        self.devices[self.ieee] = await DeconzDevice.new(
+            self,
+            self.ieee,
+            self.nwk,
+            self.version,
+            self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
+        )
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
@@ -281,8 +288,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
 
 
-class ConBeeDevice(zigpy.device.Device):
+class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
+
+    def __init__(self, version: int, device_path: str, *args):
+        super().__init__(*args)
+        is_gpio_device = re.match(r"/dev/tty(S|AMA)\d+", device_path)
+        self._model = "RaspBee" if is_gpio_device else "ConBee"
+        self._model += " II" if ((version & 0x0000FF00) == 0x00000700) else ""
 
     async def add_to_group(self, grp_id: int, name: str = None) -> None:
         group = self.application.groups.add_group(grp_id, name)
@@ -306,12 +319,12 @@ class ConBeeDevice(zigpy.device.Device):
 
     @property
     def model(self):
-        return "ConBee"
+        return self._model
 
     @classmethod
-    async def new(cls, application, ieee, nwk):
+    async def new(cls, application, ieee, nwk, version: int, device_path: str):
         """Create or replace zigpy device."""
-        dev = cls(application, ieee, nwk)
+        dev = cls(version, device_path, application, ieee, nwk)
 
         if ieee in application.devices:
             from_dev = application.get_device(ieee=ieee)

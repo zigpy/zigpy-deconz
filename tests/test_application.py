@@ -15,10 +15,15 @@ import zigpy_deconz.zigbee.application as application
 
 
 @pytest.fixture
-def app(database_file=None):
+def device_path():
+    return "/dev/null"
+
+
+@pytest.fixture
+def app(device_path, database_file=None):
     config = application.ControllerApplication.SCHEMA(
         {
-            zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: "/dev/null"},
+            zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: device_path},
             zigpy.config.CONF_DATABASE: database_file,
         }
     )
@@ -215,7 +220,7 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
     api.version = mock.MagicMock(side_effect=_version)
     api.write_parameter = CoroutineMock()
 
-    monkeypatch.setattr(application.ConBeeDevice, "new", CoroutineMock())
+    monkeypatch.setattr(application.DeconzDevice, "new", CoroutineMock())
     with mock.patch.object(application, "Deconz", return_value=api):
         await app.startup(auto_form=False)
         assert app.form_network.call_count == 0
@@ -393,19 +398,19 @@ def test_rx_device_annce(app, addr_ieee, addr_nwk):
 
 
 @pytest.mark.asyncio
-async def test_conbee_dev_add_to_group(app, nwk):
+async def test_deconz_dev_add_to_group(app, nwk, device_path):
     group = mock.MagicMock()
     app._groups = mock.MagicMock()
     app._groups.add_group.return_value = group
 
-    conbee = application.ConBeeDevice(app, mock.sentinel.ieee, nwk)
-    conbee.endpoints = {
+    deconz = application.DeconzDevice(0, device_path, app, mock.sentinel.ieee, nwk)
+    deconz.endpoints = {
         0: mock.sentinel.zdo,
         1: mock.sentinel.ep1,
         2: mock.sentinel.ep2,
     }
 
-    await conbee.add_to_group(mock.sentinel.grp_id, mock.sentinel.grp_name)
+    await deconz.add_to_group(mock.sentinel.grp_id, mock.sentinel.grp_name)
     assert group.add_member.call_count == 2
 
     assert app.groups.add_group.call_count == 1
@@ -414,33 +419,53 @@ async def test_conbee_dev_add_to_group(app, nwk):
 
 
 @pytest.mark.asyncio
-async def test_conbee_dev_remove_from_group(app, nwk):
+async def test_deconz_dev_remove_from_group(app, nwk, device_path):
     group = mock.MagicMock()
     app.groups[mock.sentinel.grp_id] = group
-    conbee = application.ConBeeDevice(app, mock.sentinel.ieee, nwk)
-    conbee.endpoints = {
+    deconz = application.DeconzDevice(0, device_path, app, mock.sentinel.ieee, nwk)
+    deconz.endpoints = {
         0: mock.sentinel.zdo,
         1: mock.sentinel.ep1,
         2: mock.sentinel.ep2,
     }
 
-    await conbee.remove_from_group(mock.sentinel.grp_id)
+    await deconz.remove_from_group(mock.sentinel.grp_id)
     assert group.remove_member.call_count == 2
 
 
-def test_conbee_props(nwk):
-    conbee = application.ConBeeDevice(app, mock.sentinel.ieee, nwk)
-    assert conbee.manufacturer is not None
-    assert conbee.model is not None
+def test_deconz_props(nwk, device_path):
+    deconz = application.DeconzDevice(0, device_path, app, mock.sentinel.ieee, nwk)
+    assert deconz.manufacturer is not None
+    assert deconz.model is not None
+
+
+@pytest.mark.parametrize(
+    "name, firmware_version, device_path",
+    [
+        ("ConBee", 0x00000500, "/dev/ttyUSB0"),
+        ("ConBee II", 0x00000700, "/dev/ttyUSB0"),
+        ("RaspBee", 0x00000500, "/dev/ttyS0"),
+        ("RaspBee II", 0x00000700, "/dev/ttyS0"),
+        ("RaspBee", 0x00000500, "/dev/ttyAMA0"),
+        ("RaspBee II", 0x00000700, "/dev/ttyAMA0"),
+    ],
+)
+def test_deconz_name(nwk, name, firmware_version, device_path):
+    deconz = application.DeconzDevice(
+        firmware_version, device_path, app, mock.sentinel.ieee, nwk
+    )
+    assert deconz.model == name
 
 
 @pytest.mark.asyncio
-async def test_conbee_new(app, nwk, monkeypatch):
+async def test_deconz_new(app, nwk, device_path, monkeypatch):
     mock_init = mock.MagicMock(side_effect=asyncio.coroutine(mock.MagicMock()))
     monkeypatch.setattr(zigpy.device.Device, "_initialize", mock_init)
 
-    conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
-    assert isinstance(conbee, application.ConBeeDevice)
+    deconz = await application.DeconzDevice.new(
+        app, mock.sentinel.ieee, nwk, 0, device_path
+    )
+    assert isinstance(deconz, application.DeconzDevice)
     assert mock_init.call_count == 1
     mock_init.reset_mock()
 
@@ -451,8 +476,10 @@ async def test_conbee_new(app, nwk, monkeypatch):
         22: mock.MagicMock(),
     }
     app.devices[mock.sentinel.ieee] = mock_dev
-    conbee = await application.ConBeeDevice.new(app, mock.sentinel.ieee, nwk)
-    assert isinstance(conbee, application.ConBeeDevice)
+    deconz = await application.DeconzDevice.new(
+        app, mock.sentinel.ieee, nwk, 0, device_path
+    )
+    assert isinstance(deconz, application.DeconzDevice)
     assert mock_init.call_count == 0
 
 
