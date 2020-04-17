@@ -10,7 +10,7 @@ import zigpy_deconz.exception
 
 
 @pytest.fixture
-def api():
+def api(event_loop):
     api = deconz_api.Deconz()
     api._uart = mock.MagicMock()
     return api
@@ -72,6 +72,26 @@ async def test_command(api, monkeypatch):
         assert api._api_frame.call_args[0][1] == mock.sentinel.cmd_data
         assert api._uart.send.call_count == 1
         assert api._uart.send.call_args[0][0] == mock.sentinel.api_frame_data
+        api._api_frame.reset_mock()
+        api._uart.send.reset_mock()
+
+
+@pytest.mark.asyncio
+async def test_command_queue(api, monkeypatch):
+    def mock_api_frame(name, *args):
+        return mock.sentinel.api_frame_data, api._seq
+
+    api._api_frame = mock.MagicMock(side_effect=mock_api_frame)
+    api._uart.send = mock.MagicMock()
+
+    monkeypatch.setattr(deconz_api, "COMMAND_TIMEOUT", 0.1)
+
+    for cmd, cmd_opts in deconz_api.TX_COMMANDS.items():
+        async with api._command_lock:
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(api._command(cmd, mock.sentinel.cmd_data), 0.1)
+        assert api._api_frame.call_count == 0
+        assert api._uart.send.call_count == 0
         api._api_frame.reset_mock()
         api._uart.send.reset_mock()
 

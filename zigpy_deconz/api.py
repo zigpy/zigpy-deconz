@@ -193,11 +193,11 @@ class Deconz:
         self._seq = 1
         self._awaiting = {}
         self._app = None
-        self._cmd_mode_future = None
-        self._conn_lost_task = None
+        self._command_lock = asyncio.Lock()
+        self._conn_lost_task: typing.Optional[asyncio.Task] = None
+        self._data_indication: bool = False
+        self._data_confirm: bool = False
         self._device_state = DeviceState(NetworkState.OFFLINE)
-        self._data_indication = False
-        self._data_confirm = False
         self._proto_ver = None
         self._aps_data_ind_flags = 0x01
 
@@ -263,20 +263,23 @@ class Deconz:
             self._uart = None
 
     async def _command(self, cmd, *args):
-        LOGGER.debug("Command %s %s", cmd, args)
         if self._uart is None:
             # connection was lost
             raise CommandError(Status.ERROR, "API is not running")
-        data, seq = self._api_frame(cmd, *args)
-        self._uart.send(data)
-        fut = asyncio.Future()
-        self._awaiting[seq] = fut
-        try:
-            return await asyncio.wait_for(fut, timeout=COMMAND_TIMEOUT)
-        except asyncio.TimeoutError:
-            LOGGER.warning("No response to '%s' command", cmd)
-            self._awaiting.pop(seq)
-            raise
+        async with self._command_lock:
+            LOGGER.debug("Command %s %s", cmd, args)
+            data, seq = self._api_frame(cmd, *args)
+            self._uart.send(data)
+            fut = asyncio.Future()
+            self._awaiting[seq] = fut
+            try:
+                return await asyncio.wait_for(fut, timeout=COMMAND_TIMEOUT)
+            except asyncio.TimeoutError:
+                LOGGER.warning(
+                    "No response to '%s' command with seq id '0x%02x'", cmd, seq
+                )
+                self._awaiting.pop(seq)
+                raise
 
     def _api_frame(self, cmd, *args):
         schema = TX_COMMANDS[cmd]
