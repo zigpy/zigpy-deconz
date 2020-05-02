@@ -14,7 +14,7 @@ import zigpy.util
 
 from zigpy_deconz import types as t
 from zigpy_deconz.api import Deconz, NetworkParameter, NetworkState, Status
-from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA
+from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA, SCHEMA_DEVICE
 import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
@@ -27,6 +27,9 @@ WATCHDOG_TTL = 600
 
 class ControllerApplication(zigpy.application.ControllerApplication):
     SCHEMA = CONFIG_SCHEMA
+    SCHEMA_DEVICE = SCHEMA_DEVICE
+
+    probe = Deconz.probe
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config=zigpy.config.ZIGPY_SCHEMA(config))
