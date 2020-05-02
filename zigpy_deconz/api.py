@@ -14,8 +14,8 @@ import zigpy_deconz.uart
 
 LOGGER = logging.getLogger(__name__)
 
-COMMAND_TIMEOUT = 2
-PROBE_TIMEOUT = 3
+COMMAND_TIMEOUT = 1
+PROBE_TIMEOUT = 2
 MIN_PROTO_VERSION = 0x010B
 
 
