@@ -104,7 +104,7 @@ TX_COMMANDS = {
     Command.change_network_state: (t.uint8_t,),
     Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
     Command.read_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
-    Command.version: (),
+    Command.version: (t.uint32_t,),
     Command.write_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
 }
 
@@ -212,7 +212,13 @@ class Deconz:
         self._device_state = DeviceState(NetworkState.OFFLINE)
         self._seq = 1
         self._proto_ver: Optional[int] = None
+        self._firmware_version: Optional[int] = None
         self._uart: Optional[zigpy_deconz.uart.Gateway] = None
+
+    @property
+    def firmware_version(self) -> Optional[int]:
+        """Return ConBee firmware version."""
+        return self._firmware_version
 
     @property
     def network_state(self) -> NetworkState:
@@ -220,7 +226,7 @@ class Deconz:
         return self._device_state.network_state
 
     @property
-    def protocol_version(self):
+    def protocol_version(self) -> Optional[int]:
         """Protocol Version."""
         return self._proto_ver
 
@@ -418,13 +424,13 @@ class Deconz:
 
     async def version(self):
         (self._proto_ver,) = await self[NetworkParameter.protocol_version]
-        version = await self._command(Command.version)
+        (self._firmware_version,) = await self._command(Command.version, 0)
         if (
             self.protocol_version >= MIN_PROTO_VERSION
-            and (version[0] & 0x0000FF00) == 0x00000500
+            and (self.firmware_version & 0x0000FF00) == 0x00000500
         ):
             self._aps_data_ind_flags = 0x04
-        return version[0]
+        return self.firmware_version
 
     def _handle_version(self, data):
         LOGGER.debug("Version response: %x", data[0])
