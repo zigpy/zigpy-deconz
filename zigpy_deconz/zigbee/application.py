@@ -77,13 +77,16 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         if auto_form:
             await self.form_network()
-        self.devices[self.ieee] = await DeconzDevice.new(
+        coordinator = await DeconzDevice.new(
             self,
             self.ieee,
             self.nwk,
             self.version,
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
         )
+
+        coordinator.neighbors.add_context_listener(self._dblistener)
+        self.devices[self.ieee] = coordinator
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
