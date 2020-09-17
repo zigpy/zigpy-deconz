@@ -1,3 +1,5 @@
+"""deCONZ serial protocol API."""
+
 import asyncio
 import binascii
 import enum
@@ -200,7 +202,10 @@ NETWORK_PARAMETER_SCHEMA = {
 
 
 class Deconz:
+    """deCONZ API class."""
+
     def __init__(self, app: Callable, device_config: Dict[str, Any]):
+        """Init instance."""
         self._app = app
         self._aps_data_ind_flags: int = 0x01
         self._awaiting = {}
@@ -373,7 +378,7 @@ class Deconz:
         return False
 
     async def _probe(self) -> None:
-        """Open port and try sending a command"""
+        """Open port and try sending a command."""
         await self.connect()
         await self.device_state()
         self.close()
@@ -567,7 +572,9 @@ class Deconz:
             asyncio.ensure_future(self._aps_data_confirm())
 
     def __getitem__(self, key):
+        """Access parameters via getitem."""
         return self.read_parameter(key)
 
     def __setitem__(self, key, value):
+        """Set parameters via setitem."""
         return asyncio.ensure_future(self.write_parameter(key, value))
