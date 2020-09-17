@@ -3,6 +3,7 @@
 import asyncio
 import binascii
 import enum
+import functools
 import logging
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -73,6 +74,7 @@ class Command(t.uint8_t, enum.Enum):
     aps_data_indication = 0x17
     zigbee_green_power = 0x19
     mac_poll = 0x1C
+    add_neighbour = 0x1D
     simplified_beacon = 0x1F
 
 
@@ -89,6 +91,7 @@ class TXStatus(t.uint8_t, enum.Enum):
 
 
 TX_COMMANDS = {
+    Command.add_neighbour: (t.uint16_t, t.uint8_t, t.NWK, t.EUI64, t.uint8_t),
     Command.aps_data_confirm: (t.uint16_t,),
     Command.aps_data_indication: (t.uint16_t, t.uint8_t),
     Command.aps_data_request: (
@@ -111,6 +114,7 @@ TX_COMMANDS = {
 }
 
 RX_COMMANDS = {
+    Command.add_neighbour: ((t.uint16_t, t.uint8_t, t.NWK, t.EUI64, t.uint8_t), True),
     Command.aps_data_confirm: (
         (
             t.uint16_t,
@@ -346,6 +350,8 @@ class Deconz:
             fut.set_result(data)
         getattr(self, "_handle_%s" % (command.name,))(data)
 
+    add_neighbour = functools.partialmethod(_command, Command.add_neighbour, 12)
+
     def device_state(self):
         return self._command(Command.device_state, 0, 0, 0)
 
@@ -525,6 +531,10 @@ class Deconz:
             return r
         except asyncio.TimeoutError:
             self._data_confirm = False
+
+    def _handle_add_neighbour(self, data) -> None:
+        """Handle add_neighbour response."""
+        LOGGER.debug("add neighbour response: %s", data)
 
     def _handle_aps_data_confirm(self, data):
         LOGGER.debug(
