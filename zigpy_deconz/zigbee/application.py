@@ -24,6 +24,7 @@ LOGGER = logging.getLogger(__name__)
 CHANGE_NETWORK_WAIT = 1
 SEND_CONFIRM_TIMEOUT = 60
 PROTO_VER_WATCHDOG = 0x0108
+PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
 
 
@@ -91,7 +92,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         coordinator.neighbors.add_context_listener(self._dblistener)
         self.devices[self.ieee] = coordinator
-        await self.restore_neighbours()
+        if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
+            await self.restore_neighbours()
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
