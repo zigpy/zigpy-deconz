@@ -309,12 +309,12 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         neigbours = (nei.device for nei in coord.neighbors)
         for nei_device in neigbours:
             LOGGER.debug(
-                "%s device, FFD=%s, Rx_on_when_idle=%s: %s %s",
-                nei_device.ieee,
-                nei_device.node_desc.is_full_function_device,
-                nei_device.node_desc.is_receiver_on_when_idle,
+                "device: 0x%04x - %s %s, FFD=%s, Rx_on_when_idle=%s",
+                nei_device.nwk,
                 nei_device.manufacturer,
                 nei_device.model,
+                nei_device.node_desc.is_full_function_device,
+                nei_device.node_desc.is_receiver_on_when_idle,
             )
             if nei_device is None:
                 continue
