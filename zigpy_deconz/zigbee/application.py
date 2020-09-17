@@ -1,3 +1,5 @@
+"""ControllerApplication for deCONZ protocol based adapters."""
+
 import asyncio
 import binascii
 import logging
@@ -32,6 +34,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     probe = Deconz.probe
 
     def __init__(self, config: Dict[str, Any]):
+        """Initialize instance."""
+
         super().__init__(config=zigpy.config.ZIGPY_SCHEMA(config))
         self._api = None
         self._pending = zigpy.util.Requests()
@@ -53,7 +57,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._api.close()
 
     async def startup(self, auto_form=False):
-        """Perform a complete application startup"""
+        """Perform a complete application startup."""
         self._api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
         await self._api.connect()
         self.version = await self._api.version()
@@ -87,6 +91,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         coordinator.neighbors.add_context_listener(self._dblistener)
         self.devices[self.ieee] = coordinator
+        await self.restore_neighbours()
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
@@ -293,11 +298,42 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 "Invalid state on future - probably duplicate response: %s", exc
             )
 
+    async def restore_neighbours(self) -> None:
+        """Restore children."""
+        coord = self.devices[self.ieee]
+        neigbours = (nei.device for nei in coord.neighbors)
+        for nei_device in neigbours:
+            LOGGER.debug(
+                "%s device, FFD=%s, Rx_on_when_idle=%s: %s %s",
+                nei_device.ieee,
+                nei_device.node_desc.is_full_function_device,
+                nei_device.node_desc.is_receiver_on_when_idle,
+                nei_device.manufacturer,
+                nei_device.model,
+            )
+            if nei_device is None:
+                continue
+            descr = nei_device.node_desc
+            if not descr.is_valid:
+                continue
+            if descr.is_full_function_device or descr.is_receiver_on_when_idle:
+                continue
+            LOGGER.debug(
+                "Restoring %s/0x%04x device as direct child",
+                nei_device.ieee,
+                nei_device.nwk,
+            )
+            await self._api.add_neighbour(
+                0x01, nei_device.nwk, nei_device.ieee, descr.mac_capability_flags
+            )
+
 
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
     def __init__(self, version: int, device_path: str, *args):
+        """Initialize instance."""
+
         super().__init__(*args)
         is_gpio_device = re.match(r"/dev/tty(S|AMA)\d+", device_path)
         self._model = "RaspBee" if is_gpio_device else "ConBee"
@@ -336,6 +372,7 @@ class DeconzDevice(zigpy.device.Device):
             from_dev = application.get_device(ieee=ieee)
             dev.status = from_dev.status
             dev.node_desc = from_dev.node_desc
+            dev.neighbors = from_dev.neighbors
             for ep_id, from_ep in from_dev.endpoints.items():
                 if not ep_id:
                     continue  # Skip ZDO
