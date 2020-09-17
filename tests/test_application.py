@@ -36,7 +36,8 @@ def app(device_path, database_file=None):
 
     app = application.ControllerApplication(config)
     api = MagicMock(spec_set=zigpy_deconz.api.Deconz)
-    with patch.object(app, "_api", return_value=api):
+    p2 = patch.object(app, "_delayed_neighbour_scan")
+    with patch.object(app, "_api", return_value=api), p2:
         yield app
 
 
