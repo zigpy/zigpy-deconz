@@ -6,6 +6,7 @@ import logging
 import pytest
 import zigpy.config
 import zigpy.device
+import zigpy.neighbor
 from zigpy.types import EUI64
 import zigpy.zdo.types as zdo_t
 
@@ -34,8 +35,9 @@ def app(device_path, database_file=None):
     )
 
     app = application.ControllerApplication(config)
-    app._api = deconz_api.Deconz(app, config[zigpy.config.CONF_DEVICE])
-    return app
+    api = MagicMock(spec_set=zigpy_deconz.api.Deconz)
+    with patch.object(app, "_api", return_value=api):
+        yield app
 
 
 @pytest.fixture
@@ -185,14 +187,15 @@ def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
 async def test_form_network(app):
     app._api.change_network_state = AsyncMock()
     app._api.device_state = AsyncMock(return_value=deconz_api.NetworkState.CONNECTED)
+    app._api.network_state = deconz_api.NetworkState.CONNECTED
 
-    app._api._device_state = deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED)
     await app.form_network()
     assert app._api.change_network_state.call_count == 0
     assert app._api.change_network_state.await_count == 0
     assert app._api.device_state.await_count == 0
 
     app._api._device_state = deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE)
+    app._api.network_state = deconz_api.NetworkState.OFFLINE
     application.CHANGE_NETWORK_WAIT = 0.001
     with pytest.raises(Exception):
         await app.form_network()
@@ -542,3 +545,8 @@ async def test_reset_watchdog(app):
         await asyncio.sleep(0.3)
         dog.cancel()
         assert mock_api.call_count == 1
+
+
+async def test_force_remove(app):
+    """Test forcibly removing a device."""
+    await app.force_remove(sentinel.device)
