@@ -11,6 +11,7 @@ import zigpy.config
 import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
+import zigpy.neighbor
 import zigpy.types
 import zigpy.util
 
@@ -22,6 +23,7 @@ import zigpy_deconz.exception
 LOGGER = logging.getLogger(__name__)
 
 CHANGE_NETWORK_WAIT = 1
+DELAY_NEIGHBOUR_SCAN_S = 1500
 SEND_CONFIRM_TIMEOUT = 60
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
@@ -94,6 +96,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self.devices[self.ieee] = coordinator
         if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
             await self.restore_neighbours()
+        asyncio.create_task(self._delayed_neighbour_scan())
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
@@ -329,6 +332,12 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 0x01, nei_device.nwk, nei_device.ieee, descr.mac_capability_flags
             )
 
+    async def _delayed_neighbour_scan(self) -> None:
+        """Scan coordinator's neighbours."""
+        await asyncio.sleep(DELAY_NEIGHBOUR_SCAN_S)
+        coord = self.get_device(ieee=self.ieee)
+        await coord.neighbors.scan()
+
 
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
@@ -374,7 +383,9 @@ class DeconzDevice(zigpy.device.Device):
             from_dev = application.get_device(ieee=ieee)
             dev.status = from_dev.status
             dev.node_desc = from_dev.node_desc
-            dev.neighbors = from_dev.neighbors
+            dev.neighbors = zigpy.neighbor.Neighbors(dev)
+            for nei in from_dev.neighbors.neighbors:
+                dev.neighbors.add_neighbor(nei.neighbor)
             for ep_id, from_ep in from_dev.endpoints.items():
                 if not ep_id:
                     continue  # Skip ZDO
