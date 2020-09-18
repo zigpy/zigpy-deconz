@@ -207,12 +207,27 @@ async def test_form_network(app):
 
 
 @pytest.mark.parametrize(
-    "protocol_ver, watchdog_cc", [(0x0107, False), (0x0108, True), (0x010B, True)]
+    "protocol_ver, watchdog_cc, nwk_state, designed_coord, form_count",
+    [
+        (0x0107, False, deconz_api.NetworkState.CONNECTED, 1, 0),
+        (0x0108, True, deconz_api.NetworkState.CONNECTED, 1, 0),
+        (0x010B, True, deconz_api.NetworkState.CONNECTED, 1, 0),
+        (0x010B, True, deconz_api.NetworkState.CONNECTED, 0, 1),
+        (0x010B, True, deconz_api.NetworkState.OFFLINE, 1, 1),
+        (0x010B, True, deconz_api.NetworkState.OFFLINE, 0, 1),
+    ],
 )
-async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
+async def test_startup(
+    protocol_ver, watchdog_cc, app, nwk_state, designed_coord, form_count, version=0
+):
     async def _version():
         app._api._proto_ver = protocol_ver
         return [version]
+
+    async def _read_param(param, *args):
+        if param == deconz_api.NetworkParameter.mac_address:
+            return (t.EUI64([0x01] * 8),)
+        return (designed_coord,)
 
     app._reset_watchdog = AsyncMock()
     app.form_network = AsyncMock()
@@ -222,21 +237,21 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
     api = deconz_api.Deconz(app, app._config[zigpy.config.CONF_DEVICE])
     api.connect = AsyncMock()
     api._command = AsyncMock()
-    api.read_parameter = AsyncMock(return_value=[[0]])
+    api.device_state = AsyncMock(return_value=(deconz_api.DeviceState(nwk_state), 0, 0))
+    api.read_parameter = AsyncMock(side_effect=_read_param)
     api.version = MagicMock(side_effect=_version)
     api.write_parameter = AsyncMock()
 
-    monkeypatch.setattr(
-        application.DeconzDevice,
-        "new",
-        AsyncMock(return_value=zigpy.device.Device(app, sentinel.ieee, 0x0000)),
+    p2 = patch(
+        "zigpy_deconz.zigbee.application.DeconzDevice.new",
+        new=AsyncMock(return_value=zigpy.device.Device(app, sentinel.ieee, 0x0000)),
     )
-    with patch.object(application, "Deconz", return_value=api):
+    with patch.object(application, "Deconz", return_value=api), p2:
         await app.startup(auto_form=False)
         assert app.form_network.call_count == 0
         assert app._reset_watchdog.call_count == watchdog_cc
         await app.startup(auto_form=True)
-        assert app.form_network.call_count == 1
+        assert app.form_network.call_count == form_count
 
 
 async def test_permit(app, nwk):
