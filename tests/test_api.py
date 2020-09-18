@@ -561,3 +561,8 @@ def test_tx_status(value, name):
     assert status == value
     assert status.value == value
     assert status.name == name
+
+
+def test_handle_add_neighbour(api):
+    """Test handle_add_neighbour."""
+    api._handle_add_neighbour((12, 1, 0x1234, sentinel.ieee, 0x80))
