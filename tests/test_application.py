@@ -551,3 +551,61 @@ async def test_reset_watchdog(app):
 async def test_force_remove(app):
     """Test forcibly removing a device."""
     await app.force_remove(sentinel.device)
+
+
+async def test_restore_neighbours(app):
+    """Test neighbour restoration."""
+
+    # FFD, Rx on when idle
+    desc_1 = zdo_t.NodeDescriptor(1, 64, 142, 0xBEEF, 82, 82, 0, 82, 0)
+    device_1 = MagicMock()
+    device_1.node_desc = desc_1
+    device_1.ieee = sentinel.ieee_1
+    device_1.nwk = 0x1111
+    nei_1 = zigpy.neighbor.Neighbor(sentinel.nei_1, device_1)
+
+    # RFD, Rx on when idle
+    desc_2 = zdo_t.NodeDescriptor(1, 64, 142, 0xBEEF, 82, 82, 0, 82, 0)
+    device_2 = MagicMock()
+    device_2.node_desc = desc_2
+    device_2.ieee = sentinel.ieee_2
+    device_2.nwk = 0x2222
+    nei_2 = zigpy.neighbor.Neighbor(sentinel.nei_2, device_2)
+
+    # invalid node descriptor
+    desc_3 = zdo_t.NodeDescriptor()
+    device_3 = MagicMock()
+    device_3.node_desc = desc_3
+    device_3.ieee = sentinel.ieee_3
+    device_3.nwk = 0x3333
+    nei_3 = zigpy.neighbor.Neighbor(sentinel.nei_3, device_3)
+
+    # no device
+    nei_4 = zigpy.neighbor.Neighbor(sentinel.nei_4, None)
+
+    # RFD, Rx off when idle
+    desc_5 = zdo_t.NodeDescriptor(2, 64, 128, 0xBEEF, 82, 82, 0, 82, 0)
+    device_5 = MagicMock()
+    device_5.node_desc = desc_5
+    device_5.ieee = sentinel.ieee_5
+    device_5.nwk = 0x5555
+    nei_5 = zigpy.neighbor.Neighbor(sentinel.nei_5, device_5)
+
+    coord = MagicMock()
+    coord.ieee = sentinel.coord_ieee
+    coord.nwk = 0x0000
+    neighbours = zigpy.neighbor.Neighbors(coord)
+    neighbours.neighbors.append(nei_1)
+    neighbours.neighbors.append(nei_2)
+    neighbours.neighbors.append(nei_3)
+    neighbours.neighbors.append(nei_4)
+    neighbours.neighbors.append(nei_5)
+    coord.neighbors = neighbours
+
+    p2 = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz)
+    with patch.object(app, "get_device", return_value=coord), p2 as api_mock:
+        api_mock.add_neighbour = AsyncMock()
+        await app.restore_neighbours()
+
+    assert api_mock.add_neighbour.call_count == 1
+    assert api_mock.add_neighbour.await_count == 1
