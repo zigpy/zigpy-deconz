@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
-from zigpy.types import APSStatus
+from zigpy.types import APSStatus, Channels
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -17,7 +17,7 @@ import zigpy_deconz.uart
 
 LOGGER = logging.getLogger(__name__)
 
-COMMAND_TIMEOUT = 1
+COMMAND_TIMEOUT = 1.8
 PROBE_TIMEOUT = 2
 MIN_PROTO_VERSION = 0x010B
 
@@ -192,7 +192,7 @@ NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.nwk_address: (t.NWK,),
     NetworkParameter.nwk_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.aps_designed_coordinator: (t.uint8_t,),
-    NetworkParameter.channel_mask: (t.uint32_t,),
+    NetworkParameter.channel_mask: (Channels,),
     NetworkParameter.aps_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.trust_center_address: (t.EUI64,),
     NetworkParameter.security_mode: (t.uint8_t,),
@@ -351,16 +351,14 @@ class Deconz:
         getattr(self, "_handle_%s" % (command.name,))(data)
 
     add_neighbour = functools.partialmethod(_command, Command.add_neighbour, 12)
-
-    def device_state(self):
-        return self._command(Command.device_state, 0, 0, 0)
+    device_state = functools.partialmethod(_command, Command.device_state, 0, 0, 0)
+    change_network_state = functools.partialmethod(
+        _command, Command.change_network_state
+    )
 
     def _handle_device_state(self, data):
         LOGGER.debug("Device state response: %s", data)
         self._handle_device_state_value(data[0])
-
-    def change_network_state(self, state):
-        return self._command(Command.change_network_state, state)
 
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)

@@ -67,23 +67,29 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._api.device_state()
         (ieee,) = await self._api[NetworkParameter.mac_address]
         self._ieee = zigpy.types.EUI64(ieee)
-        await self._api[NetworkParameter.nwk_panid]
-        await self._api[NetworkParameter.nwk_address]
-        await self._api[NetworkParameter.nwk_extended_panid]
-        await self._api[NetworkParameter.channel_mask]
-        await self._api[NetworkParameter.aps_extended_panid]
-        await self._api[NetworkParameter.trust_center_address]
-        await self._api[NetworkParameter.security_mode]
-        await self._api[NetworkParameter.current_channel]
-        await self._api[NetworkParameter.protocol_version]
-        await self._api[NetworkParameter.nwk_update_id]
-        self._api[NetworkParameter.aps_designed_coordinator] = 1
 
         if self._api.protocol_version >= PROTO_VER_WATCHDOG:
             asyncio.ensure_future(self._reset_watchdog())
 
-        if auto_form:
+        (designed_coord,) = await self._api[NetworkParameter.aps_designed_coordinator]
+        device_state, _, _ = await self._api.device_state()
+        should_form = (
+            device_state.network_state != NetworkState.CONNECTED or designed_coord != 1
+        )
+        if auto_form and should_form:
             await self.form_network()
+
+        (self._pan_id,) = await self._api[NetworkParameter.nwk_panid]
+        (self._nwk,) = await self._api[NetworkParameter.nwk_address]
+        (self._ext_pan_id,) = await self._api[NetworkParameter.nwk_extended_panid]
+        await self._api[NetworkParameter.channel_mask]
+        await self._api[NetworkParameter.aps_extended_panid]
+        await self._api[NetworkParameter.trust_center_address]
+        await self._api[NetworkParameter.security_mode]
+        (self._channel,) = await self._api[NetworkParameter.current_channel]
+        await self._api[NetworkParameter.protocol_version]
+        (self._nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
+
         coordinator = await DeconzDevice.new(
             self,
             self.ieee,
@@ -102,15 +108,41 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         """Forcibly remove device from NCP."""
         pass
 
-    async def form_network(self, channel=15, pan_id=None, extended_pan_id=None):
+    async def form_network(self):
         LOGGER.info("Forming network")
-        if self._api.network_state == NetworkState.CONNECTED.value:
-            return
+        await self._api.change_network_state(NetworkState.OFFLINE)
+        await self._api.write_parameter(NetworkParameter.aps_designed_coordinator, 1)
 
-        await self._api.change_network_state(NetworkState.CONNECTED.value)
+        nwk_config = self.config[zigpy.config.CONF_NWK]
+
+        # set channel
+        channel = nwk_config[zigpy.config.CONF_NWK_CHANNEL]
+        channel_mask = zigpy.types.Channels.from_channel_list([channel])
+        await self._api.write_parameter(NetworkParameter.channel_mask, channel_mask)
+
+        pan_id = nwk_config[zigpy.config.CONF_NWK_PAN_ID]
+        if pan_id is not None:
+            await self._api.write_parameter(NetworkParameter.nwk_panid, pan_id)
+
+        ext_pan_id = nwk_config[zigpy.config.CONF_NWK_EXTENDED_PAN_ID]
+        if ext_pan_id is not None:
+            await self._api.write_parameter(
+                NetworkParameter.aps_extended_panid, ext_pan_id
+            )
+
+        nwk_update_id = nwk_config[zigpy.config.CONF_NWK_UPDATE_ID]
+        await self._api.write_parameter(NetworkParameter.nwk_update_id, nwk_update_id)
+
+        nwk_key = nwk_config[zigpy.config.CONF_NWK_KEY]
+        if nwk_key is not None:
+            await self._api.write_parameter(NetworkParameter.network_key, 0, nwk_key)
+
+        # bring network up
+        await self._api.change_network_state(NetworkState.CONNECTED)
+
         for _ in range(10):
-            await self._api.device_state()
-            if self._api.network_state == NetworkState.CONNECTED.value:
+            (state, _, _) = await self._api.device_state()
+            if state.network_state == NetworkState.CONNECTED:
                 return
             await asyncio.sleep(CHANGE_NETWORK_WAIT)
         raise Exception("Could not form network.")

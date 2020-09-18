@@ -18,6 +18,14 @@ import zigpy_deconz.zigbee.application as application
 from .async_mock import AsyncMock, MagicMock, patch, sentinel
 
 pytestmark = pytest.mark.asyncio
+ZIGPY_NWK_CONFIG = {
+    zigpy.config.CONF_NWK: {
+        zigpy.config.CONF_NWK_PAN_ID: 0x4567,
+        zigpy.config.CONF_NWK_EXTENDED_PAN_ID: "11:22:33:44:55:66:77:88",
+        zigpy.config.CONF_NWK_UPDATE_ID: 22,
+        zigpy.config.CONF_NWK_KEY: [0xAA] * 16,
+    }
+}
 
 
 @pytest.fixture
@@ -26,18 +34,30 @@ def device_path():
 
 
 @pytest.fixture
-def app(device_path, database_file=None):
+def api():
+    """Return API fixture."""
+    api = MagicMock(spec_set=zigpy_deconz.api.Deconz)
+    api.device_state = AsyncMock(
+        return_value=(deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED), 0, 0)
+    )
+    api.write_parameter = AsyncMock()
+    api.change_network_state = AsyncMock()
+    return api
+
+
+@pytest.fixture
+def app(device_path, api, database_file=None):
     config = application.ControllerApplication.SCHEMA(
         {
+            **ZIGPY_NWK_CONFIG,
             zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: device_path},
             zigpy.config.CONF_DATABASE: database_file,
         }
     )
 
     app = application.ControllerApplication(config)
-    api = MagicMock(spec_set=zigpy_deconz.api.Deconz)
     p2 = patch.object(app, "_delayed_neighbour_scan")
-    with patch.object(app, "_api", return_value=api), p2:
+    with patch.object(app, "_api", api), p2:
         yield app
 
 
@@ -185,34 +205,58 @@ def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
     assert app.handle_message.call_count == 0
 
 
-async def test_form_network(app):
-    app._api.change_network_state = AsyncMock()
-    app._api.device_state = AsyncMock(return_value=deconz_api.NetworkState.CONNECTED)
-    app._api.network_state = deconz_api.NetworkState.CONNECTED
+@patch.object(application, "CHANGE_NETWORK_WAIT", 0.001)
+async def test_form_network(app, api):
+    """Test network forming."""
 
     await app.form_network()
-    assert app._api.change_network_state.call_count == 0
-    assert app._api.change_network_state.await_count == 0
-    assert app._api.device_state.await_count == 0
+    assert api.change_network_state.await_count == 2
+    assert (
+        api.change_network_state.call_args_list[0][0][0]
+        == deconz_api.NetworkState.OFFLINE
+    )
+    assert (
+        api.change_network_state.call_args_list[1][0][0]
+        == deconz_api.NetworkState.CONNECTED
+    )
+    assert api.write_parameter.await_count >= 3
+    assert (
+        api.write_parameter.await_args_list[0][0][0]
+        == deconz_api.NetworkParameter.aps_designed_coordinator
+    )
+    assert api.write_parameter.await_args_list[0][0][1] == 1
 
-    app._api._device_state = deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE)
-    app._api.network_state = deconz_api.NetworkState.OFFLINE
-    application.CHANGE_NETWORK_WAIT = 0.001
+    api.device_state.return_value = (
+        deconz_api.DeviceState(deconz_api.NetworkState.JOINING),
+        0,
+        0,
+    )
     with pytest.raises(Exception):
         await app.form_network()
-    assert app._api.change_network_state.call_count == 1
-    assert app._api.change_network_state.await_count == 1
-    assert app._api.device_state.await_count == 10
-    assert app._api.device_state.call_count == 10
 
 
 @pytest.mark.parametrize(
-    "protocol_ver, watchdog_cc", [(0x0107, False), (0x0108, True), (0x010B, True)]
+    "protocol_ver, watchdog_cc, nwk_state, designed_coord, form_count",
+    [
+        (0x0107, False, deconz_api.NetworkState.CONNECTED, 1, 0),
+        (0x0108, True, deconz_api.NetworkState.CONNECTED, 1, 0),
+        (0x010B, True, deconz_api.NetworkState.CONNECTED, 1, 0),
+        (0x010B, True, deconz_api.NetworkState.CONNECTED, 0, 1),
+        (0x010B, True, deconz_api.NetworkState.OFFLINE, 1, 1),
+        (0x010B, True, deconz_api.NetworkState.OFFLINE, 0, 1),
+    ],
 )
-async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
+async def test_startup(
+    protocol_ver, watchdog_cc, app, nwk_state, designed_coord, form_count, version=0
+):
     async def _version():
         app._api._proto_ver = protocol_ver
         return [version]
+
+    async def _read_param(param, *args):
+        if param == deconz_api.NetworkParameter.mac_address:
+            return (t.EUI64([0x01] * 8),)
+        return (designed_coord,)
 
     app._reset_watchdog = AsyncMock()
     app.form_network = AsyncMock()
@@ -222,21 +266,21 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
     api = deconz_api.Deconz(app, app._config[zigpy.config.CONF_DEVICE])
     api.connect = AsyncMock()
     api._command = AsyncMock()
-    api.read_parameter = AsyncMock(return_value=[[0]])
+    api.device_state = AsyncMock(return_value=(deconz_api.DeviceState(nwk_state), 0, 0))
+    api.read_parameter = AsyncMock(side_effect=_read_param)
     api.version = MagicMock(side_effect=_version)
     api.write_parameter = AsyncMock()
 
-    monkeypatch.setattr(
-        application.DeconzDevice,
-        "new",
-        AsyncMock(return_value=zigpy.device.Device(app, sentinel.ieee, 0x0000)),
+    p2 = patch(
+        "zigpy_deconz.zigbee.application.DeconzDevice.new",
+        new=AsyncMock(return_value=zigpy.device.Device(app, sentinel.ieee, 0x0000)),
     )
-    with patch.object(application, "Deconz", return_value=api):
+    with patch.object(application, "Deconz", return_value=api), p2:
         await app.startup(auto_form=False)
         assert app.form_network.call_count == 0
         assert app._reset_watchdog.call_count == watchdog_cc
         await app.startup(auto_form=True)
-        assert app.form_network.call_count == 1
+        assert app.form_network.call_count == form_count
 
 
 async def test_permit(app, nwk):
