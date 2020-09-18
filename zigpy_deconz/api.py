@@ -351,16 +351,14 @@ class Deconz:
         getattr(self, "_handle_%s" % (command.name,))(data)
 
     add_neighbour = functools.partialmethod(_command, Command.add_neighbour, 12)
-
-    def device_state(self):
-        return self._command(Command.device_state, 0, 0, 0)
+    device_state = functools.partialmethod(_command, Command.device_state, 0, 0, 0)
+    change_network_state = functools.partialmethod(
+        _command, Command.change_network_state
+    )
 
     def _handle_device_state(self, data):
         LOGGER.debug("Device state response: %s", data)
         self._handle_device_state_value(data[0])
-
-    def change_network_state(self, state):
-        return self._command(Command.change_network_state, state)
 
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
