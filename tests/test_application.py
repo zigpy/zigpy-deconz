@@ -216,6 +216,7 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
 
     app._reset_watchdog = AsyncMock()
     app.form_network = AsyncMock()
+    app._delayed_neighbour_scan = AsyncMock()
 
     app._api._command = AsyncMock()
     api = deconz_api.Deconz(app, app._config[zigpy.config.CONF_DEVICE])
@@ -225,7 +226,11 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
     api.version = MagicMock(side_effect=_version)
     api.write_parameter = AsyncMock()
 
-    monkeypatch.setattr(application.DeconzDevice, "new", AsyncMock())
+    monkeypatch.setattr(
+        application.DeconzDevice,
+        "new",
+        AsyncMock(return_value=zigpy.device.Device(app, sentinel.ieee, 0x0000)),
+    )
     with patch.object(application, "Deconz", return_value=api):
         await app.startup(auto_form=False)
         assert app.form_network.call_count == 0
