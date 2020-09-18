@@ -116,8 +116,11 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         nwk_config = self.config[zigpy.config.CONF_NWK]
 
         # set channel
-        channel = nwk_config[zigpy.config.CONF_NWK_CHANNEL]
-        channel_mask = zigpy.types.Channels.from_channel_list([channel])
+        channel = nwk_config.get(zigpy.config.CONF_NWK_CHANNEL)
+        if channel is not None:
+            channel_mask = zigpy.types.Channels.from_channel_list([channel])
+        else:
+            channel_mask = nwk_config[zigpy.config.CONF_NWK_CHANNELS]
         await self._api.write_parameter(NetworkParameter.channel_mask, channel_mask)
 
         pan_id = nwk_config[zigpy.config.CONF_NWK_PAN_ID]
