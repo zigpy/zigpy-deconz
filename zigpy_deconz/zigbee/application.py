@@ -143,10 +143,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         for _ in range(10):
             (state, _, _) = await self._api.device_state()
             if state.network_state == NetworkState.CONNECTED:
-                channel_mask = nwk_config[zigpy.config.CONF_NWK_CHANNELS]
-                await self._api.write_parameter(
-                    NetworkParameter.channel_mask, channel_mask
-                )
                 return
             await asyncio.sleep(CHANGE_NETWORK_WAIT)
         raise Exception("Could not form network.")
