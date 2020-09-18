@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
-from zigpy.types import APSStatus
+from zigpy.types import APSStatus, Channels
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -192,7 +192,7 @@ NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.nwk_address: (t.NWK,),
     NetworkParameter.nwk_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.aps_designed_coordinator: (t.uint8_t,),
-    NetworkParameter.channel_mask: (t.uint32_t,),
+    NetworkParameter.channel_mask: (Channels,),
     NetworkParameter.aps_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.trust_center_address: (t.EUI64,),
     NetworkParameter.security_mode: (t.uint8_t,),
