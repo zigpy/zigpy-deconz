@@ -108,7 +108,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         """Forcibly remove device from NCP."""
         pass
 
-    async def form_network(self, channel=15, pan_id=None, extended_pan_id=None):
+    async def form_network(self):
         LOGGER.info("Forming network")
         await self._api.change_network_state(NetworkState.OFFLINE)
         await self._api.write_parameter(NetworkParameter.aps_designed_coordinator, 1)
