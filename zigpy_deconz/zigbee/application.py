@@ -305,31 +305,31 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def restore_neighbours(self) -> None:
         """Restore children."""
-        coord = self.devices[self.ieee]
-        neigbours = (nei.device for nei in coord.neighbors)
-        for nei_device in neigbours:
+        coord = self.get_device(ieee=self.ieee)
+        devices = (nei.device for nei in coord.neighbors)
+        for device in devices:
+            if device is None:
+                continue
             LOGGER.debug(
                 "device: 0x%04x - %s %s, FFD=%s, Rx_on_when_idle=%s",
-                nei_device.nwk,
-                nei_device.manufacturer,
-                nei_device.model,
-                nei_device.node_desc.is_full_function_device,
-                nei_device.node_desc.is_receiver_on_when_idle,
+                device.nwk,
+                device.manufacturer,
+                device.model,
+                device.node_desc.is_full_function_device,
+                device.node_desc.is_receiver_on_when_idle,
             )
-            if nei_device is None:
-                continue
-            descr = nei_device.node_desc
+            descr = device.node_desc
             if not descr.is_valid:
                 continue
             if descr.is_full_function_device or descr.is_receiver_on_when_idle:
                 continue
             LOGGER.debug(
                 "Restoring %s/0x%04x device as direct child",
-                nei_device.ieee,
-                nei_device.nwk,
+                device.ieee,
+                device.nwk,
             )
             await self._api.add_neighbour(
-                0x01, nei_device.nwk, nei_device.ieee, descr.mac_capability_flags
+                0x01, device.nwk, device.ieee, descr.mac_capability_flags
             )
 
     async def _delayed_neighbour_scan(self) -> None:
