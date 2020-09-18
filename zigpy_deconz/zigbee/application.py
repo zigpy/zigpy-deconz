@@ -1,3 +1,5 @@
+"""ControllerApplication for deCONZ protocol based adapters."""
+
 import asyncio
 import binascii
 import logging
@@ -9,6 +11,7 @@ import zigpy.config
 import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
+import zigpy.neighbor
 import zigpy.types
 import zigpy.util
 
@@ -20,8 +23,10 @@ import zigpy_deconz.exception
 LOGGER = logging.getLogger(__name__)
 
 CHANGE_NETWORK_WAIT = 1
+DELAY_NEIGHBOUR_SCAN_S = 1500
 SEND_CONFIRM_TIMEOUT = 60
 PROTO_VER_WATCHDOG = 0x0108
+PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
 
 
@@ -32,6 +37,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     probe = Deconz.probe
 
     def __init__(self, config: Dict[str, Any]):
+        """Initialize instance."""
+
         super().__init__(config=zigpy.config.ZIGPY_SCHEMA(config))
         self._api = None
         self._pending = zigpy.util.Requests()
@@ -53,7 +60,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._api.close()
 
     async def startup(self, auto_form=False):
-        """Perform a complete application startup"""
+        """Perform a complete application startup."""
         self._api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
         await self._api.connect()
         self.version = await self._api.version()
@@ -77,13 +84,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         if auto_form:
             await self.form_network()
-        self.devices[self.ieee] = await DeconzDevice.new(
+        coordinator = await DeconzDevice.new(
             self,
             self.ieee,
             self.nwk,
             self.version,
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
         )
+
+        coordinator.neighbors.add_context_listener(self._dblistener)
+        self.devices[self.ieee] = coordinator
+        if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
+            await self.restore_neighbours()
+        asyncio.create_task(self._delayed_neighbour_scan())
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
@@ -290,11 +303,48 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 "Invalid state on future - probably duplicate response: %s", exc
             )
 
+    async def restore_neighbours(self) -> None:
+        """Restore children."""
+        coord = self.get_device(ieee=self.ieee)
+        devices = (nei.device for nei in coord.neighbors)
+        for device in devices:
+            if device is None:
+                continue
+            LOGGER.debug(
+                "device: 0x%04x - %s %s, FFD=%s, Rx_on_when_idle=%s",
+                device.nwk,
+                device.manufacturer,
+                device.model,
+                device.node_desc.is_full_function_device,
+                device.node_desc.is_receiver_on_when_idle,
+            )
+            descr = device.node_desc
+            if not descr.is_valid:
+                continue
+            if descr.is_full_function_device or descr.is_receiver_on_when_idle:
+                continue
+            LOGGER.debug(
+                "Restoring %s/0x%04x device as direct child",
+                device.ieee,
+                device.nwk,
+            )
+            await self._api.add_neighbour(
+                0x01, device.nwk, device.ieee, descr.mac_capability_flags
+            )
+
+    async def _delayed_neighbour_scan(self) -> None:
+        """Scan coordinator's neighbours."""
+        await asyncio.sleep(DELAY_NEIGHBOUR_SCAN_S)
+        coord = self.get_device(ieee=self.ieee)
+        await coord.neighbors.scan()
+
 
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
     def __init__(self, version: int, device_path: str, *args):
+        """Initialize instance."""
+
         super().__init__(*args)
         is_gpio_device = re.match(r"/dev/tty(S|AMA)\d+", device_path)
         self._model = "RaspBee" if is_gpio_device else "ConBee"
@@ -333,6 +383,9 @@ class DeconzDevice(zigpy.device.Device):
             from_dev = application.get_device(ieee=ieee)
             dev.status = from_dev.status
             dev.node_desc = from_dev.node_desc
+            dev.neighbors = zigpy.neighbor.Neighbors(dev)
+            for nei in from_dev.neighbors.neighbors:
+                dev.neighbors.add_neighbor(nei.neighbor)
             for ep_id, from_ep in from_dev.endpoints.items():
                 if not ep_id:
                     continue  # Skip ZDO

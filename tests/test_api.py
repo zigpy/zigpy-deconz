@@ -139,17 +139,23 @@ async def test_command_not_connected(api):
         api._api_frame.reset_mock()
 
 
+def _fake_args(arg_type):
+    if isinstance(arg_type(), t.DeconzAddressEndpoint):
+        addr = t.DeconzAddressEndpoint()
+        addr.address_mode = t.ADDRESS_MODE.NWK
+        addr.address = t.uint8_t(0)
+        addr.endpoint = t.uint8_t(0)
+        return addr
+    if isinstance(arg_type(), t.EUI64):
+        return t.EUI64([0x01] * 8)
+
+    return arg_type()
+
+
 def test_api_frame(api):
-    addr = t.DeconzAddressEndpoint()
-    addr.address_mode = t.ADDRESS_MODE.NWK
-    addr.address = t.uint8_t(0)
-    addr.endpoint = t.uint8_t(0)
     for cmd, schema in deconz_api.TX_COMMANDS.items():
         if schema:
-            args = [
-                addr if isinstance(a(), t.DeconzAddressEndpoint) else a()
-                for a in schema
-            ]
+            args = [_fake_args(a) for a in schema]
             api._api_frame(cmd, *args)
         else:
             api._api_frame(cmd)
@@ -555,3 +561,8 @@ def test_tx_status(value, name):
     assert status == value
     assert status.value == value
     assert status.name == name
+
+
+def test_handle_add_neighbour(api):
+    """Test handle_add_neighbour."""
+    api._handle_add_neighbour((12, 1, 0x1234, sentinel.ieee, 0x80))

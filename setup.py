@@ -1,4 +1,4 @@
-"""Setup module for zigpy-deconz"""
+"""Setup module for zigpy-deconz."""
 
 import os
 
@@ -21,6 +21,6 @@ setup(
     author_email="schmidt.d@aon.at",
     license="GPL-3.0",
     packages=find_packages(exclude=["*.tests"]),
-    install_requires=["pyserial-asyncio", "zigpy>=0.20.a1"],
+    install_requires=["pyserial-asyncio", "zigpy>=0.24.0"],
     tests_require=["pytest", "pytest-asyncio", "asynctest"],
 )

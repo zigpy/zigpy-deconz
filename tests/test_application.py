@@ -6,6 +6,7 @@ import logging
 import pytest
 import zigpy.config
 import zigpy.device
+import zigpy.neighbor
 from zigpy.types import EUI64
 import zigpy.zdo.types as zdo_t
 
@@ -34,8 +35,10 @@ def app(device_path, database_file=None):
     )
 
     app = application.ControllerApplication(config)
-    app._api = deconz_api.Deconz(app, config[zigpy.config.CONF_DEVICE])
-    return app
+    api = MagicMock(spec_set=zigpy_deconz.api.Deconz)
+    p2 = patch.object(app, "_delayed_neighbour_scan")
+    with patch.object(app, "_api", return_value=api), p2:
+        yield app
 
 
 @pytest.fixture
@@ -185,14 +188,15 @@ def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
 async def test_form_network(app):
     app._api.change_network_state = AsyncMock()
     app._api.device_state = AsyncMock(return_value=deconz_api.NetworkState.CONNECTED)
+    app._api.network_state = deconz_api.NetworkState.CONNECTED
 
-    app._api._device_state = deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED)
     await app.form_network()
     assert app._api.change_network_state.call_count == 0
     assert app._api.change_network_state.await_count == 0
     assert app._api.device_state.await_count == 0
 
     app._api._device_state = deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE)
+    app._api.network_state = deconz_api.NetworkState.OFFLINE
     application.CHANGE_NETWORK_WAIT = 0.001
     with pytest.raises(Exception):
         await app.form_network()
@@ -212,6 +216,7 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
 
     app._reset_watchdog = AsyncMock()
     app.form_network = AsyncMock()
+    app._delayed_neighbour_scan = AsyncMock()
 
     app._api._command = AsyncMock()
     api = deconz_api.Deconz(app, app._config[zigpy.config.CONF_DEVICE])
@@ -221,7 +226,11 @@ async def test_startup(protocol_ver, watchdog_cc, app, monkeypatch, version=0):
     api.version = MagicMock(side_effect=_version)
     api.write_parameter = AsyncMock()
 
-    monkeypatch.setattr(application.DeconzDevice, "new", AsyncMock())
+    monkeypatch.setattr(
+        application.DeconzDevice,
+        "new",
+        AsyncMock(return_value=zigpy.device.Device(app, sentinel.ieee, 0x0000)),
+    )
     with patch.object(application, "Deconz", return_value=api):
         await app.startup(auto_form=False)
         assert app.form_network.call_count == 0
@@ -542,3 +551,85 @@ async def test_reset_watchdog(app):
         await asyncio.sleep(0.3)
         dog.cancel()
         assert mock_api.call_count == 1
+
+
+async def test_force_remove(app):
+    """Test forcibly removing a device."""
+    await app.force_remove(sentinel.device)
+
+
+async def test_restore_neighbours(app):
+    """Test neighbour restoration."""
+
+    # FFD, Rx on when idle
+    desc_1 = zdo_t.NodeDescriptor(1, 64, 142, 0xBEEF, 82, 82, 0, 82, 0)
+    device_1 = MagicMock()
+    device_1.node_desc = desc_1
+    device_1.ieee = sentinel.ieee_1
+    device_1.nwk = 0x1111
+    nei_1 = zigpy.neighbor.Neighbor(sentinel.nei_1, device_1)
+
+    # RFD, Rx on when idle
+    desc_2 = zdo_t.NodeDescriptor(1, 64, 142, 0xBEEF, 82, 82, 0, 82, 0)
+    device_2 = MagicMock()
+    device_2.node_desc = desc_2
+    device_2.ieee = sentinel.ieee_2
+    device_2.nwk = 0x2222
+    nei_2 = zigpy.neighbor.Neighbor(sentinel.nei_2, device_2)
+
+    # invalid node descriptor
+    desc_3 = zdo_t.NodeDescriptor()
+    device_3 = MagicMock()
+    device_3.node_desc = desc_3
+    device_3.ieee = sentinel.ieee_3
+    device_3.nwk = 0x3333
+    nei_3 = zigpy.neighbor.Neighbor(sentinel.nei_3, device_3)
+
+    # no device
+    nei_4 = zigpy.neighbor.Neighbor(sentinel.nei_4, None)
+
+    # RFD, Rx off when idle
+    desc_5 = zdo_t.NodeDescriptor(2, 64, 128, 0xBEEF, 82, 82, 0, 82, 0)
+    device_5 = MagicMock()
+    device_5.node_desc = desc_5
+    device_5.ieee = sentinel.ieee_5
+    device_5.nwk = 0x5555
+    nei_5 = zigpy.neighbor.Neighbor(sentinel.nei_5, device_5)
+
+    coord = MagicMock()
+    coord.ieee = sentinel.coord_ieee
+    coord.nwk = 0x0000
+    neighbours = zigpy.neighbor.Neighbors(coord)
+    neighbours.neighbors.append(nei_1)
+    neighbours.neighbors.append(nei_2)
+    neighbours.neighbors.append(nei_3)
+    neighbours.neighbors.append(nei_4)
+    neighbours.neighbors.append(nei_5)
+    coord.neighbors = neighbours
+
+    p2 = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz)
+    with patch.object(app, "get_device", return_value=coord), p2 as api_mock:
+        api_mock.add_neighbour = AsyncMock()
+        await app.restore_neighbours()
+
+    assert api_mock.add_neighbour.call_count == 1
+    assert api_mock.add_neighbour.await_count == 1
+
+
+@patch("zigpy_deconz.zigbee.application.DELAY_NEIGHBOUR_SCAN_S", 0)
+async def test_delayed_scan():
+    """Delayed scan."""
+
+    coord = MagicMock()
+    coord.neighbors.scan = AsyncMock()
+    config = application.ControllerApplication.SCHEMA(
+        {
+            zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: "usb0"},
+            zigpy.config.CONF_DATABASE: "tmp",
+        }
+    )
+
+    app = application.ControllerApplication(config)
+    with patch.object(app, "get_device", return_value=coord):
+        await app._delayed_neighbour_scan()
+    assert coord.neighbors.scan.await_count == 1
