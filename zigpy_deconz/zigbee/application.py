@@ -1,3 +1,5 @@
+"""ControllerApplication for deCONZ protocol based adapters."""
+
 import asyncio
 import binascii
 import logging
@@ -9,6 +11,7 @@ import zigpy.config
 import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
+import zigpy.neighbor
 import zigpy.types
 import zigpy.util
 
@@ -20,8 +23,10 @@ import zigpy_deconz.exception
 LOGGER = logging.getLogger(__name__)
 
 CHANGE_NETWORK_WAIT = 1
+DELAY_NEIGHBOUR_SCAN_S = 1500
 SEND_CONFIRM_TIMEOUT = 60
 PROTO_VER_WATCHDOG = 0x0108
+PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
 
 
@@ -32,6 +37,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     probe = Deconz.probe
 
     def __init__(self, config: Dict[str, Any]):
+        """Initialize instance."""
+
         super().__init__(config=zigpy.config.ZIGPY_SCHEMA(config))
         self._api = None
         self._pending = zigpy.util.Requests()
@@ -53,31 +60,37 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._api.close()
 
     async def startup(self, auto_form=False):
-        """Perform a complete application startup"""
+        """Perform a complete application startup."""
         self._api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
         await self._api.connect()
         self.version = await self._api.version()
         await self._api.device_state()
         (ieee,) = await self._api[NetworkParameter.mac_address]
         self._ieee = zigpy.types.EUI64(ieee)
-        await self._api[NetworkParameter.nwk_panid]
-        await self._api[NetworkParameter.nwk_address]
-        await self._api[NetworkParameter.nwk_extended_panid]
-        await self._api[NetworkParameter.channel_mask]
-        await self._api[NetworkParameter.aps_extended_panid]
-        await self._api[NetworkParameter.trust_center_address]
-        await self._api[NetworkParameter.security_mode]
-        await self._api[NetworkParameter.current_channel]
-        await self._api[NetworkParameter.protocol_version]
-        await self._api[NetworkParameter.nwk_update_id]
-        self._api[NetworkParameter.aps_designed_coordinator] = 1
 
         if self._api.protocol_version >= PROTO_VER_WATCHDOG:
             asyncio.ensure_future(self._reset_watchdog())
 
-        if auto_form:
+        (designed_coord,) = await self._api[NetworkParameter.aps_designed_coordinator]
+        device_state, _, _ = await self._api.device_state()
+        should_form = (
+            device_state.network_state != NetworkState.CONNECTED or designed_coord != 1
+        )
+        if auto_form and should_form:
             await self.form_network()
-        self.devices[self.ieee] = await DeconzDevice.new(
+
+        (self._pan_id,) = await self._api[NetworkParameter.nwk_panid]
+        (self._nwk,) = await self._api[NetworkParameter.nwk_address]
+        (self._ext_pan_id,) = await self._api[NetworkParameter.nwk_extended_panid]
+        await self._api[NetworkParameter.channel_mask]
+        await self._api[NetworkParameter.aps_extended_panid]
+        await self._api[NetworkParameter.trust_center_address]
+        await self._api[NetworkParameter.security_mode]
+        (self._channel,) = await self._api[NetworkParameter.current_channel]
+        await self._api[NetworkParameter.protocol_version]
+        (self._nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
+
+        coordinator = await DeconzDevice.new(
             self,
             self.ieee,
             self.nwk,
@@ -85,19 +98,54 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
         )
 
+        coordinator.neighbors.add_context_listener(self._dblistener)
+        self.devices[self.ieee] = coordinator
+        if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
+            await self.restore_neighbours()
+        asyncio.create_task(self._delayed_neighbour_scan())
+
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
         pass
 
-    async def form_network(self, channel=15, pan_id=None, extended_pan_id=None):
+    async def form_network(self):
         LOGGER.info("Forming network")
-        if self._api.network_state == NetworkState.CONNECTED.value:
-            return
+        await self._api.change_network_state(NetworkState.OFFLINE)
+        await self._api.write_parameter(NetworkParameter.aps_designed_coordinator, 1)
 
-        await self._api.change_network_state(NetworkState.CONNECTED.value)
+        nwk_config = self.config[zigpy.config.CONF_NWK]
+
+        # set channel
+        channel = nwk_config.get(zigpy.config.CONF_NWK_CHANNEL)
+        if channel is not None:
+            channel_mask = zigpy.types.Channels.from_channel_list([channel])
+        else:
+            channel_mask = nwk_config[zigpy.config.CONF_NWK_CHANNELS]
+        await self._api.write_parameter(NetworkParameter.channel_mask, channel_mask)
+
+        pan_id = nwk_config[zigpy.config.CONF_NWK_PAN_ID]
+        if pan_id is not None:
+            await self._api.write_parameter(NetworkParameter.nwk_panid, pan_id)
+
+        ext_pan_id = nwk_config[zigpy.config.CONF_NWK_EXTENDED_PAN_ID]
+        if ext_pan_id is not None:
+            await self._api.write_parameter(
+                NetworkParameter.aps_extended_panid, ext_pan_id
+            )
+
+        nwk_update_id = nwk_config[zigpy.config.CONF_NWK_UPDATE_ID]
+        await self._api.write_parameter(NetworkParameter.nwk_update_id, nwk_update_id)
+
+        nwk_key = nwk_config[zigpy.config.CONF_NWK_KEY]
+        if nwk_key is not None:
+            await self._api.write_parameter(NetworkParameter.network_key, 0, nwk_key)
+
+        # bring network up
+        await self._api.change_network_state(NetworkState.CONNECTED)
+
         for _ in range(10):
-            await self._api.device_state()
-            if self._api.network_state == NetworkState.CONNECTED.value:
+            (state, _, _) = await self._api.device_state()
+            if state.network_state == NetworkState.CONNECTED:
                 return
             await asyncio.sleep(CHANGE_NETWORK_WAIT)
         raise Exception("Could not form network.")
@@ -290,11 +338,48 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 "Invalid state on future - probably duplicate response: %s", exc
             )
 
+    async def restore_neighbours(self) -> None:
+        """Restore children."""
+        coord = self.get_device(ieee=self.ieee)
+        devices = (nei.device for nei in coord.neighbors)
+        for device in devices:
+            if device is None:
+                continue
+            LOGGER.debug(
+                "device: 0x%04x - %s %s, FFD=%s, Rx_on_when_idle=%s",
+                device.nwk,
+                device.manufacturer,
+                device.model,
+                device.node_desc.is_full_function_device,
+                device.node_desc.is_receiver_on_when_idle,
+            )
+            descr = device.node_desc
+            if not descr.is_valid:
+                continue
+            if descr.is_full_function_device or descr.is_receiver_on_when_idle:
+                continue
+            LOGGER.debug(
+                "Restoring %s/0x%04x device as direct child",
+                device.ieee,
+                device.nwk,
+            )
+            await self._api.add_neighbour(
+                0x01, device.nwk, device.ieee, descr.mac_capability_flags
+            )
+
+    async def _delayed_neighbour_scan(self) -> None:
+        """Scan coordinator's neighbours."""
+        await asyncio.sleep(DELAY_NEIGHBOUR_SCAN_S)
+        coord = self.get_device(ieee=self.ieee)
+        await coord.neighbors.scan()
+
 
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
     def __init__(self, version: int, device_path: str, *args):
+        """Initialize instance."""
+
         super().__init__(*args)
         is_gpio_device = re.match(r"/dev/tty(S|AMA)\d+", device_path)
         self._model = "RaspBee" if is_gpio_device else "ConBee"
@@ -333,6 +418,9 @@ class DeconzDevice(zigpy.device.Device):
             from_dev = application.get_device(ieee=ieee)
             dev.status = from_dev.status
             dev.node_desc = from_dev.node_desc
+            dev.neighbors = zigpy.neighbor.Neighbors(dev)
+            for nei in from_dev.neighbors.neighbors:
+                dev.neighbors.add_neighbor(nei.neighbor)
             for ep_id, from_ep in from_dev.endpoints.items():
                 if not ep_id:
                     continue  # Skip ZDO

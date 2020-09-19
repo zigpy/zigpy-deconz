@@ -1,12 +1,15 @@
+"""deCONZ serial protocol API."""
+
 import asyncio
 import binascii
 import enum
+import functools
 import logging
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
-from zigpy.types import APSStatus
+from zigpy.types import APSStatus, Channels
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -14,7 +17,7 @@ import zigpy_deconz.uart
 
 LOGGER = logging.getLogger(__name__)
 
-COMMAND_TIMEOUT = 1
+COMMAND_TIMEOUT = 1.8
 PROBE_TIMEOUT = 2
 MIN_PROTO_VERSION = 0x010B
 
@@ -71,6 +74,7 @@ class Command(t.uint8_t, enum.Enum):
     aps_data_indication = 0x17
     zigbee_green_power = 0x19
     mac_poll = 0x1C
+    add_neighbour = 0x1D
     simplified_beacon = 0x1F
 
 
@@ -87,6 +91,7 @@ class TXStatus(t.uint8_t, enum.Enum):
 
 
 TX_COMMANDS = {
+    Command.add_neighbour: (t.uint16_t, t.uint8_t, t.NWK, t.EUI64, t.uint8_t),
     Command.aps_data_confirm: (t.uint16_t,),
     Command.aps_data_indication: (t.uint16_t, t.uint8_t),
     Command.aps_data_request: (
@@ -104,11 +109,12 @@ TX_COMMANDS = {
     Command.change_network_state: (t.uint8_t,),
     Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
     Command.read_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
-    Command.version: (),
+    Command.version: (t.uint32_t,),
     Command.write_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
 }
 
 RX_COMMANDS = {
+    Command.add_neighbour: ((t.uint16_t, t.uint8_t, t.NWK, t.EUI64, t.uint8_t), True),
     Command.aps_data_confirm: (
         (
             t.uint16_t,
@@ -186,7 +192,7 @@ NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.nwk_address: (t.NWK,),
     NetworkParameter.nwk_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.aps_designed_coordinator: (t.uint8_t,),
-    NetworkParameter.channel_mask: (t.uint32_t,),
+    NetworkParameter.channel_mask: (Channels,),
     NetworkParameter.aps_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.trust_center_address: (t.EUI64,),
     NetworkParameter.security_mode: (t.uint8_t,),
@@ -200,7 +206,10 @@ NETWORK_PARAMETER_SCHEMA = {
 
 
 class Deconz:
+    """deCONZ API class."""
+
     def __init__(self, app: Callable, device_config: Dict[str, Any]):
+        """Init instance."""
         self._app = app
         self._aps_data_ind_flags: int = 0x01
         self._awaiting = {}
@@ -212,7 +221,13 @@ class Deconz:
         self._device_state = DeviceState(NetworkState.OFFLINE)
         self._seq = 1
         self._proto_ver: Optional[int] = None
+        self._firmware_version: Optional[int] = None
         self._uart: Optional[zigpy_deconz.uart.Gateway] = None
+
+    @property
+    def firmware_version(self) -> Optional[int]:
+        """Return ConBee firmware version."""
+        return self._firmware_version
 
     @property
     def network_state(self) -> NetworkState:
@@ -220,7 +235,7 @@ class Deconz:
         return self._device_state.network_state
 
     @property
-    def protocol_version(self):
+    def protocol_version(self) -> Optional[int]:
         """Protocol Version."""
         return self._proto_ver
 
@@ -335,15 +350,15 @@ class Deconz:
             fut.set_result(data)
         getattr(self, "_handle_%s" % (command.name,))(data)
 
-    def device_state(self):
-        return self._command(Command.device_state, 0, 0, 0)
+    add_neighbour = functools.partialmethod(_command, Command.add_neighbour, 12)
+    device_state = functools.partialmethod(_command, Command.device_state, 0, 0, 0)
+    change_network_state = functools.partialmethod(
+        _command, Command.change_network_state
+    )
 
     def _handle_device_state(self, data):
         LOGGER.debug("Device state response: %s", data)
         self._handle_device_state_value(data[0])
-
-    def change_network_state(self, state):
-        return self._command(Command.change_network_state, state)
 
     def _handle_change_network_state(self, data):
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
@@ -367,7 +382,7 @@ class Deconz:
         return False
 
     async def _probe(self) -> None:
-        """Open port and try sending a command"""
+        """Open port and try sending a command."""
         await self.connect()
         await self.device_state()
         self.close()
@@ -418,13 +433,13 @@ class Deconz:
 
     async def version(self):
         (self._proto_ver,) = await self[NetworkParameter.protocol_version]
-        version = await self._command(Command.version)
+        (self._firmware_version,) = await self._command(Command.version, 0)
         if (
             self.protocol_version >= MIN_PROTO_VERSION
-            and (version[0] & 0x0000FF00) == 0x00000500
+            and (self.firmware_version & 0x0000FF00) == 0x00000500
         ):
             self._aps_data_ind_flags = 0x04
-        return version[0]
+        return self.firmware_version
 
     def _handle_version(self, data):
         LOGGER.debug("Version response: %x", data[0])
@@ -515,6 +530,10 @@ class Deconz:
         except asyncio.TimeoutError:
             self._data_confirm = False
 
+    def _handle_add_neighbour(self, data) -> None:
+        """Handle add_neighbour response."""
+        LOGGER.debug("add neighbour response: %s", data)
+
     def _handle_aps_data_confirm(self, data):
         LOGGER.debug(
             "APS data confirm response for request with id %s: %02x", data[2], data[5]
@@ -561,7 +580,9 @@ class Deconz:
             asyncio.ensure_future(self._aps_data_confirm())
 
     def __getitem__(self, key):
+        """Access parameters via getitem."""
         return self.read_parameter(key)
 
     def __setitem__(self, key, value):
+        """Set parameters via setitem."""
         return asyncio.ensure_future(self.write_parameter(key, value))
