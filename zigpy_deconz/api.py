@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
+import zigpy.exceptions
 from zigpy.types import APSStatus, Channels
 
 from zigpy_deconz.exception import APIException, CommandError
@@ -332,14 +333,8 @@ class Deconz:
             status = Status(data[2])
         except ValueError:
             status = data[2]
-        try:
-            data, _ = t.deserialize(data[5:], schema)
-        except Exception as exc:
-            LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
-            if solicited and seq in self._awaiting:
-                fut = self._awaiting.pop(seq)
-                fut.set_exception(exc)
-            return
+
+        fut = None
         if solicited and seq in self._awaiting:
             fut = self._awaiting.pop(seq)
             if status != Status.SUCCESS:
@@ -347,6 +342,20 @@ class Deconz:
                     CommandError(status, "%s, status: %s" % (command, status))
                 )
                 return
+
+        try:
+            data, _ = t.deserialize(data[5:], schema)
+        except Exception:
+            LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
+            if fut is not None:
+                fut.set_exception(
+                    APIException(
+                        f"Failed to deserialize frame: {binascii.hexlify(data)}"
+                    )
+                )
+            return
+
+        if fut is not None:
             fut.set_result(data)
         getattr(self, "_handle_%s" % (command.name,))(data)
 
@@ -465,7 +474,7 @@ class Deconz:
                 binascii.hexlify(r[8]),
             )
             return r
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
             self._data_indication = False
 
     def _handle_aps_data_indication(self, data):
@@ -527,7 +536,7 @@ class Deconz:
                 r[5],
             )
             return r
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
             self._data_confirm = False
 
     def _handle_add_neighbour(self, data) -> None:
