@@ -475,9 +475,7 @@ class Deconz:
             )
             return r
         except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
-            pass
-
-        self._data_indication = False
+            self._data_indication = False
 
     def _handle_aps_data_indication(self, data):
         LOGGER.debug("APS data indication response: %s", data)
@@ -539,9 +537,7 @@ class Deconz:
             )
             return r
         except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
-            pass
-
-        self._data_confirm = False
+            self._data_confirm = False
 
     def _handle_add_neighbour(self, data) -> None:
         """Handle add_neighbour response."""
