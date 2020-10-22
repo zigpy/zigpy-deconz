@@ -1,6 +1,7 @@
 """Test api module."""
 
 import asyncio
+import binascii
 import logging
 
 import pytest
@@ -18,12 +19,18 @@ DEVICE_CONFIG = {zigpy.config.CONF_DEVICE_PATH: "/dev/null"}
 
 
 @pytest.fixture
-def api(event_loop):
+def uart_gw():
+    gw = MagicMock(auto_spec=uart.Gateway(MagicMock()))
+    return gw
+
+
+@pytest.fixture
+def api(event_loop, uart_gw):
     controller = MagicMock(
         spec_set=zigpy_deconz.zigbee.application.ControllerApplication
     )
     api = deconz_api.Deconz(controller, {zigpy.config.CONF_DEVICE_PATH: "/dev/null"})
-    api._uart = MagicMock()
+    api._uart = uart_gw
     return api
 
 
@@ -192,18 +199,18 @@ def test_data_received_unk_status(api, monkeypatch):
     my_handler = MagicMock()
 
     for cmd, cmd_opts in deconz_api.RX_COMMANDS.items():
-        _, unsolicited = cmd_opts
+        _, solicited = cmd_opts
         payload = b"\x01\x02\x03\x04"
         status = t.uint8_t(0xFE).serialize()
         data = cmd.serialize() + b"\x00" + status + b"\x00\x00" + payload
         setattr(api, "_handle_{}".format(cmd.name), my_handler)
         api._awaiting[0] = MagicMock()
         api.data_received(data)
-        assert t.deserialize.call_count == 1
-        assert t.deserialize.call_args[0][0] == payload
-        if unsolicited:
+        if solicited:
             assert my_handler.call_count == 0
+            assert t.deserialize.call_count == 0
         else:
+            assert t.deserialize.call_count == 1
             assert my_handler.call_count == 1
         t.deserialize.reset_mock()
         my_handler.reset_mock()
@@ -566,3 +573,30 @@ def test_tx_status(value, name):
 def test_handle_add_neighbour(api):
     """Test handle_add_neighbour."""
     api._handle_add_neighbour((12, 1, 0x1234, sentinel.ieee, 0x80))
+
+
+@pytest.mark.parametrize("status", (0x00, 0x05))
+async def test_aps_data_req_deserialize_error(api, uart_gw, status, caplog):
+    """Test deserialization error."""
+
+    device_state = (
+        deconz_api.DeviceState.APSDE_DATA_INDICATION
+        | deconz_api.DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE
+        | deconz_api.NetworkState.CONNECTED
+    )
+    api._handle_device_state_value(device_state)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert uart_gw.send.call_count == 1
+    assert api._data_indication is True
+
+    api.data_received(
+        uart_gw.send.call_args[0][0][0:2]
+        + bytes([status])
+        + binascii.unhexlify("0800010022")
+    )
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert api._data_indication is False
