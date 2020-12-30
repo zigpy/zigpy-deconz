@@ -1,3 +1,5 @@
+"""Tests for the uart module."""
+
 from unittest import mock
 
 import pytest
