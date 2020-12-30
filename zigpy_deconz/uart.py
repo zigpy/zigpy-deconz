@@ -1,3 +1,5 @@
+"""Uart module."""
+
 import asyncio
 import binascii
 import logging
@@ -20,13 +22,16 @@ class Gateway(asyncio.Protocol):
     ESC_ESC = b"\xDD"
 
     def __init__(self, api, connected_future=None):
+        """Initialize instance of the UART gateway."""
+
         self._api = api
         self._buffer = b""
         self._connected_future = connected_future
         self._transport = None
 
     def connection_lost(self, exc) -> None:
-        """Port was closed expecteddly or unexpectedly."""
+        """Port was closed expectedly or unexpectedly."""
+
         if self._connected_future and not self._connected_future.done():
             if exc is None:
                 self._connected_future.set_result(True)
@@ -40,7 +45,8 @@ class Gateway(asyncio.Protocol):
         self._api.connection_lost(exc)
 
     def connection_made(self, transport):
-        """Callback when the uart is connected"""
+        """Call this when the uart connection is established."""
+
         LOGGER.debug("Connection made")
         self._transport = transport
         if self._connected_future:
@@ -50,14 +56,14 @@ class Gateway(asyncio.Protocol):
         self._transport.close()
 
     def send(self, data):
-        """Send data, taking care of escaping and framing"""
+        """Send data, taking care of escaping and framing."""
         LOGGER.debug("Send: 0x%s", binascii.hexlify(data).decode())
         checksum = bytes(self._checksum(data))
         frame = self._escape(data + checksum)
         self._transport.write(self.END + frame + self.END)
 
     def data_received(self, data):
-        """Callback when there is data received from the uart"""
+        """Handle data received from the uart."""
         self._buffer += data
         while self._buffer:
             end = self._buffer.find(self.END)
