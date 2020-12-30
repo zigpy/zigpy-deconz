@@ -1,3 +1,5 @@
+"""Data types module."""
+
 import enum
 
 
@@ -128,6 +130,8 @@ class Struct:
     _fields = []
 
     def __init__(self, *args, **kwargs):
+        """Initialize instance."""
+
         if len(args) == 1 and isinstance(args[0], self.__class__):
             # copy constructor
             for field in self._fields:
@@ -143,6 +147,7 @@ class Struct:
 
     @classmethod
     def deserialize(cls, data):
+        """Deserialize data."""
         r = cls()
         for field_name, field_type in cls._fields:
             v, data = field_type.deserialize(data)
@@ -150,6 +155,7 @@ class Struct:
         return r, data
 
     def __repr__(self):
+        """Instance representation."""
         r = "<%s " % (self.__class__.__name__,)
         r += " ".join(
             ["%s=%s" % (f[0], getattr(self, f[0], None)) for f in self._fields]
@@ -195,17 +201,21 @@ class EUI64(FixedList):
     _itemtype = uint8_t
 
     def __repr__(self):
+        """Instance representation."""
         return ":".join("%02x" % i for i in self[::-1])
 
     def __hash__(self):
+        """Hash magic method."""
         return hash(repr(self))
 
 
 class HexRepr:
     def __repr__(self):
+        """Instance representation."""
         return ("0x{:0" + str(self._size * 2) + "x}").format(self)
 
     def __str__(self):
+        """Instance str method."""
         return ("0x{:0" + str(self._size * 2) + "x}").format(self)
 
 

@@ -1,3 +1,5 @@
+"""Test exceptions."""
+
 from unittest import mock
 
 import zigpy_deconz.exception

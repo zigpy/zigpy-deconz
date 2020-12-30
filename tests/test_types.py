@@ -1,3 +1,5 @@
+"""Tests for zigpy_deconz.types module."""
+
 from unittest import mock
 
 import pytest

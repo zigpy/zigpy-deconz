@@ -1,3 +1,5 @@
+"""Default configuration values."""
+
 import voluptuous as vol
 from zigpy.config import (  # noqa: F401 pylint: disable=unused-import
     CONF_DEVICE,

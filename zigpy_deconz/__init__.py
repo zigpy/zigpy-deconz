@@ -1,3 +1,5 @@
+"""Init file for zigpy_deconz."""
+
 # coding: utf-8
 MAJOR_VERSION = 0
 MINOR_VERSION = 12
