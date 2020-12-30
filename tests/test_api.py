@@ -3,6 +3,7 @@
 import asyncio
 import binascii
 import logging
+import sys
 
 import pytest
 import serial
@@ -525,7 +526,13 @@ async def test_probe_success(mock_connect, mock_device_state):
 @patch("zigpy_deconz.uart.connect", return_value=MagicMock(spec_set=uart.Gateway))
 @pytest.mark.parametrize(
     "exception",
-    (asyncio.TimeoutError, serial.SerialException, zigpy_deconz.exception.CommandError),
+    (
+        asyncio.TimeoutError,
+        serial.SerialException,
+        zigpy_deconz.exception.CommandError,
+    )
+    if sys.version_info[:3] != (3, 7, 9)
+    else (asyncio.TimeoutError,),
 )
 async def test_probe_fail(mock_connect, mock_device_state, exception):
     """Test device probing fails."""
