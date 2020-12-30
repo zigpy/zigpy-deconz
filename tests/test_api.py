@@ -474,7 +474,6 @@ async def test_reconnect_multiple_disconnects(connect_mock, caplog):
 
     assert api._uart is sentinel.uart_reconnect
     assert connect_mock.call_count == 1
-    assert "Cancelling reconnection attempt" in caplog.messages
 
 
 @patch("zigpy_deconz.uart.connect")
