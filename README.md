@@ -5,7 +5,7 @@
 
 [zigpy-deconz](https://github.com/zigpy/zigpy-deconz) is a Python 3 implementation for the [Zigpy](https://github.com/zigpy/) project to implement support for [Zigbee](https://www.zigbee.org) radio devices that uses firmware with [deCONZ serial protocol](https://github.com/dresden-elektronik/deconz-serial-protocol).
 
-The goal of this project for [zigpy](https://github.com/zigpy/) is to add support for [ConBee](https://phoscon.de/en/conbee/), [ConBee II (ConBee 2)](https://phoscon.de/en/conbee2/), and [RaspBee](https://phoscon.de/en/raspbee2/) and [RaspBee II](https://phoscon.de/en/raspbee2/) Zigbee adapters/modules from [Dresden-Elektronik](https://github.com/dresden-elektronik/) to integrations such as [ZHA in Home Assistant](https://www.home-assistant.io/integrations/zha/).
+The goal of this project for is to add native support for [ConBee](https://phoscon.de/en/conbee/), [ConBee II (ConBee 2)](https://phoscon.de/en/conbee2/), and [RaspBee](https://phoscon.de/en/raspbee2/) and [RaspBee II](https://phoscon.de/en/raspbee2/) Zigbee adapters/modules from [Dresden-Elektronik](https://github.com/dresden-elektronik/) to integrations such as [ZHA in Home Assistant](https://www.home-assistant.io/integrations/zha/).
 
 # Testing new releases
 
