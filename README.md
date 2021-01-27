@@ -3,11 +3,9 @@
 [![Build Status](https://travis-ci.org/zigpy/zigpy-deconz.svg?branch=master)](https://travis-ci.org/zigpy/zigpy-deconz)
 [![Coverage](https://coveralls.io/repos/github/zigpy/zigpy-deconz/badge.svg?branch=master)](https://coveralls.io/github/zigpy/zigpy-deconz?branch=master)
 
-[zigpy-deconz](https://github.com/zigpy/zigpy-deconz) is a Python 3 implementation for the [Zigpy](https://github.com/zigpy/) project to implement [deCONZ](https://www.dresden-elektronik.de/funktechnik/products/software/pc/deconz/) based [Zigbee](https://www.zigbee.org) radio devices.
+[zigpy-deconz](https://github.com/zigpy/zigpy-deconz) is a Python 3 implementation for the [Zigpy](https://github.com/zigpy/) project to implement support for [Zigbee](https://www.zigbee.org) radio devices that uses firmware with [deCONZ serial protocol](https://github.com/dresden-elektronik/deconz-serial-protocol).
 
-The goal of this project to add native support for the Dresden-Elektronik deCONZ based ZigBee modules in Home Assistant via [Zigpy](https://github.com/zigpy/).
-
-This library uses the deCONZ serial protocol for communicating with [ConBee](https://www.dresden-elektronik.de/conbee/), [ConBee II (ConBee 2)](https://shop.dresden-elektronik.de/conbee-2.html), and [RaspBee](https://www.dresden-elektronik.de/raspbee/) adapters from [Dresden-Elektronik](https://github.com/dresden-elektronik/).
+The goal of this project for [zigpy](https://github.com/zigpy/) is to add support for [ConBee](https://phoscon.de/en/conbee/), [ConBee II (ConBee 2)](https://phoscon.de/en/conbee2/), and [RaspBee](https://phoscon.de/en/raspbee2/) and [RaspBee II](https://phoscon.de/en/raspbee2/) Zigbee adapters/modules from [Dresden-Elektronik](https://github.com/dresden-elektronik/) to integrations such as [ZHA in Home Assistant](https://www.home-assistant.io/integrations/zha/).
 
 # Testing new releases
 
@@ -40,8 +38,9 @@ Tagged versions are also released via PyPI
 
 # External documentation and reference
 
-Note! Latest official documentation for the deCONZ serial protocol can currently be obtained by contacting Dresden-Elektronik employees via GitHub here
--  https://github.com/dresden-elektronik/deconz-rest-plugin/issues/158
+Note! Latest official documentation for the deCONZ serial protocol can currently be obtained by contacting Dresden-Elektronik employees via GitHub here:
+- https://github.com/dresden-elektronik/deconz-serial-protocol
+  - https://github.com/dresden-elektronik/deconz-serial-protocol/issues/2
 
 For reference, here is a list of unrelated projects that also use the same deCONZ serial protocol for other implementations
 - https://github.com/Equidamoid/pyconz/commits/master
