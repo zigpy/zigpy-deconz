@@ -381,7 +381,7 @@ class DeconzDevice(zigpy.device.Device):
         """Initialize instance."""
 
         super().__init__(*args)
-        is_gpio_device = re.match(r"/dev/tty(S|AMA)\d+", device_path)
+        is_gpio_device = re.match(r"/dev/tty(S|AMA|ACM)\d+", device_path)
         self._model = "RaspBee" if is_gpio_device else "ConBee"
         self._model += " II" if ((version & 0x0000FF00) == 0x00000700) else ""
 
