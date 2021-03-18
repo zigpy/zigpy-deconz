@@ -3,10 +3,8 @@
 import asyncio
 import binascii
 import logging
-import sys
 
 import pytest
-import serial
 import zigpy.config
 
 from zigpy_deconz import api as deconz_api, types as t, uart
@@ -526,16 +524,7 @@ async def test_probe_success(mock_connect, mock_device_state):
 
 @patch.object(deconz_api.Deconz, "device_state", new_callable=AsyncMock)
 @patch("zigpy_deconz.uart.connect", return_value=MagicMock(spec_set=uart.Gateway))
-@pytest.mark.parametrize(
-    "exception",
-    (
-        asyncio.TimeoutError,
-        serial.SerialException,
-        zigpy_deconz.exception.CommandError,
-    )
-    if sys.version_info[:3] != (3, 7, 9)
-    else (asyncio.TimeoutError,),
-)
+@pytest.mark.parametrize("exception", (asyncio.TimeoutError,))
 async def test_probe_fail(mock_connect, mock_device_state, exception):
     """Test device probing fails."""
 
