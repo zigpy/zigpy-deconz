@@ -578,7 +578,7 @@ async def test_aps_data_req_deserialize_error(api, uart_gw, status, caplog):
 
     device_state = (
         deconz_api.DeviceState.APSDE_DATA_INDICATION
-        | deconz_api.DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE
+        | deconz_api.DeviceState.APSDE_DATA_CONFIRM
         | deconz_api.NetworkState.CONNECTED
     )
     api._handle_device_state_value(device_state)
@@ -597,3 +597,15 @@ async def test_aps_data_req_deserialize_error(api, uart_gw, status, caplog):
     await asyncio.sleep(0)
     await asyncio.sleep(0)
     assert api._data_indication is False
+
+
+async def test_set_item(api):
+    """Test item setter."""
+
+    with patch.object(api, "write_parameter", new=AsyncMock()) as write_mock:
+        api["test"] = sentinel.test_param
+        for i in range(10):
+            await asyncio.sleep(0)
+        assert write_mock.await_count == 1
+        assert write_mock.call_args[0][0] == "test"
+        assert write_mock.call_args[0][1] is sentinel.test_param
