@@ -9,7 +9,6 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
-import zigpy.exceptions
 from zigpy.types import APSStatus, Channels
 
 from zigpy_deconz.exception import APIException, CommandError
@@ -485,7 +484,7 @@ class Deconz:
                 binascii.hexlify(r[8]),
             )
             return r
-        except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
+        finally:
             self._data_indication = False
 
     def _handle_aps_data_indication(self, data):
@@ -547,7 +546,7 @@ class Deconz:
                 r[5],
             )
             return r
-        except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
+        finally:
             self._data_confirm = False
 
     def _handle_add_neighbour(self, data) -> None:
