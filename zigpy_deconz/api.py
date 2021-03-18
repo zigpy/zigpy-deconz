@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
+import zigpy.exceptions
 from zigpy.types import APSStatus, Channels
 
 from zigpy_deconz.exception import APIException, CommandError
@@ -484,6 +485,8 @@ class Deconz:
                 binascii.hexlify(r[8]),
             )
             return r
+        except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
+            pass
         finally:
             self._data_indication = False
 
@@ -546,6 +549,8 @@ class Deconz:
                 r[5],
             )
             return r
+        except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
+            pass
         finally:
             self._data_confirm = False
 
