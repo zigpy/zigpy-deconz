@@ -239,7 +239,7 @@ def test_simplified_beacon(api):
 
 
 async def test_aps_data_confirm(api, monkeypatch):
-    monkeypatch.setattr(deconz_api, "COMMAND_TIMEOUT", 0.1)
+    monkeypatch.setattr(deconz_api, "COMMAND_TIMEOUT", 0.01)
 
     success = True
 
@@ -254,9 +254,10 @@ async def test_aps_data_confirm(api, monkeypatch):
 
     res = await api._aps_data_confirm()
     assert res is not None
-    assert api._data_confirm is True
+    assert api._data_confirm is False
 
     success = False
+    api._data_confirm = True
     res = await api._aps_data_confirm()
     assert res is None
     assert api._data_confirm is False
@@ -291,9 +292,10 @@ async def test_aps_data_ind(api, monkeypatch):
 
     res = await api._aps_data_indication()
     assert res is not None
-    assert api._data_indication is True
+    assert api._data_indication is False
 
     success = False
+    api._data_indication = True
     res = await api._aps_data_indication()
     assert res is None
     assert api._data_indication is False
