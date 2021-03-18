@@ -307,7 +307,7 @@ class Deconz:
                 LOGGER.warning(
                     "No response to '%s' command with seq id '0x%02x'", cmd, seq
                 )
-                self._awaiting.pop(seq)
+                self._awaiting.pop(seq, None)
                 raise
 
     def _api_frame(self, cmd, *args):
