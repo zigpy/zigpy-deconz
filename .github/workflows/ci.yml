@@ -374,4 +374,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           . venv/bin/activate
-          coveralls --finish
+          coveralls --service=github --finish
