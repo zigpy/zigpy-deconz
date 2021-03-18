@@ -88,7 +88,10 @@ class Gateway(asyncio.Protocol):
                 continue
 
             LOGGER.debug("Frame received: 0x%s", binascii.hexlify(frame).decode())
-            self._api.data_received(frame)
+            try:
+                self._api.data_received(frame)
+            except Exception as exc:
+                LOGGER.error("Unexpected error handling the frame: %s", exc)
 
     def _unescape(self, data):
         ret = []
