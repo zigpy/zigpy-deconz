@@ -307,7 +307,7 @@ class Deconz:
                 LOGGER.warning(
                     "No response to '%s' command with seq id '0x%02x'", cmd, seq
                 )
-                self._awaiting.pop(seq)
+                self._awaiting.pop(seq, None)
                 raise
 
     def _api_frame(self, cmd, *args):
@@ -338,16 +338,21 @@ class Deconz:
         if solicited and seq in self._awaiting:
             fut = self._awaiting.pop(seq)
             if status != Status.SUCCESS:
-                fut.set_exception(
-                    CommandError(status, "%s, status: %s" % (command, status))
-                )
+                try:
+                    fut.set_exception(
+                        CommandError(status, "%s, status: %s" % (command, status))
+                    )
+                except asyncio.InvalidStateError:
+                    LOGGER.warning(
+                        "Duplicate or delayed response for 0x:%02x sequence", seq
+                    )
                 return
 
         try:
             data, _ = t.deserialize(data[5:], schema)
         except Exception:
             LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
-            if fut is not None:
+            if fut is not None and not fut.done():
                 fut.set_exception(
                     APIException(
                         f"Failed to deserialize frame: {binascii.hexlify(data)}"
@@ -356,7 +361,13 @@ class Deconz:
             return
 
         if fut is not None:
-            fut.set_result(data)
+            try:
+                fut.set_result(data)
+            except asyncio.InvalidStateError:
+                LOGGER.warning(
+                    "Duplicate or delayed response for 0x:%02x sequence", seq
+                )
+
         getattr(self, "_handle_%s" % (command.name,))(data)
 
     add_neighbour = functools.partialmethod(_command, Command.add_neighbour, 12)
@@ -475,6 +486,8 @@ class Deconz:
             )
             return r
         except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
+            pass
+        finally:
             self._data_indication = False
 
     def _handle_aps_data_indication(self, data):
@@ -537,6 +550,8 @@ class Deconz:
             )
             return r
         except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
+            pass
+        finally:
             self._data_confirm = False
 
     def _handle_add_neighbour(self, data) -> None:

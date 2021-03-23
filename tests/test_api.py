@@ -3,10 +3,8 @@
 import asyncio
 import binascii
 import logging
-import sys
 
 import pytest
-import serial
 import zigpy.config
 
 from zigpy_deconz import api as deconz_api, types as t, uart
@@ -239,7 +237,7 @@ def test_simplified_beacon(api):
 
 
 async def test_aps_data_confirm(api, monkeypatch):
-    monkeypatch.setattr(deconz_api, "COMMAND_TIMEOUT", 0.1)
+    monkeypatch.setattr(deconz_api, "COMMAND_TIMEOUT", 0.01)
 
     success = True
 
@@ -254,9 +252,10 @@ async def test_aps_data_confirm(api, monkeypatch):
 
     res = await api._aps_data_confirm()
     assert res is not None
-    assert api._data_confirm is True
+    assert api._data_confirm is False
 
     success = False
+    api._data_confirm = True
     res = await api._aps_data_confirm()
     assert res is None
     assert api._data_confirm is False
@@ -291,9 +290,10 @@ async def test_aps_data_ind(api, monkeypatch):
 
     res = await api._aps_data_indication()
     assert res is not None
-    assert api._data_indication is True
+    assert api._data_indication is False
 
     success = False
+    api._data_indication = True
     res = await api._aps_data_indication()
     assert res is None
     assert api._data_indication is False
@@ -524,16 +524,7 @@ async def test_probe_success(mock_connect, mock_device_state):
 
 @patch.object(deconz_api.Deconz, "device_state", new_callable=AsyncMock)
 @patch("zigpy_deconz.uart.connect", return_value=MagicMock(spec_set=uart.Gateway))
-@pytest.mark.parametrize(
-    "exception",
-    (
-        asyncio.TimeoutError,
-        serial.SerialException,
-        zigpy_deconz.exception.CommandError,
-    )
-    if sys.version_info[:3] != (3, 7, 9)
-    else (asyncio.TimeoutError,),
-)
+@pytest.mark.parametrize("exception", (asyncio.TimeoutError,))
 async def test_probe_fail(mock_connect, mock_device_state, exception):
     """Test device probing fails."""
 
@@ -587,7 +578,7 @@ async def test_aps_data_req_deserialize_error(api, uart_gw, status, caplog):
 
     device_state = (
         deconz_api.DeviceState.APSDE_DATA_INDICATION
-        | deconz_api.DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE
+        | deconz_api.DeviceState.APSDE_DATA_CONFIRM
         | deconz_api.NetworkState.CONNECTED
     )
     api._handle_device_state_value(device_state)
@@ -606,3 +597,15 @@ async def test_aps_data_req_deserialize_error(api, uart_gw, status, caplog):
     await asyncio.sleep(0)
     await asyncio.sleep(0)
     assert api._data_indication is False
+
+
+async def test_set_item(api):
+    """Test item setter."""
+
+    with patch.object(api, "write_parameter", new=AsyncMock()) as write_mock:
+        api["test"] = sentinel.test_param
+        for i in range(10):
+            await asyncio.sleep(0)
+        assert write_mock.await_count == 1
+        assert write_mock.call_args[0][0] == "test"
+        assert write_mock.call_args[0][1] is sentinel.test_param
