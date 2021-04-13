@@ -3,11 +3,20 @@
 [![Build Status](https://travis-ci.org/zigpy/zigpy-deconz.svg?branch=master)](https://travis-ci.org/zigpy/zigpy-deconz)
 [![Coverage](https://coveralls.io/repos/github/zigpy/zigpy-deconz/badge.svg?branch=master)](https://coveralls.io/github/zigpy/zigpy-deconz?branch=master)
 
-[zigpy-deconz](https://github.com/zigpy/zigpy-deconz) is a Python 3 implementation for the [Zigpy](https://github.com/zigpy/) project to implement [deCONZ](https://www.dresden-elektronik.de/funktechnik/products/software/pc/deconz/) based [Zigbee](https://www.zigbee.org) radio devices.
+[zigpy-deconz](https://github.com/zigpy/zigpy-deconz) is a Python 3 radio libary implementation for the [Zigpy](https://github.com/zigpy/) project to implement [deCONZ](https://www.dresden-elektronik.de/funktechnik/products/software/pc/deconz/) based [Zigbee](https://www.zigbee.org) radio devices.
 
 The goal of this project to add native support for the Dresden-Elektronik deCONZ based ZigBee modules in Home Assistant via [Zigpy](https://github.com/zigpy/).
 
 This library uses the deCONZ serial protocol for communicating with [ConBee](https://www.dresden-elektronik.de/conbee/), [ConBee II (ConBee 2)](https://shop.dresden-elektronik.de/conbee-2.html), and [RaspBee](https://www.dresden-elektronik.de/raspbee/) adapters from [Dresden-Elektronik](https://github.com/dresden-elektronik/).
+
+# Hardware requirements
+
+dresden elektronik based radios USB-adapters and GPIO-modules with deCONZ Serial Protocol compatible with zigpy-deconz:
+
+- [ConBee II (a.k.a. ConBee 2)](https://shop.dresden-elektronik.de/conbee-2.html) USB adapter
+- [RaspBee II (a.k.a. RaspBee 2)](https://www.dresden-elektronik.com/product/raspbee-II.html) GPIO radio module
+- [ConBee](https://www.dresden-elektronik.de/conbee/) USB radio adapter
+- [RaspBee](https://www.dresden-elektronik.de/raspbee/) GPIO radio module
 
 # Testing new releases
 
