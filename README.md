@@ -3,7 +3,7 @@
 [![Build Status](https://travis-ci.org/zigpy/zigpy-deconz.svg?branch=master)](https://travis-ci.org/zigpy/zigpy-deconz)
 [![Coverage](https://coveralls.io/repos/github/zigpy/zigpy-deconz/badge.svg?branch=master)](https://coveralls.io/github/zigpy/zigpy-deconz?branch=master)
 
-[zigpy-deconz](https://github.com/zigpy/zigpy-deconz) is a Python 3 radio libary implementation for the [Zigpy](https://github.com/zigpy/) project to implement [deCONZ](https://www.dresden-elektronik.de/funktechnik/products/software/pc/deconz/) based [Zigbee](https://www.zigbee.org) radio devices.
+[zigpy-deconz](https://github.com/zigpy/zigpy-deconz) is a Python 3 radio library implementation for the [Zigpy](https://github.com/zigpy/) project to implement [deCONZ](https://www.dresden-elektronik.de/funktechnik/products/software/pc/deconz/) based [Zigbee](https://www.zigbee.org) radio devices.
 
 The goal of this project to add native support for the Dresden-Elektronik deCONZ based ZigBee modules in Home Assistant via [Zigpy](https://github.com/zigpy/).
 
