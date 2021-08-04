@@ -621,10 +621,9 @@ async def test_restore_neighbours(app):
     device_2.nwk = 0x2222
     nei_2 = zigpy.neighbor.Neighbor(sentinel.nei_2, device_2)
 
-    # invalid node descriptor
-    desc_3 = zdo_t.NodeDescriptor()
+    # Missing node descriptor
     device_3 = MagicMock()
-    device_3.node_desc = desc_3
+    device_3.node_desc = None
     device_3.ieee = sentinel.ieee_3
     device_3.nwk = 0x3333
     nei_3 = zigpy.neighbor.Neighbor(sentinel.nei_3, device_3)

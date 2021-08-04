@@ -345,18 +345,20 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         for device in devices:
             if device is None:
                 continue
+            descr = device.node_desc
             LOGGER.debug(
                 "device: 0x%04x - %s %s, FFD=%s, Rx_on_when_idle=%s",
                 device.nwk,
                 device.manufacturer,
                 device.model,
-                device.node_desc.is_full_function_device,
-                device.node_desc.is_receiver_on_when_idle,
+                descr.is_full_function_device if descr is not None else None,
+                descr.is_receiver_on_when_idle if descr is not None else None,
             )
-            descr = device.node_desc
-            if not descr.is_valid:
-                continue
-            if descr.is_full_function_device or descr.is_receiver_on_when_idle:
+            if (
+                descr is None
+                or descr.is_full_function_device
+                or descr.is_receiver_on_when_idle
+            ):
                 continue
             LOGGER.debug(
                 "Restoring %s/0x%04x device as direct child",
