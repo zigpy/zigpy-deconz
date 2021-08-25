@@ -12,6 +12,7 @@ import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
 import zigpy.neighbor
+import zigpy.state
 import zigpy.types
 import zigpy.util
 
@@ -66,7 +67,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self.version = await self._api.version()
         await self._api.device_state()
         (ieee,) = await self._api[NetworkParameter.mac_address]
-        self._ieee = zigpy.types.EUI64(ieee)
+        self.state.node_information.ieee = zigpy.types.EUI64(ieee)
 
         if self._api.protocol_version >= PROTO_VER_WATCHDOG:
             asyncio.ensure_future(self._reset_watchdog())
@@ -79,16 +80,34 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if auto_form and should_form:
             await self.form_network()
 
-        (self._pan_id,) = await self._api[NetworkParameter.nwk_panid]
-        (self._nwk,) = await self._api[NetworkParameter.nwk_address]
-        (self._ext_pan_id,) = await self._api[NetworkParameter.nwk_extended_panid]
-        await self._api[NetworkParameter.channel_mask]
+        (self.state.node_information.nwk,) = await self._api[
+            NetworkParameter.nwk_address
+        ]
+        (self.state.network_information.pan_id,) = await self._api[
+            NetworkParameter.nwk_panid
+        ]
+        (self.state.network_information.extended_pan_id,) = await self._api[
+            NetworkParameter.nwk_extended_panid
+        ]
+        (self.state.network_information.channel_mask,) = await self._api[
+            NetworkParameter.channel_mask
+        ]
         await self._api[NetworkParameter.aps_extended_panid]
-        await self._api[NetworkParameter.trust_center_address]
-        await self._api[NetworkParameter.security_mode]
-        (self._channel,) = await self._api[NetworkParameter.current_channel]
+        if self.state.network_information.tc_link_key is None:
+            self.state.network_information.tc_link_key = zigpy.state.Key()
+        (self.state.network_information.tc_link_key.partner_ieee,) = await self._api[
+            NetworkParameter.trust_center_address
+        ]
+        (self.state.network_information.security_level,) = await self._api[
+            NetworkParameter.security_mode
+        ]
+        (self.state.network_information.channel,) = await self._api[
+            NetworkParameter.current_channel
+        ]
         await self._api[NetworkParameter.protocol_version]
-        (self._nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
+        (self.state.network_information.nwk_update_id,) = await self._api[
+            NetworkParameter.nwk_update_id
+        ]
 
         coordinator = await DeconzDevice.new(
             self,
@@ -434,6 +453,6 @@ class DeconzDevice(zigpy.device.Device):
                 ep.out_clusters = from_ep.out_clusters
         else:
             application.devices[ieee] = dev
-            await dev._initialize()
+            await dev.initialize()
 
         return dev
