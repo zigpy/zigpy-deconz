@@ -7,7 +7,7 @@ import pytest
 import zigpy.config
 import zigpy.device
 import zigpy.neighbor
-from zigpy.types import EUI64
+from zigpy.types import EUI64, Channels
 import zigpy.zdo.types as zdo_t
 
 from zigpy_deconz import types as t
@@ -253,10 +253,34 @@ async def test_startup(
         app._api._proto_ver = protocol_ver
         return [version]
 
+    params = {
+        deconz_api.NetworkParameter.aps_designed_coordinator: [designed_coord],
+        deconz_api.NetworkParameter.nwk_address: [designed_coord],
+        deconz_api.NetworkParameter.protocol_version: [protocol_ver],
+        deconz_api.NetworkParameter.mac_address: [EUI64([0x01] * 8)],
+        deconz_api.NetworkParameter.nwk_address: [0x0000],
+        deconz_api.NetworkParameter.nwk_panid: [0x1234],
+        deconz_api.NetworkParameter.nwk_extended_panid: [EUI64([0x02] * 8)],
+        deconz_api.NetworkParameter.channel_mask: [Channels.CHANNEL_25],
+        deconz_api.NetworkParameter.aps_extended_panid: [EUI64([0x02] * 8)],
+        deconz_api.NetworkParameter.network_key: [0, t.Key([0x03] * 16)],
+        deconz_api.NetworkParameter.trust_center_address: [EUI64([0x04] * 8)],
+        deconz_api.NetworkParameter.link_key: [
+            EUI64([0x04] * 8),
+            t.Key(b"ZigBeeAlliance09"),
+        ],
+        deconz_api.NetworkParameter.security_mode: [3],
+        deconz_api.NetworkParameter.current_channel: [25],
+        deconz_api.NetworkParameter.nwk_update_id: [0],
+    }
+
     async def _read_param(param, *args):
-        if param == deconz_api.NetworkParameter.mac_address:
-            return (t.EUI64([0x01] * 8),)
-        return (designed_coord,)
+        try:
+            return params[param]
+        except KeyError:
+            raise zigpy_deconz.exception.CommandError(
+                deconz_api.Status.UNSUPPORTED, "Unsupported"
+            )
 
     app._reset_watchdog = AsyncMock()
     app.form_network = AsyncMock()

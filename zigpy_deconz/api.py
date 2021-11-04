@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import serial
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
-from zigpy.types import APSStatus, Channels
+from zigpy.types import APSStatus, Bool, Channels
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -179,12 +179,16 @@ class NetworkParameter(t.uint8_t, enum.Enum):
     aps_extended_panid = 0x0B
     trust_center_address = 0x0E
     security_mode = 0x10
+    use_predefined_nwk_panid = 0x15
     network_key = 0x18
+    link_key = 0x19
     current_channel = 0x1C
     permit_join = 0x21
     protocol_version = 0x22
     nwk_update_id = 0x24
     watchdog_ttl = 0x26
+    nwk_frame_counter = 0x27
+    app_zdp_response_handling = 0x28
 
 
 NETWORK_PARAMETER_SCHEMA = {
@@ -197,12 +201,16 @@ NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.aps_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.trust_center_address: (t.EUI64,),
     NetworkParameter.security_mode: (t.uint8_t,),
+    NetworkParameter.use_predefined_nwk_panid: (Bool,),
     NetworkParameter.network_key: (t.uint8_t, t.Key),
+    NetworkParameter.link_key: (t.EUI64, t.Key),
     NetworkParameter.current_channel: (t.uint8_t,),
     NetworkParameter.permit_join: (t.uint8_t,),
     NetworkParameter.protocol_version: (t.uint16_t,),
     NetworkParameter.nwk_update_id: (t.uint8_t,),
     NetworkParameter.watchdog_ttl: (t.uint32_t,),
+    NetworkParameter.nwk_frame_counter: (t.uint32_t,),
+    NetworkParameter.app_zdp_response_handling: (t.uint16_t,),
 }
 
 
