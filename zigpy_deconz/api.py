@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import serial
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
-from zigpy.types import APSStatus, Channels
+from zigpy.types import APSStatus, Bool, Channels, KeyData
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -179,15 +179,24 @@ class NetworkParameter(t.uint8_t, enum.Enum):
     aps_extended_panid = 0x0B
     trust_center_address = 0x0E
     security_mode = 0x10
+    use_predefined_nwk_panid = 0x15
     network_key = 0x18
+    link_key = 0x19
     current_channel = 0x1C
     permit_join = 0x21
     protocol_version = 0x22
     nwk_update_id = 0x24
     watchdog_ttl = 0x26
+    nwk_frame_counter = 0x27
+    app_zdp_response_handling = 0x28
 
 
-NETWORK_PARAMETER_SCHEMA = {
+# Some parameters use a different schema for requests than they do for responses
+NETWORK_PARAMETER_SCHEMA_REQ = {
+    NetworkParameter.link_key: (t.EUI64,),
+}
+
+NETWORK_PARAMETER_SCHEMA_RSP = {
     NetworkParameter.mac_address: (t.EUI64,),
     NetworkParameter.nwk_panid: (t.PanId,),
     NetworkParameter.nwk_address: (t.NWK,),
@@ -197,12 +206,16 @@ NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.aps_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.trust_center_address: (t.EUI64,),
     NetworkParameter.security_mode: (t.uint8_t,),
+    NetworkParameter.use_predefined_nwk_panid: (Bool,),
     NetworkParameter.network_key: (t.uint8_t, t.Key),
+    NetworkParameter.link_key: (t.EUI64, KeyData),
     NetworkParameter.current_channel: (t.uint8_t,),
     NetworkParameter.permit_join: (t.uint8_t,),
     NetworkParameter.protocol_version: (t.uint16_t,),
     NetworkParameter.nwk_update_id: (t.uint8_t,),
     NetworkParameter.watchdog_ttl: (t.uint32_t,),
+    NetworkParameter.nwk_frame_counter: (t.uint32_t,),
+    NetworkParameter.app_zdp_response_handling: (t.uint16_t,),
 }
 
 
@@ -416,9 +429,15 @@ class Deconz:
         except (KeyError, ValueError):
             raise KeyError("Unknown parameter id: %s" % (id_,))
 
-        data = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
+        if param in NETWORK_PARAMETER_SCHEMA_REQ:
+            req_schema = NETWORK_PARAMETER_SCHEMA_REQ[param]
+            rsp_schema = NETWORK_PARAMETER_SCHEMA_RSP[param]
+        else:
+            req_schema = rsp_schema = NETWORK_PARAMETER_SCHEMA_RSP[param]
+
+        data = t.serialize(args, req_schema)
         r = await self._command(Command.read_parameter, 1 + len(data), param, data)
-        data = t.deserialize(r[2], NETWORK_PARAMETER_SCHEMA[param])[0]
+        data = t.deserialize(r[2], rsp_schema)[0]
         LOGGER.debug("Read parameter %s response: %s", param.name, data)
         return data
 
@@ -439,7 +458,7 @@ class Deconz:
         except (KeyError, ValueError):
             raise KeyError("Unknown parameter id: %s write request" % (id_,))
 
-        v = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
+        v = t.serialize(args, NETWORK_PARAMETER_SCHEMA_RSP[param])
         length = len(v) + 1
         return self._command(Command.write_parameter, length, param, v)
 
