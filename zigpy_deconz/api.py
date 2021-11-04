@@ -191,12 +191,7 @@ class NetworkParameter(t.uint8_t, enum.Enum):
     app_zdp_response_handling = 0x28
 
 
-# Some parameters use a different schema for requests than they do for responses
-NETWORK_PARAMETER_SCHEMA_REQ = {
-    NetworkParameter.link_key: (t.EUI64,),
-}
-
-NETWORK_PARAMETER_SCHEMA_RSP = {
+NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.mac_address: (t.EUI64,),
     NetworkParameter.nwk_panid: (t.PanId,),
     NetworkParameter.nwk_address: (t.NWK,),
@@ -429,15 +424,9 @@ class Deconz:
         except (KeyError, ValueError):
             raise KeyError("Unknown parameter id: %s" % (id_,))
 
-        if param in NETWORK_PARAMETER_SCHEMA_REQ:
-            req_schema = NETWORK_PARAMETER_SCHEMA_REQ[param]
-            rsp_schema = NETWORK_PARAMETER_SCHEMA_RSP[param]
-        else:
-            req_schema = rsp_schema = NETWORK_PARAMETER_SCHEMA_RSP[param]
-
-        data = t.serialize(args, req_schema)
+        data = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
         r = await self._command(Command.read_parameter, 1 + len(data), param, data)
-        data = t.deserialize(r[2], rsp_schema)[0]
+        data = t.deserialize(r[2], NETWORK_PARAMETER_SCHEMA[param])[0]
         LOGGER.debug("Read parameter %s response: %s", param.name, data)
         return data
 
@@ -458,7 +447,7 @@ class Deconz:
         except (KeyError, ValueError):
             raise KeyError("Unknown parameter id: %s write request" % (id_,))
 
-        v = t.serialize(args, NETWORK_PARAMETER_SCHEMA_RSP[param])
+        v = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
         length = len(v) + 1
         return self._command(Command.write_parameter, length, param, v)
 
