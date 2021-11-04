@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import serial
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
-from zigpy.types import APSStatus, Bool, Channels, KeyData
+from zigpy.types import APSStatus, Bool, Channels
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -208,7 +208,7 @@ NETWORK_PARAMETER_SCHEMA_RSP = {
     NetworkParameter.security_mode: (t.uint8_t,),
     NetworkParameter.use_predefined_nwk_panid: (Bool,),
     NetworkParameter.network_key: (t.uint8_t, t.Key),
-    NetworkParameter.link_key: (t.EUI64, KeyData),
+    NetworkParameter.link_key: (t.EUI64, t.Key),
     NetworkParameter.current_channel: (t.uint8_t,),
     NetworkParameter.permit_join: (t.uint8_t,),
     NetworkParameter.protocol_version: (t.uint16_t,),

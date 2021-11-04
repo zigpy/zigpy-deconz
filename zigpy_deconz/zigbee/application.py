@@ -119,7 +119,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         (self.state.network_information.tc_link_key.partner_ieee,) = await self._api[
             NetworkParameter.trust_center_address
         ]
-        _, self.state.network_information.tc_link_key = await self._api.read_parameter(
+        (
+            _,
+            self.state.network_information.tc_link_key.key,
+        ) = await self._api.read_parameter(
             NetworkParameter.link_key,
             self.state.network_information.tc_link_key.partner_ieee,
         )
