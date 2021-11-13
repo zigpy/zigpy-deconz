@@ -63,6 +63,13 @@ class NetworkState(t.uint8_t, enum.Enum):
     LEAVING = 3
 
 
+class SecurityMode(t.uint8_t, enum.Enum):
+    NO_SECURITY = 0x00
+    PRECONFIGURED_NETWORK_KEY = 0x01
+    NETWORK_KEY_FROM_TC = 0x02
+    ONLY_TCLK = 0x03
+
+
 class Command(t.uint8_t, enum.Enum):
     aps_data_confirm = 0x04
     device_state = 0x07
