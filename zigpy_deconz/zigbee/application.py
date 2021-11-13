@@ -53,6 +53,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._pending = zigpy.util.Requests()
         self._nwk = 0
         self.version = 0
+        self._reset_watchdog_task = None
 
     async def _reset_watchdog(self):
         while True:
@@ -70,7 +71,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self.version = await api.version()
         self._api = api
 
+        if self._api.protocol_version >= PROTO_VER_WATCHDOG:
+            self._reset_watchdog_task = asyncio.create_task(self._reset_watchdog())
+
     async def disconnect(self):
+        if self._reset_watchdog_task is not None:
+            self._reset_watchdog_task.cancel()
+
         try:
             if self._api.protocol_version >= PROTO_VER_WATCHDOG:
                 await self._api.write_parameter(NetworkParameter.watchdog_ttl, 0)
@@ -81,8 +88,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         raise NotImplementedError()
 
     async def start_network(self):
-        if self._api.protocol_version >= PROTO_VER_WATCHDOG:
-            asyncio.ensure_future(self._reset_watchdog())
 
         coordinator = await DeconzDevice.new(
             self,
