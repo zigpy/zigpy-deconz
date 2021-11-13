@@ -88,17 +88,18 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         raise NotImplementedError()
 
     async def start_network(self):
+        await self.load_network_info(load_devices=False)
 
         coordinator = await DeconzDevice.new(
             self,
-            self.ieee,
-            self.nwk,
+            self.state.node_info.ieee,
+            self.state.node_info.nwk,
             self.version,
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
         )
 
         coordinator.neighbors.add_context_listener(self._dblistener)
-        self.devices[self.ieee] = coordinator
+        self.devices[self.state.node_info.ieee] = coordinator
         if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
             await self.restore_neighbours()
         asyncio.create_task(self._delayed_neighbour_scan())
