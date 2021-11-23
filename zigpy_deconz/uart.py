@@ -4,6 +4,7 @@ import asyncio
 import binascii
 import logging
 from typing import Callable, Dict
+import urllib.parse
 
 import serial
 import serial_asyncio
@@ -139,15 +140,19 @@ async def connect(config: Dict[str, str], api: Callable, loop=None) -> Gateway:
     connected_future = asyncio.Future()
     protocol = Gateway(api, connected_future)
 
-    _, protocol = await serial_asyncio.create_serial_connection(
-        loop,
-        lambda: protocol,
-        url=config[CONF_DEVICE_PATH],
-        baudrate=DECONZ_BAUDRATE,
-        parity=serial.PARITY_NONE,
-        stopbits=serial.STOPBITS_ONE,
-        xonxoff=False,
-    )
+    parsed_path = urllib.parse.urlparse(config[CONF_DEVICE_PATH])
+    if parsed_path.scheme == 'tcp':
+        _, protocol = await loop.create_connection(lambda: protocol, parsed_path.hostname, parsed_path.port)
+    else:
+        _, protocol = await serial_asyncio.create_serial_connection(
+            loop,
+            lambda: protocol,
+            url=config[CONF_DEVICE_PATH],
+            baudrate=DECONZ_BAUDRATE,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            xonxoff=False,
+        )
 
     await connected_future
 
