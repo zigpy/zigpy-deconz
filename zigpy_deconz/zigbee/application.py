@@ -120,20 +120,21 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._api.write_parameter(NetworkParameter.mac_address, node_info.ieee)
 
         # No way to specify both a mask and the logical channel
-        logical_channel_mask = zigpy.types.Channels.from_channel_list(
-            [network_info.channel]
-        )
-
-        if logical_channel_mask != network_info.channel_mask:
-            LOGGER.warning(
-                "Channel mask %s will be replaced with current logical channel %s",
-                network_info.channel_mask,
-                logical_channel_mask,
+        if network_info.channel is not None:
+            channel_mask = zigpy.types.Channels.from_channel_list(
+                [network_info.channel]
             )
 
-        await self._api.write_parameter(
-            NetworkParameter.channel_mask, logical_channel_mask
-        )
+            if channel_mask != network_info.channel_mask:
+                LOGGER.warning(
+                    "Channel mask %s will be replaced with current logical channel %s",
+                    network_info.channel_mask,
+                    channel_mask,
+                )
+        else:
+            channel_mask = network_info.channel_mask
+
+        await self._api.write_parameter(NetworkParameter.channel_mask, channel_mask)
         await self._api.write_parameter(NetworkParameter.nwk_panid, network_info.pan_id)
         await self._api.write_parameter(
             NetworkParameter.aps_extended_panid, network_info.extended_pan_id
