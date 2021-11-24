@@ -104,8 +104,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             await self.restore_neighbours()
         asyncio.create_task(self._delayed_neighbour_scan())
 
+    async def _wait_for_network_state(self, target_state: NetworkState):
+        while True:
+            (state, _, _) = await self._api.device_state()
+            if state.network_state == target_state:
+                break
+            await asyncio.sleep(CHANGE_NETWORK_WAIT)
+
     async def write_network_info(self, *, network_info, node_info):
         await self._api.change_network_state(NetworkState.OFFLINE)
+        await asyncio.wait_for(
+            self._wait_for_network_state(NetworkState.OFFLINE),
+            timeout=10 * CHANGE_NETWORK_WAIT,
+        )
 
         if node_info.logical_type == zdo_t.LogicalType.Coordinator:
             await self._api.write_parameter(
@@ -180,13 +191,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         # bring network up
         await self._api.change_network_state(NetworkState.CONNECTED)
 
-        for _ in range(10):
-            (state, _, _) = await self._api.device_state()
-            if state.network_state == NetworkState.CONNECTED:
-                break
-            await asyncio.sleep(CHANGE_NETWORK_WAIT)
-        else:
-            raise FormationFailure("Could not form network.")
+        try:
+            await asyncio.wait_for(
+                self._wait_for_network_state(NetworkState.CONNECTED),
+                timeout=10 * CHANGE_NETWORK_WAIT,
+            )
+        except asyncio.TimeoutError as e:
+            raise FormationFailure() from e
 
     async def load_network_info(self, *, load_devices=False):
         device_state, _, _ = await self._api.device_state()
