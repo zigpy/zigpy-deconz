@@ -205,70 +205,67 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if device_state.network_state != NetworkState.CONNECTED:
             raise NetworkNotFormed()
 
+        network_info = self.state.network_info
+        node_info = self.state.node_info
+
         (ieee,) = await self._api[NetworkParameter.mac_address]
-        self.state.node_info.ieee = zigpy.types.EUI64(ieee)
+        node_info.ieee = zigpy.types.EUI64(ieee)
 
         (designed_coord,) = await self._api[NetworkParameter.aps_designed_coordinator]
 
         if designed_coord == 0x01:
-            self.state.node_info.logical_type = zdo_t.LogicalType.Coordinator
+            node_info.logical_type = zdo_t.LogicalType.Coordinator
         else:
-            self.state.node_info.logical_type = zdo_t.LogicalType.Router
+            node_info.logical_type = zdo_t.LogicalType.Router
 
-        (self.state.node_info.nwk,) = await self._api[NetworkParameter.nwk_address]
+        (node_info.nwk,) = await self._api[NetworkParameter.nwk_address]
 
-        (self.state.network_info.pan_id,) = await self._api[NetworkParameter.nwk_panid]
-        (self.state.network_info.extended_pan_id,) = await self._api[
+        (network_info.pan_id,) = await self._api[NetworkParameter.nwk_panid]
+        (network_info.extended_pan_id,) = await self._api[
             NetworkParameter.nwk_extended_panid
         ]
-        (self.state.network_info.channel_mask,) = await self._api[
-            NetworkParameter.channel_mask
-        ]
+        (network_info.channel_mask,) = await self._api[NetworkParameter.channel_mask]
         await self._api[NetworkParameter.aps_extended_panid]
 
-        if self.state.network_info.network_key is None:
-            self.state.network_info.network_key = zigpy.state.Key()
+        if network_info.network_key is None:
+            network_info.network_key = zigpy.state.Key()
 
         (
             _,
-            self.state.network_info.network_key.key,
+            network_info.network_key.key,
         ) = await self._api.read_parameter(NetworkParameter.network_key, 0)
-        self.state.network_info.network_key.seq = 0
-        self.state.network_info.network_key.rx_counter = None
-        self.state.network_info.network_key.partner_ieee = None
+        network_info.network_key.seq = 0
+        network_info.network_key.rx_counter = None
+        network_info.network_key.partner_ieee = None
 
         try:
-            (self.state.network_info.network_key.tx_counter,) = await self._api[
+            (network_info.network_key.tx_counter,) = await self._api[
                 NetworkParameter.nwk_frame_counter
             ]
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
-            self.state.network_info.network_key.tx_counter = None
+            network_info.network_key.tx_counter = None
 
-        if self.state.network_info.tc_link_key is None:
-            self.state.network_info.tc_link_key = zigpy.state.Key()
+        if network_info.tc_link_key is None:
+            network_info.tc_link_key = zigpy.state.Key()
 
-        (self.state.network_info.tc_link_key.partner_ieee,) = await self._api[
+        (network_info.tc_link_key.partner_ieee,) = await self._api[
             NetworkParameter.trust_center_address
         ]
-        (_, self.state.network_info.tc_link_key.key,) = await self._api.read_parameter(
+        (_, network_info.tc_link_key.key,) = await self._api.read_parameter(
             NetworkParameter.link_key,
-            self.state.network_info.tc_link_key.partner_ieee,
+            network_info.tc_link_key.partner_ieee,
         )
 
         (security_mode,) = await self._api[NetworkParameter.security_mode]
 
         if security_mode == SecurityMode.NO_SECURITY:
-            self.state.network_info.security_level = 0x00
+            network_info.security_level = 0x00
         else:
-            self.state.network_info.security_level = 0x05
+            network_info.security_level = 0x05
 
-        (self.state.network_info.channel,) = await self._api[
-            NetworkParameter.current_channel
-        ]
-        (self.state.network_info.nwk_update_id,) = await self._api[
-            NetworkParameter.nwk_update_id
-        ]
+        (network_info.channel,) = await self._api[NetworkParameter.current_channel]
+        (network_info.nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
