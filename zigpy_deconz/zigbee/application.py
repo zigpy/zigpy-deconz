@@ -462,7 +462,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def restore_neighbours(self) -> None:
         """Restore children."""
-        coord = self.get_device(ieee=self.ieee)
+        coord = self.get_device(ieee=self.state.node_info.ieee)
         devices = (nei.device for nei in coord.neighbors)
         for device in devices:
             if device is None:
@@ -494,7 +494,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def _delayed_neighbour_scan(self) -> None:
         """Scan coordinator's neighbours."""
         await asyncio.sleep(DELAY_NEIGHBOUR_SCAN_S)
-        coord = self.get_device(ieee=self.ieee)
+        coord = self.get_device(ieee=self.state.node_info.ieee)
         await coord.neighbors.scan()
 
 
