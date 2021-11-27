@@ -317,8 +317,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             binascii.hexlify(data),
         )
         dst_addr_ep = t.DeconzAddressEndpoint()
-        dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.GROUP.value)
+        dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
         dst_addr_ep.address = t.uint16_t(broadcast_address)
+        dst_addr_ep.endpoint = dst_ep
 
         with self._pending.new(req_id) as req:
             try:
