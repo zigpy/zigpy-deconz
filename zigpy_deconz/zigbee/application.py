@@ -90,6 +90,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def start_network(self):
         await self.load_network_info(load_devices=False)
 
+        device_state, _, _ = await self._api.device_state()
+
+        if device_state.network_state != NetworkState.CONNECTED:
+            await self._api.change_network_state(NetworkState.CONNECTED)
+
+            try:
+                await asyncio.wait_for(
+                    self._wait_for_network_state(NetworkState.CONNECTED),
+                    timeout=10 * CHANGE_NETWORK_WAIT,
+                )
+            except asyncio.TimeoutError as e:
+                raise FormationFailure() from e
+
         coordinator = await DeconzDevice.new(
             self,
             self.state.node_info.ieee,
@@ -112,11 +125,25 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             await asyncio.sleep(CHANGE_NETWORK_WAIT)
 
     async def write_network_info(self, *, network_info, node_info):
-        await self._api.change_network_state(NetworkState.OFFLINE)
+
+        # Note: Changed network configuration parameters become only affective after
+        # sending a Leave Network Request followed by a Create or Join Network Request
+        await self._api.change_network_state(NetworkState.CONNECTED)
         await asyncio.wait_for(
-            self._wait_for_network_state(NetworkState.OFFLINE),
+            self._wait_for_network_state(NetworkState.CONNECTED),
             timeout=10 * CHANGE_NETWORK_WAIT,
         )
+
+        # TODO: this works maybe 1% of the time
+        try:
+            await self._api.write_parameter(
+                NetworkParameter.nwk_frame_counter, network_info.network_key.tx_counter
+            )
+        except zigpy_deconz.exception.CommandError as ex:
+            assert ex.status == Status.UNSUPPORTED
+            LOGGER.warning(
+                "Writing network frame counter is not supported with this firmware"
+            )
 
         if node_info.logical_type == zdo_t.LogicalType.Coordinator:
             await self._api.write_parameter(
@@ -146,6 +173,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             channel_mask = network_info.channel_mask
 
         await self._api.write_parameter(NetworkParameter.channel_mask, channel_mask)
+        await self._api.write_parameter(NetworkParameter.use_predefined_nwk_panid, True)
         await self._api.write_parameter(NetworkParameter.nwk_panid, network_info.pan_id)
         await self._api.write_parameter(
             NetworkParameter.aps_extended_panid, network_info.extended_pan_id
@@ -158,14 +186,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             NetworkParameter.network_key, 0, network_info.network_key.key
         )
 
-        try:
-            await self._api.write_parameter(
-                NetworkParameter.nwk_frame_counter, network_info.network_key.tx_counter
-            )
-        except zigpy_deconz.exception.CommandError as ex:
-            assert ex.status == Status.UNSUPPORTED
+        if network_info.network_key.seq != 0:
             LOGGER.warning(
-                "Writing network frame counter is not supported with this firmware"
+                "Non-zero network key sequence number is not supported: %s",
+                network_info.network_key.seq,
             )
 
         if network_info.tc_link_key is not None:
@@ -185,31 +209,42 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
         else:
             await self._api.write_parameter(
-                NetworkParameter.security_mode, SecurityMode.PRECONFIGURED_NETWORK_KEY
+                NetworkParameter.security_mode, SecurityMode.ONLY_TCLK
             )
 
-        # bring network up
+        # Note: Changed network configuration parameters become only affective after
+        # sending a Leave Network Request followed by a Create or Join Network Request
+        await self._api.change_network_state(NetworkState.OFFLINE)
+        await asyncio.wait_for(
+            self._wait_for_network_state(NetworkState.OFFLINE),
+            timeout=10 * CHANGE_NETWORK_WAIT,
+        )
+
+        await asyncio.sleep(1)
+
         await self._api.change_network_state(NetworkState.CONNECTED)
+        await asyncio.wait_for(
+            self._wait_for_network_state(NetworkState.CONNECTED),
+            timeout=10 * CHANGE_NETWORK_WAIT,
+        )
 
-        try:
-            await asyncio.wait_for(
-                self._wait_for_network_state(NetworkState.CONNECTED),
-                timeout=10 * CHANGE_NETWORK_WAIT,
-            )
-        except asyncio.TimeoutError as e:
-            raise FormationFailure() from e
+        await asyncio.sleep(1)
+
+        await self._api.change_network_state(NetworkState.OFFLINE)
+        await asyncio.wait_for(
+            self._wait_for_network_state(NetworkState.OFFLINE),
+            timeout=10 * CHANGE_NETWORK_WAIT,
+        )
 
     async def load_network_info(self, *, load_devices=False):
-        device_state, _, _ = await self._api.device_state()
-
-        if device_state.network_state != NetworkState.CONNECTED:
-            raise NetworkNotFormed()
-
         network_info = self.state.network_info
         node_info = self.state.node_info
 
         (ieee,) = await self._api[NetworkParameter.mac_address]
         node_info.ieee = zigpy.types.EUI64(ieee)
+
+        if node_info.ieee == zigpy.types.EUI64.convert("00:00:00:00:00:00:00:00"):
+            raise NetworkNotFormed(f"Node IEEE address is invalid: {node_info.ieee}")
 
         (designed_coord,) = await self._api[NetworkParameter.aps_designed_coordinator]
 
@@ -220,23 +255,30 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         (node_info.nwk,) = await self._api[NetworkParameter.nwk_address]
 
+        if designed_coord == 0x01 and node_info.nwk != 0x0000:
+            raise NetworkNotFormed(
+                f"Coordinator NWK is not 0x0000: 0x{node_info.nwk:04X}"
+            )
+
         (network_info.pan_id,) = await self._api[NetworkParameter.nwk_panid]
         (network_info.extended_pan_id,) = await self._api[
             NetworkParameter.nwk_extended_panid
         ]
+
+        (network_info.channel,) = await self._api[NetworkParameter.current_channel]
         (network_info.channel_mask,) = await self._api[NetworkParameter.channel_mask]
+        (network_info.nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
+
+        if not 11 <= network_info.channel <= 26:
+            raise NetworkNotFormed(f"Invalid network channel: {network_info.channel}")
+
         await self._api[NetworkParameter.aps_extended_panid]
 
-        if network_info.network_key is None:
-            network_info.network_key = zigpy.state.Key()
-
+        network_info.network_key = zigpy.state.Key()
         (
             _,
             network_info.network_key.key,
         ) = await self._api.read_parameter(NetworkParameter.network_key, 0)
-        network_info.network_key.seq = 0
-        network_info.network_key.rx_counter = None
-        network_info.network_key.partner_ieee = None
 
         try:
             (network_info.network_key.tx_counter,) = await self._api[
@@ -244,17 +286,15 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             ]
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
-            network_info.network_key.tx_counter = None
 
-        if network_info.tc_link_key is None:
-            network_info.tc_link_key = zigpy.state.Key()
-
-        (network_info.tc_link_key.partner_ieee,) = await self._api[
+        (network_info.tc_address,) = await self._api[
             NetworkParameter.trust_center_address
         ]
+
+        network_info.tc_link_key = zigpy.state.Key()
         (_, network_info.tc_link_key.key,) = await self._api.read_parameter(
             NetworkParameter.link_key,
-            network_info.tc_link_key.partner_ieee,
+            network_info.tc_address,
         )
 
         (security_mode,) = await self._api[NetworkParameter.security_mode]
@@ -263,9 +303,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             network_info.security_level = 0x00
         else:
             network_info.security_level = 0x05
-
-        (network_info.channel,) = await self._api[NetworkParameter.current_channel]
-        (network_info.nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
@@ -281,7 +318,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         data,
         *,
         hops=0,
-        non_member_radius=3
+        non_member_radius=3,
     ):
         """Submit and send data out as a multicast transmission.
 
