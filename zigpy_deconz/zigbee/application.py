@@ -93,11 +93,40 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             NetworkParameter.channel_mask
         ]
         await self._api[NetworkParameter.aps_extended_panid]
+
+        if self.state.network_information.network_key is None:
+            self.state.network_information.network_key = zigpy.state.Key()
+
+        (
+            _,
+            self.state.network_information.network_key.key,
+        ) = await self._api.read_parameter(NetworkParameter.network_key, 0)
+        self.state.network_information.network_key.seq = 0
+        self.state.network_information.network_key.rx_counter = None
+        self.state.network_information.network_key.partner_ieee = None
+
+        try:
+            (self.state.network_information.network_key.tx_counter,) = await self._api[
+                NetworkParameter.nwk_frame_counter
+            ]
+        except zigpy_deconz.exception.CommandError as ex:
+            assert ex.status == Status.UNSUPPORTED
+            self.state.network_information.network_key.tx_counter = None
+
         if self.state.network_information.tc_link_key is None:
             self.state.network_information.tc_link_key = zigpy.state.Key()
+
         (self.state.network_information.tc_link_key.partner_ieee,) = await self._api[
             NetworkParameter.trust_center_address
         ]
+        (
+            _,
+            self.state.network_information.tc_link_key.key,
+        ) = await self._api.read_parameter(
+            NetworkParameter.link_key,
+            self.state.network_information.tc_link_key.partner_ieee,
+        )
+
         (self.state.network_information.security_level,) = await self._api[
             NetworkParameter.security_mode
         ]
@@ -288,8 +317,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             binascii.hexlify(data),
         )
         dst_addr_ep = t.DeconzAddressEndpoint()
-        dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.GROUP.value)
+        dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
         dst_addr_ep.address = t.uint16_t(broadcast_address)
+        dst_addr_ep.endpoint = dst_ep
 
         with self._pending.new(req_id) as req:
             try:
