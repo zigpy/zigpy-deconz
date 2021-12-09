@@ -141,8 +141,10 @@ async def connect(config: Dict[str, str], api: Callable, loop=None) -> Gateway:
     protocol = Gateway(api, connected_future)
 
     parsed_path = urllib.parse.urlparse(config[CONF_DEVICE_PATH])
-    if parsed_path.scheme == 'tcp':
-        _, protocol = await loop.create_connection(lambda: protocol, parsed_path.hostname, parsed_path.port)
+    if parsed_path.scheme == "tcp":
+        _, protocol = await loop.create_connection(
+            lambda: protocol, parsed_path.hostname, parsed_path.port
+        )
     else:
         _, protocol = await serial_asyncio.create_serial_connection(
             loop,
