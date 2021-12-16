@@ -71,9 +71,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self.version = await api.version()
         self._api = api
 
-        if self._api.protocol_version >= PROTO_VER_WATCHDOG:
-            self._reset_watchdog_task = asyncio.create_task(self._reset_watchdog())
-
     async def disconnect(self):
         if self._reset_watchdog_task is not None:
             self._reset_watchdog_task.cancel()
@@ -93,13 +90,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         device_state, _, _ = await self._api.device_state()
 
         if device_state.network_state != NetworkState.CONNECTED:
-            await self._api.change_network_state(NetworkState.CONNECTED)
-
             try:
-                await asyncio.wait_for(
-                    self._wait_for_network_state(NetworkState.CONNECTED),
-                    timeout=10 * CHANGE_NETWORK_WAIT,
-                )
+                await self._change_network_state(NetworkState.CONNECTED)
             except asyncio.TimeoutError as e:
                 raise FormationFailure() from e
 
@@ -117,22 +109,33 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             await self.restore_neighbours()
         asyncio.create_task(self._delayed_neighbour_scan())
 
-    async def _wait_for_network_state(self, target_state: NetworkState):
-        while True:
-            (state, _, _) = await self._api.device_state()
-            if state.network_state == target_state:
-                break
-            await asyncio.sleep(CHANGE_NETWORK_WAIT)
+    async def _change_network_state(
+        self, target_state: NetworkState, *, timeout: int = 10 * CHANGE_NETWORK_WAIT
+    ):
+        async def change_loop():
+            while True:
+                (state, _, _) = await self._api.device_state()
+                if state.network_state == target_state:
+                    break
+                await asyncio.sleep(CHANGE_NETWORK_WAIT)
+
+        await self._api.change_network_state(target_state)
+        await asyncio.wait_for(change_loop(), timeout=timeout)
+
+        if self._api.protocol_version < PROTO_VER_WATCHDOG:
+            return
+
+        if self._reset_watchdog_task is not None:
+            self._reset_watchdog_task.cancel()
+
+        if target_state == NetworkState.CONNECTED:
+            self._reset_watchdog_task = asyncio.create_task(self._reset_watchdog())
 
     async def write_network_info(self, *, network_info, node_info):
-
         # Note: Changed network configuration parameters become only affective after
         # sending a Leave Network Request followed by a Create or Join Network Request
-        await self._api.change_network_state(NetworkState.CONNECTED)
-        await asyncio.wait_for(
-            self._wait_for_network_state(NetworkState.CONNECTED),
-            timeout=10 * CHANGE_NETWORK_WAIT,
-        )
+        await self._change_network_state(NetworkState.OFFLINE)
+        await self._change_network_state(NetworkState.CONNECTED)
 
         # TODO: this works maybe 1% of the time
         try:
@@ -214,27 +217,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         # Note: Changed network configuration parameters become only affective after
         # sending a Leave Network Request followed by a Create or Join Network Request
-        await self._api.change_network_state(NetworkState.OFFLINE)
-        await asyncio.wait_for(
-            self._wait_for_network_state(NetworkState.OFFLINE),
-            timeout=10 * CHANGE_NETWORK_WAIT,
-        )
-
+        await self._change_network_state(NetworkState.OFFLINE)
         await asyncio.sleep(1)
-
-        await self._api.change_network_state(NetworkState.CONNECTED)
-        await asyncio.wait_for(
-            self._wait_for_network_state(NetworkState.CONNECTED),
-            timeout=10 * CHANGE_NETWORK_WAIT,
-        )
-
-        await asyncio.sleep(1)
-
-        await self._api.change_network_state(NetworkState.OFFLINE)
-        await asyncio.wait_for(
-            self._wait_for_network_state(NetworkState.OFFLINE),
-            timeout=10 * CHANGE_NETWORK_WAIT,
-        )
+        await self._change_network_state(NetworkState.CONNECTED)
 
     async def load_network_info(self, *, load_devices=False):
         network_info = self.state.network_info
