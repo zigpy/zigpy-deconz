@@ -287,14 +287,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
 
-        (network_info.tc_address,) = await self._api[
+        network_info.tc_link_key = zigpy.state.Key()
+        (network_info.tc_link_key.partner_ieee,) = await self._api[
             NetworkParameter.trust_center_address
         ]
 
-        network_info.tc_link_key = zigpy.state.Key()
         (_, network_info.tc_link_key.key,) = await self._api.read_parameter(
             NetworkParameter.link_key,
-            network_info.tc_address,
+            network_info.tc_link_key.partner_ieee,
         )
 
         (security_mode,) = await self._api[NetworkParameter.security_mode]
