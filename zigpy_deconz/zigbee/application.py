@@ -132,12 +132,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self._reset_watchdog_task = asyncio.create_task(self._reset_watchdog())
 
     async def write_network_info(self, *, network_info, node_info):
-        # Note: Changed network configuration parameters become only affective after
-        # sending a Leave Network Request followed by a Create or Join Network Request
-        await self._change_network_state(NetworkState.OFFLINE)
-        await self._change_network_state(NetworkState.CONNECTED)
-
-        # TODO: this works maybe 1% of the time
         try:
             await self._api.write_parameter(
                 NetworkParameter.nwk_frame_counter, network_info.network_key.tx_counter
@@ -218,7 +212,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         # Note: Changed network configuration parameters become only affective after
         # sending a Leave Network Request followed by a Create or Join Network Request
         await self._change_network_state(NetworkState.OFFLINE)
-        await asyncio.sleep(1)
         await self._change_network_state(NetworkState.CONNECTED)
 
     async def load_network_info(self, *, load_devices=False):
@@ -227,10 +220,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         (ieee,) = await self._api[NetworkParameter.mac_address]
         node_info.ieee = zigpy.types.EUI64(ieee)
-
-        if node_info.ieee == zigpy.types.EUI64.convert("00:00:00:00:00:00:00:00"):
-            raise NetworkNotFormed(f"Node IEEE address is invalid: {node_info.ieee}")
-
         (designed_coord,) = await self._api[NetworkParameter.aps_designed_coordinator]
 
         if designed_coord == 0x01:
@@ -247,17 +236,23 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         (network_info.pan_id,) = await self._api[NetworkParameter.nwk_panid]
         (network_info.extended_pan_id,) = await self._api[
-            NetworkParameter.nwk_extended_panid
+            NetworkParameter.aps_extended_panid
         ]
+
+        if network_info.extended_pan_id == zigpy.types.EUI64.convert(
+            "00:00:00:00:00:00:00:00"
+        ):
+            (network_info.extended_pan_id,) = await self._api[
+                NetworkParameter.nwk_extended_panid
+            ]
 
         (network_info.channel,) = await self._api[NetworkParameter.current_channel]
         (network_info.channel_mask,) = await self._api[NetworkParameter.channel_mask]
         (network_info.nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
 
-        if not 11 <= network_info.channel <= 26:
-            raise NetworkNotFormed(f"Invalid network channel: {network_info.channel}")
-
-        await self._api[NetworkParameter.aps_extended_panid]
+        if network_info.channel == 0:
+            network_info.channel = None
+            LOGGER.warning("Network channel is not set")
 
         network_info.network_key = zigpy.state.Key()
         (
@@ -286,7 +281,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         if security_mode == SecurityMode.NO_SECURITY:
             network_info.security_level = 0x00
+        elif security_mode == SecurityMode.ONLY_TCLK:
+            network_info.security_level = 0x05
         else:
+            LOGGER.warning("Unsupported security mode %r", security_mode)
             network_info.security_level = 0x05
 
     async def force_remove(self, dev):
