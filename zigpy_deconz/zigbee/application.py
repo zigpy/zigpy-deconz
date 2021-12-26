@@ -75,6 +75,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if self._reset_watchdog_task is not None:
             self._reset_watchdog_task.cancel()
 
+        if self._api is None:
+            return
+
         try:
             if self._api.protocol_version >= PROTO_VER_WATCHDOG:
                 await self._api.write_parameter(NetworkParameter.watchdog_ttl, 0)
