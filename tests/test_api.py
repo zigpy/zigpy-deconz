@@ -2,6 +2,7 @@
 
 import asyncio
 import binascii
+import enum
 import logging
 
 import pytest
@@ -146,13 +147,15 @@ async def test_command_not_connected(api):
 
 
 def _fake_args(arg_type):
-    if isinstance(arg_type(), t.DeconzAddressEndpoint):
+    if issubclass(arg_type, enum.Enum):
+        return list(arg_type)[0]  # Pick the first enum value
+    elif issubclass(arg_type, t.DeconzAddressEndpoint):
         addr = t.DeconzAddressEndpoint()
         addr.address_mode = t.ADDRESS_MODE.NWK
         addr.address = t.uint8_t(0)
         addr.endpoint = t.uint8_t(0)
         return addr
-    if isinstance(arg_type(), t.EUI64):
+    elif issubclass(arg_type, t.EUI64):
         return t.EUI64([0x01] * 8)
 
     return arg_type()

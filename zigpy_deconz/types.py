@@ -126,6 +126,20 @@ class ADDRESS_MODE(uint8_t, enum.Enum):
     NWK_AND_IEEE = 0x04
 
 
+class DeconzSendDataFlags(uint8_t, enum.Enum):
+    NONE = 0x00
+    NODE_ID = 0x01
+    RELAYS = 0x02
+
+
+class DeconzTransmitOptions(uint8_t, enum.Enum):
+    NONE = 0x00
+    SECURITY_ENABLED = 0x01
+    USE_NWK_KEY_SECURITY = 0x02
+    USE_APS_ACKS = 0x04
+    ALLOW_FRAGMENTATION = 0x08
+
+
 class Struct:
     _fields = []
 
@@ -182,6 +196,25 @@ class List(list):
         return r, data
 
 
+class LVList(list):
+    _length_type = None
+    _itemtype = None
+
+    def serialize(self):
+        return self._length_type(len(self)).serialize() + b"".join(
+            [self._itemtype(i).serialize() for i in self]
+        )
+
+    @classmethod
+    def deserialize(cls, data):
+        length, data = cls._length_type.deserialize(data)
+        r = cls()
+        for _ in range(length):
+            item, data = cls._itemtype.deserialize(data)
+            r.append(item)
+        return r, data
+
+
 class FixedList(List):
     _length = None
     _itemtype = None
@@ -233,6 +266,11 @@ class PanId(HexRepr, uint16_t):
 
 class ExtendedPanId(EUI64):
     pass
+
+
+class NWKList(LVList):
+    _length_type = uint8_t
+    _itemtype = NWK
 
 
 class DeconzAddress(Struct):

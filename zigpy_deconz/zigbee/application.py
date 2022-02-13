@@ -26,6 +26,7 @@ LOGGER = logging.getLogger(__name__)
 CHANGE_NETWORK_WAIT = 1
 DELAY_NEIGHBOUR_SCAN_S = 1500
 SEND_CONFIRM_TIMEOUT = 60
+PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
@@ -284,7 +285,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         with self._pending.new(req_id) as req:
             try:
                 await self._api.aps_data_request(
-                    req_id, dst_addr_ep, profile, cluster, min(1, src_ep), data
+                    req_id,
+                    dst_addr_ep,
+                    profile,
+                    cluster,
+                    min(1, src_ep),
+                    data,
+                    relays=None,
                 )
             except zigpy_deconz.exception.CommandError as ex:
                 return ex.status, "Couldn't enqueue send data request: {}".format(ex)

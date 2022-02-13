@@ -318,7 +318,18 @@ async def test_permit(app, nwk):
 async def _test_request(app, send_success=True, aps_data_error=False, **kwargs):
     seq = 123
 
-    async def req_mock(req_id, dst_addr_ep, profile, cluster, src_ep, data):
+    async def req_mock(
+        req_id,
+        dst_addr_ep,
+        profile,
+        cluster,
+        src_ep,
+        data,
+        *,
+        relays=None,
+        tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
+        radius=0
+    ):
         if aps_data_error:
             raise zigpy_deconz.exception.CommandError(1, "Command Error")
         if send_success:
