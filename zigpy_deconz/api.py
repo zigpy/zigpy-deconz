@@ -533,7 +533,7 @@ class Deconz:
         delays = (0.5, 1.0, 1.5, None)
 
         flags = t.DeconzSendDataFlags.NONE
-        extra = []
+        extras = []
 
         # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
         if relays is not None:
@@ -544,10 +544,12 @@ class Deconz:
             assert len(relays) <= 9
 
             # APS ACKs should be used to mitigate errors.
-            flags |= t.DeconzSendDataFlags.USE_APS_ACKS
+            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
 
             flags |= t.DeconzSendDataFlags.RELAYS
-            extra.append([t.uint16_t(nwk) for nwk in relays[::-1]])
+            extras.append(t.NWKList([t.uint16_t(nwk) for nwk in relays[::-1]]))
+
+        length += sum(len(e.serialize()) for e in extras)
 
         for delay in delays:
             try:
@@ -563,7 +565,7 @@ class Deconz:
                     aps_payload,
                     tx_options,
                     radius,
-                    *extra,
+                    *extras,
                 )
             except CommandError as ex:
                 LOGGER.debug("'aps_data_request' failure: %s", ex)

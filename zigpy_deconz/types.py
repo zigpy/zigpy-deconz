@@ -126,13 +126,36 @@ class ADDRESS_MODE(uint8_t, enum.Enum):
     NWK_AND_IEEE = 0x04
 
 
-class DeconzSendDataFlags(uint8_t, enum.Enum):
+def bitmap_factory(int_type: uint_t) -> enum.Flag:
+    class _NewEnum(int_type, enum.Flag):
+        # Rebind classmethods to our own class
+        _missing_ = classmethod(enum.IntFlag._missing_.__func__)
+        _create_pseudo_member_ = classmethod(
+            enum.IntFlag._create_pseudo_member_.__func__
+        )
+
+        __or__ = enum.IntFlag.__or__
+        __and__ = enum.IntFlag.__and__
+        __xor__ = enum.IntFlag.__xor__
+        __ror__ = enum.IntFlag.__ror__
+        __rand__ = enum.IntFlag.__rand__
+        __rxor__ = enum.IntFlag.__rxor__
+        __invert__ = enum.IntFlag.__invert__
+
+    return _NewEnum
+
+
+class bitmap8(bitmap_factory(uint8_t)):
+    pass
+
+
+class DeconzSendDataFlags(bitmap8):
     NONE = 0x00
     NODE_ID = 0x01
     RELAYS = 0x02
 
 
-class DeconzTransmitOptions(uint8_t, enum.Enum):
+class DeconzTransmitOptions(bitmap8):
     NONE = 0x00
     SECURITY_ENABLED = 0x01
     USE_NWK_KEY_SECURITY = 0x02
