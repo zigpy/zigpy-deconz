@@ -537,9 +537,6 @@ class Deconz:
 
         # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
         if relays is not None:
-            # The coordinator address 0x0000 must not be included in the relay list.
-            assert 0x0000 not in relays
-
             # There is a max of 9 relays
             assert len(relays) <= 9
 
@@ -547,7 +544,7 @@ class Deconz:
             tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
 
             flags |= t.DeconzSendDataFlags.RELAYS
-            extras.append(t.NWKList([t.uint16_t(nwk) for nwk in relays[::-1]]))
+            extras.append(t.NWKList(relays))
 
         length += sum(len(e.serialize()) for e in extras)
 
