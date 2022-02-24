@@ -612,3 +612,23 @@ async def test_set_item(api):
         assert write_mock.await_count == 1
         assert write_mock.call_args[0][0] == "test"
         assert write_mock.call_args[0][1] is sentinel.test_param
+
+
+@pytest.mark.parametrize("relays", (None, [], [0x1234, 0x5678]))
+async def test_aps_data_request_relays(relays, api):
+    mock_cmd = api._command = AsyncMock()
+
+    await api.aps_data_request(
+        0x00,  # req id
+        t.DeconzAddressEndpoint.deserialize(b"\x02\xaa\x55\x01")[0],  # dst + ep
+        0x0104,  # profile id
+        0x0007,  # cluster id
+        0x01,  # src ep
+        b"aps payload",
+        relays=relays,
+    )
+    assert mock_cmd.call_count == 1
+
+    if relays:
+        assert isinstance(mock_cmd.mock_calls[0][1][-1], t.NWKList)
+        assert mock_cmd.mock_calls[0][1][-1] == t.NWKList(relays)

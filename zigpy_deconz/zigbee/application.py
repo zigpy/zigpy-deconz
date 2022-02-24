@@ -311,7 +311,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 elif self._api.protocol_version >= PROTO_VER_MANUAL_SOURCE_ROUTE:
                     # Force the request to send by including the coordinator
                     relays = [0x0000] + (device.relays or [])[::-1]
-
                     LOGGER.debug("Trying manual source route: %s", relays)
 
     async def broadcast(

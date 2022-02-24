@@ -536,7 +536,7 @@ class Deconz:
         extras = []
 
         # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
-        if relays is not None:
+        if relays:
             # There is a max of 9 relays
             assert len(relays) <= 9
 
