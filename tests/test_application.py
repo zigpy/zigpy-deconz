@@ -338,6 +338,7 @@ async def _test_request(app, send_success=True, aps_data_error=False, **kwargs):
             app._pending[req_id].result.set_result(1)
 
     app._api.aps_data_request = MagicMock(side_effect=req_mock)
+    app._api.protocol_version = 0
     device = zigpy.device.Device(app, sentinel.ieee, 0x1122)
     app.get_device = MagicMock(return_value=device)
 
