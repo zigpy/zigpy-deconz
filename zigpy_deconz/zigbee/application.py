@@ -283,6 +283,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             dst_addr_ep.address = device.nwk
 
         relays = None
+        tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
+
+        if expect_reply:
+            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
 
         for attempt in (1, 2):
             with self._pending.new(req_id) as req:
@@ -295,6 +299,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                         min(1, src_ep),
                         data,
                         relays=relays,
+                        tx_options=tx_options,
                     )
                 except zigpy_deconz.exception.CommandError as ex:
                     return ex.status, f"Couldn't enqueue send data request: {ex}"
