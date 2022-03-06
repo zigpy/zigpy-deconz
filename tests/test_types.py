@@ -277,3 +277,19 @@ def test_deconz_addr_ep():
         a.serialize()
     a.endpoint = 0xCC
     assert a.serialize() == data
+
+
+def test_nwklist():
+    assert t.NWKList([]).serialize() == b"\x00"
+    assert t.NWKList([0x1234]).serialize() == b"\x01" + t.NWK(0x1234).serialize()
+    assert (
+        t.NWKList([0x1234, 0x5678]).serialize()
+        == b"\x02" + t.NWK(0x1234).serialize() + t.NWK(0x5678).serialize()
+    )
+
+    assert t.NWKList.deserialize(b"\x00abc") == (t.NWKList([]), b"abc")
+    assert t.NWKList.deserialize(b"\x01\x34\x12abc") == (t.NWKList([0x1234]), b"abc")
+    assert t.NWKList.deserialize(b"\x02\x34\x12\x78\x56abc") == (
+        t.NWKList([0x1234, 0x5678]),
+        b"abc",
+    )

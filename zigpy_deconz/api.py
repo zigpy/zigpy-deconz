@@ -98,7 +98,7 @@ TX_COMMANDS = {
     Command.aps_data_request: (
         t.uint16_t,
         t.uint8_t,
-        t.uint8_t,
+        t.DeconzSendDataFlags,
         t.DeconzAddressEndpoint,
         t.uint16_t,
         t.uint16_t,
@@ -106,6 +106,7 @@ TX_COMMANDS = {
         t.LVBytes,
         t.uint8_t,
         t.uint8_t,
+        t.NWKList,  # optional
     ),
     Command.change_network_state: (t.uint8_t,),
     Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
@@ -515,33 +516,61 @@ class Deconz:
             )  # rssi
 
     async def aps_data_request(
-        self, req_id, dst_addr_ep, profile, cluster, src_ep, aps_payload
+        self,
+        req_id,
+        dst_addr_ep,
+        profile,
+        cluster,
+        src_ep,
+        aps_payload,
+        *,
+        relays=None,
+        tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
+        radius=0,
     ):
         dst = dst_addr_ep.serialize()
         length = len(dst) + len(aps_payload) + 11
         delays = (0.5, 1.0, 1.5, None)
+
+        flags = t.DeconzSendDataFlags.NONE
+        extras = []
+
+        # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
+        if relays:
+            # There is a max of 9 relays
+            assert len(relays) <= 9
+
+            # APS ACKs should be used to mitigate errors.
+            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
+
+            flags |= t.DeconzSendDataFlags.RELAYS
+            extras.append(t.NWKList(relays))
+
+        length += sum(len(e.serialize()) for e in extras)
+
         for delay in delays:
             try:
                 return await self._command(
                     Command.aps_data_request,
                     length,
                     req_id,
-                    0,
+                    flags,
                     dst_addr_ep,
                     profile,
                     cluster,
                     src_ep,
                     aps_payload,
-                    2,
-                    0,
+                    tx_options,
+                    radius,
+                    *extras,
                 )
             except CommandError as ex:
                 LOGGER.debug("'aps_data_request' failure: %s", ex)
-                if delay is not None and ex.status == Status.BUSY:
-                    LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
-                    await asyncio.sleep(delay)
-                    continue
-                raise
+                if delay is None or ex.status != Status.BUSY:
+                    raise
+
+                LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
+                await asyncio.sleep(delay)
 
     def _handle_aps_data_request(self, data):
         LOGGER.debug("APS data request response: %s", data)
