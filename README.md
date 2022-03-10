@@ -18,8 +18,13 @@ Tagged versions are also released via PyPI
 
 # External documentation and reference
 
-Note! Latest official documentation for the deCONZ serial protocol can currently be obtained by contacting Dresden-Elektronik employees via GitHub here
--  https://github.com/dresden-elektronik/deconz-rest-plugin/issues/158
+The latest official documentation for the deCONZ Serial Protocol can be obtained from Dresden-Elektronik via a link on GitHub here:
+
+- https://github.com/dresden-elektronik/deconz-serial-protocol
+
+Reporting requests or problemns to upstream is done by submiting separate issue for each new problem or feature/function request:
+
+- https://github.com/dresden-elektronik/deconz-serial-protocol/issues
 
 For reference, here is a list of unrelated projects that also use the same deCONZ serial protocol for other implementations
 - https://github.com/Equidamoid/pyconz/commits/master
