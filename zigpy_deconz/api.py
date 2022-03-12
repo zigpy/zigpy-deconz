@@ -1,5 +1,7 @@
 """deCONZ serial protocol API."""
 
+from __future__ import annotations
+
 import asyncio
 import binascii
 import enum

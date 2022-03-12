@@ -82,6 +82,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         try:
             if self._api.protocol_version >= PROTO_VER_WATCHDOG:
                 await self._api.write_parameter(NetworkParameter.watchdog_ttl, 0)
+        except zigpy_deconz.exception.CommandError:
+            pass
         finally:
             self._api.close()
 
@@ -158,13 +160,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._api.write_parameter(NetworkParameter.nwk_address, node_info.nwk)
         await self._api.write_parameter(NetworkParameter.mac_address, node_info.ieee)
 
-        # No way to specify both a mask and the logical channel
+        # There is no way to specify both a mask and the logical channel
         if network_info.channel is not None:
             channel_mask = zigpy.types.Channels.from_channel_list(
                 [network_info.channel]
             )
 
-            if channel_mask != network_info.channel_mask:
+            if network_info.channel_mask and channel_mask != network_info.channel_mask:
                 LOGGER.warning(
                     "Channel mask %s will be replaced with current logical channel %s",
                     network_info.channel_mask,
@@ -204,7 +206,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 network_info.tc_link_key.key,
             )
 
-        if self.state.network_info.security_level == 0x00:
+        if network_info.security_level == 0x00:
             await self._api.write_parameter(
                 NetworkParameter.security_mode, SecurityMode.NO_SECURITY
             )
@@ -233,11 +235,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         (node_info.nwk,) = await self._api[NetworkParameter.nwk_address]
 
-        if designed_coord == 0x01 and node_info.nwk != 0x0000:
-            raise NetworkNotFormed(
-                f"Coordinator NWK is not 0x0000: 0x{node_info.nwk:04X}"
-            )
-
         (network_info.pan_id,) = await self._api[NetworkParameter.nwk_panid]
         (network_info.extended_pan_id,) = await self._api[
             NetworkParameter.aps_extended_panid
@@ -255,8 +252,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         (network_info.nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
 
         if network_info.channel == 0:
-            network_info.channel = None
-            LOGGER.warning("Network channel is not set")
+            raise NetworkNotFormed("Network channel is zero")
 
         network_info.network_key = zigpy.state.Key()
         (
@@ -276,7 +272,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             NetworkParameter.trust_center_address
         ]
 
-        (_, network_info.tc_link_key.key,) = await self._api.read_parameter(
+        (_, network_info.tc_link_key.key) = await self._api.read_parameter(
             NetworkParameter.link_key,
             network_info.tc_link_key.partner_ieee,
         )
