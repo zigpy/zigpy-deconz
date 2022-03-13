@@ -716,7 +716,7 @@ async def test_restore_neighbours(app):
     neighbours.neighbors.append(nei_5)
     coord.neighbors = neighbours
 
-    p2 = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz)
+    p2 = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz(None, None))
     with patch.object(app, "get_device", return_value=coord), p2 as api_mock:
         api_mock.add_neighbour = AsyncMock()
         await app.restore_neighbours()
@@ -742,3 +742,36 @@ async def test_delayed_scan():
     with patch.object(app, "get_device", return_value=coord):
         await app._delayed_neighbour_scan()
     assert coord.neighbors.scan.await_count == 1
+
+
+@patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_WAIT", 0.001)
+@pytest.mark.parametrize("support_watchdog", [False, True])
+async def test_change_network_state(app, support_watchdog):
+    app._reset_watchdog_task = MagicMock()
+
+    app._api.device_state = AsyncMock(
+        side_effect=[
+            (deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE), 0, 0),
+            (deconz_api.DeviceState(deconz_api.NetworkState.JOINING), 0, 0),
+            (deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED), 0, 0),
+        ]
+    )
+
+    if support_watchdog:
+        app._api._proto_ver = application.PROTO_VER_WATCHDOG
+        app._api.protocol_version = application.PROTO_VER_WATCHDOG
+    else:
+        app._api._proto_ver = application.PROTO_VER_WATCHDOG - 1
+        app._api.protocol_version = application.PROTO_VER_WATCHDOG - 1
+
+    old_watchdog_task = app._reset_watchdog_task
+    cancel_mock = app._reset_watchdog_task.cancel = MagicMock()
+
+    await app._change_network_state(deconz_api.NetworkState.CONNECTED, timeout=0.01)
+
+    if support_watchdog:
+        assert cancel_mock.call_count == 1
+        assert app._reset_watchdog_task is not old_watchdog_task
+    else:
+        assert cancel_mock.call_count == 0
+        assert app._reset_watchdog_task is old_watchdog_task
