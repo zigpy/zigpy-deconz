@@ -158,7 +158,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
 
         await self._api.write_parameter(NetworkParameter.nwk_address, node_info.nwk)
-        await self._api.write_parameter(NetworkParameter.mac_address, node_info.ieee)
+
+        if node_info.ieee != zigpy.types.EUI64.UNKNOWN:
+            # TODO: is there a way to revert it back to the hardware default? Or is this
+            #       information lost when the parameter is overwritten?
+            await self._api.write_parameter(
+                NetworkParameter.mac_address, node_info.ieee
+            )
 
         # There is no way to specify both a mask and the logical channel
         if network_info.channel is not None:
