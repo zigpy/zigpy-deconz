@@ -7,7 +7,7 @@ import binascii
 import enum
 import functools
 import logging
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
@@ -43,7 +43,7 @@ class DeviceState(enum.IntFlag):
     APSDE_DATA_REQUEST_SLOTS_AVAILABLE = 0x20
 
     @classmethod
-    def deserialize(cls, data) -> Tuple["DeviceState", bytes]:
+    def deserialize(cls, data) -> tuple["DeviceState", bytes]:
         """Deserialize DevceState."""
         state, data = t.uint8_t.deserialize(data)
         return cls(state), data
@@ -227,7 +227,7 @@ NETWORK_PARAMETER_SCHEMA = {
 class Deconz:
     """deCONZ API class."""
 
-    def __init__(self, app: Callable, device_config: Dict[str, Any]):
+    def __init__(self, app: Callable, device_config: dict[str, Any]):
         """Init instance."""
         self._app = app
         self._aps_data_ind_flags: int = 0x01
@@ -402,7 +402,7 @@ class Deconz:
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
     @classmethod
-    async def probe(cls, device_config: Dict[str, Any]) -> bool:
+    async def probe(cls, device_config: dict[str, Any]) -> bool:
         """Probe port for the device presence."""
         api = cls(None, device_config)
         try:
@@ -644,10 +644,10 @@ class Deconz:
             LOGGER.debug("Data request queue full.")
         if DeviceState.APSDE_DATA_INDICATION in state and not self._data_indication:
             self._data_indication = True
-            asyncio.ensure_future(self._aps_data_indication())
+            asyncio.create_task(self._aps_data_indication())
         if DeviceState.APSDE_DATA_CONFIRM in state and not self._data_confirm:
             self._data_confirm = True
-            asyncio.ensure_future(self._aps_data_confirm())
+            asyncio.create_task(self._aps_data_confirm())
 
     def __getitem__(self, key):
         """Access parameters via getitem."""
@@ -655,4 +655,4 @@ class Deconz:
 
     def __setitem__(self, key, value):
         """Set parameters via setitem."""
-        return asyncio.ensure_future(self.write_parameter(key, value))
+        return asyncio.create_task(self.write_parameter(key, value))
