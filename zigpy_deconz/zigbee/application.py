@@ -165,6 +165,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             await self._api.write_parameter(
                 NetworkParameter.mac_address, node_info.ieee
             )
+            node_ieee = node_info.ieee
+        else:
+            (ieee,) = await self._api[NetworkParameter.mac_address]
+            node_ieee = zigpy.types.EUI64(ieee)
 
         # There is no way to specify both a mask and the logical channel
         if network_info.channel is not None:
@@ -201,16 +205,20 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 network_info.network_key.seq,
             )
 
-        if network_info.tc_link_key is not None:
-            await self._api.write_parameter(
-                NetworkParameter.trust_center_address,
-                network_info.tc_link_key.partner_ieee,
-            )
-            await self._api.write_parameter(
-                NetworkParameter.link_key,
-                network_info.tc_link_key.partner_ieee,
-                network_info.tc_link_key.key,
-            )
+        tc_link_key_partner_ieee = network_info.tc_link_key.partner_ieee
+
+        if tc_link_key_partner_ieee == zigpy.types.EUI64.UNKNOWN:
+            tc_link_key_partner_ieee = node_ieee
+
+        await self._api.write_parameter(
+            NetworkParameter.trust_center_address,
+            tc_link_key_partner_ieee,
+        )
+        await self._api.write_parameter(
+            NetworkParameter.link_key,
+            tc_link_key_partner_ieee,
+            network_info.tc_link_key.key,
+        )
 
         if network_info.security_level == 0x00:
             await self._api.write_parameter(
