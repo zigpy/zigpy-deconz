@@ -9,28 +9,6 @@ The goal of this project to add native support for the Dresden-Elektronik deCONZ
 
 This library uses the deCONZ serial protocol for communicating with [ConBee](https://www.dresden-elektronik.de/conbee/), [ConBee II (ConBee 2)](https://shop.dresden-elektronik.de/conbee-2.html), and [RaspBee](https://www.dresden-elektronik.de/raspbee/) adapters from [Dresden-Elektronik](https://github.com/dresden-elektronik/).
 
-# Testing new releases
-
-Testing a new release of the zigpy-deconz library before it is released in Home Assistant.
-
-If you are using Supervised Home Assistant (formerly known as the Hassio/Hass.io distro):
-- Add https://github.com/home-assistant/hassio-addons-development as "add-on" repository
-- Install "Custom deps deployment" addon
-- Update config like: 
-  ```
-  pypi:
-    - zigpy-deconz==0.9.0
-  apk: []
-  ```
-  where 0.5.1 is the new version
-- Start the addon
-
-If you are instead using some custom python installation of Home Assistant then do this:
-- Activate your python virtual env
-- Update package with ``pip``
-  ```
-  pip install zigpy-deconz==0.9.0
-
 # Releases via PyPI
 Tagged versions are also released via PyPI
 

@@ -26,6 +26,7 @@ LOGGER = logging.getLogger(__name__)
 CHANGE_NETWORK_WAIT = 1
 DELAY_NEIGHBOUR_SCAN_S = 1500
 SEND_CONFIRM_TIMEOUT = 60
+PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
@@ -208,7 +209,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         data,
         *,
         hops=0,
-        non_member_radius=3
+        non_member_radius=3,
     ):
         """Submit and send data out as a multicast transmission.
 
@@ -281,21 +282,41 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK)
             dst_addr_ep.address = device.nwk
 
-        with self._pending.new(req_id) as req:
-            try:
-                await self._api.aps_data_request(
-                    req_id, dst_addr_ep, profile, cluster, min(1, src_ep), data
-                )
-            except zigpy_deconz.exception.CommandError as ex:
-                return ex.status, "Couldn't enqueue send data request: {}".format(ex)
+        relays = None
+        tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
 
-            r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
+        if expect_reply:
+            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
 
-            if r:
+        for attempt in (1, 2):
+            with self._pending.new(req_id) as req:
+                try:
+                    await self._api.aps_data_request(
+                        req_id,
+                        dst_addr_ep,
+                        profile,
+                        cluster,
+                        min(1, src_ep),
+                        data,
+                        relays=relays,
+                        tx_options=tx_options,
+                    )
+                except zigpy_deconz.exception.CommandError as ex:
+                    return ex.status, f"Couldn't enqueue send data request: {ex}"
+
+                r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
+
+                if not r:
+                    return r, "message send success"
+
                 LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
-                return r, "message send failure"
 
-            return r, "message send success"
+                if attempt == 2:
+                    return r, "message send failure"
+                elif self._api.protocol_version >= PROTO_VER_MANUAL_SOURCE_ROUTE:
+                    # Force the request to send by including the coordinator
+                    relays = [0x0000] + (device.relays or [])[::-1]
+                    LOGGER.debug("Trying manual source route: %s", relays)
 
     async def broadcast(
         self,
