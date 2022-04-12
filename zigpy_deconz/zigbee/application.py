@@ -4,6 +4,7 @@ import asyncio
 import binascii
 import contextlib
 import logging
+import random
 import re
 import time
 from typing import Any, Dict
@@ -38,6 +39,8 @@ PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
+
+MAX_REQUEST_RETRY_DELAY = 1.0
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -358,6 +361,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                         return r, "message send success"
 
                     LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
+
+                    await asyncio.sleep(random.uniform(0, MAX_REQUEST_RETRY_DELAY))
 
                     if attempt == 2:
                         return r, f"message send failure: {r}"
