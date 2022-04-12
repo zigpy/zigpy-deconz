@@ -21,7 +21,7 @@ from zigpy.config import (  # noqa: F401 pylint: disable=unused-import
 CONF_DECONZ_CONFIG = "deconz_config"
 
 CONF_MAX_CONCURRENT_REQUESTS = "max_concurrent_requests"
-CONF_MAX_CONCURRENT_REQUESTS_DEFAULT = 16
+CONF_MAX_CONCURRENT_REQUESTS_DEFAULT = 8
 
 CONF_WATCHDOG_TTL = "watchdog_ttl"
 CONF_WATCHDOG_TTL_DEFAULT = 600
