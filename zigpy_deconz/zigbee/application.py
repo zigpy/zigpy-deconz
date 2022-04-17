@@ -2,8 +2,10 @@
 
 import asyncio
 import binascii
+import contextlib
 import logging
 import re
+import time
 from typing import Any, Dict
 
 import zigpy.application
@@ -18,7 +20,13 @@ import zigpy.util
 
 from zigpy_deconz import types as t
 from zigpy_deconz.api import Deconz, NetworkParameter, NetworkState, Status
-from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA, SCHEMA_DEVICE
+from zigpy_deconz.config import (
+    CONF_DECONZ_CONFIG,
+    CONF_MAX_CONCURRENT_REQUESTS,
+    CONF_WATCHDOG_TTL,
+    CONFIG_SCHEMA,
+    SCHEMA_DEVICE,
+)
 import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
@@ -30,6 +38,8 @@ PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
+
+MAX_REQUEST_RETRY_DELAY = 1.0
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -43,7 +53,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         super().__init__(config=zigpy.config.ZIGPY_SCHEMA(config))
         self._api = None
+
         self._pending = zigpy.util.Requests()
+        self._concurrent_requests_semaphore = asyncio.Semaphore(
+            self._config[CONF_DECONZ_CONFIG][CONF_MAX_CONCURRENT_REQUESTS]
+        )
+        self._currently_waiting_requests = 0
+
         self._nwk = 0
         self.version = 0
 
@@ -199,6 +215,38 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             await asyncio.sleep(CHANGE_NETWORK_WAIT)
         raise Exception("Could not form network.")
 
+    @contextlib.asynccontextmanager
+    async def _limit_concurrency(self):
+        """Async context manager to prevent devices from being overwhelmed by requests.
+
+        Mainly a thin wrapper around `asyncio.Semaphore` that logs when it has to wait.
+        """
+
+        start_time = time.time()
+        was_locked = self._concurrent_requests_semaphore.locked()
+
+        if was_locked:
+            self._currently_waiting_requests += 1
+            LOGGER.debug(
+                "Max concurrency (%s) reached, delaying requests (%s enqueued)",
+                self._config[CONF_DECONZ_CONFIG][CONF_MAX_CONCURRENT_REQUESTS],
+                self._currently_waiting_requests,
+            )
+
+        try:
+            async with self._concurrent_requests_semaphore:
+                if was_locked:
+                    LOGGER.debug(
+                        "Previously delayed request is now running, "
+                        "delayed by %0.2f seconds",
+                        time.time() - start_time,
+                    )
+
+                yield
+        finally:
+            if was_locked:
+                self._currently_waiting_requests -= 1
+
     async def mrequest(
         self,
         group_id,
@@ -238,20 +286,21 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         dst_addr_ep.address_mode = t.ADDRESS_MODE.GROUP
         dst_addr_ep.address = group_id
 
-        with self._pending.new(req_id) as req:
-            try:
-                await self._api.aps_data_request(
-                    req_id, dst_addr_ep, profile, cluster, min(1, src_ep), data
-                )
-            except zigpy_deconz.exception.CommandError as ex:
-                return ex.status, "Couldn't enqueue send data request: {}".format(ex)
+        async with self._limit_concurrency():
+            with self._pending.new(req_id) as req:
+                try:
+                    await self._api.aps_data_request(
+                        req_id, dst_addr_ep, profile, cluster, min(1, src_ep), data
+                    )
+                except zigpy_deconz.exception.CommandError as ex:
+                    return ex.status, f"Couldn't enqueue send data request: {ex!r}"
 
-            r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
-            if r:
-                LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
-                return r, "message send failure"
+                r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
+                if r:
+                    LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
+                    return r, f"message send failure: {r}"
 
-        return Status.SUCCESS, "message send success"
+            return Status.SUCCESS, "message send success"
 
     @zigpy.util.retryable_request
     async def request(
@@ -282,13 +331,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK)
             dst_addr_ep.address = device.nwk
 
-        relays = None
         tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
 
-        if expect_reply:
-            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
-
-        for attempt in (1, 2):
+        async with self._limit_concurrency():
             with self._pending.new(req_id) as req:
                 try:
                     await self._api.aps_data_request(
@@ -298,25 +343,18 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                         cluster,
                         min(1, src_ep),
                         data,
-                        relays=relays,
                         tx_options=tx_options,
                     )
                 except zigpy_deconz.exception.CommandError as ex:
-                    return ex.status, f"Couldn't enqueue send data request: {ex}"
+                    return ex.status, f"Couldn't enqueue send data request: {ex!r}"
 
                 r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
 
-                if not r:
-                    return r, "message send success"
-
-                LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
-
-                if attempt == 2:
+                if r:
+                    LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
                     return r, "message send failure"
-                elif self._api.protocol_version >= PROTO_VER_MANUAL_SOURCE_ROUTE:
-                    # Force the request to send by including the coordinator
-                    relays = [0x0000] + (device.relays or [])[::-1]
-                    LOGGER.debug("Trying manual source route: %s", relays)
+
+                return r, "message send success"
 
     async def broadcast(
         self,
@@ -342,23 +380,26 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         dst_addr_ep.address = t.uint16_t(broadcast_address)
         dst_addr_ep.endpoint = dst_ep
 
-        with self._pending.new(req_id) as req:
-            try:
-                await self._api.aps_data_request(
-                    req_id, dst_addr_ep, profile, cluster, min(1, src_ep), data
-                )
-            except zigpy_deconz.exception.CommandError as ex:
-                return (
-                    ex.status,
-                    "Couldn't enqueue send data request for broadcast: {}".format(ex),
-                )
+        async with self._limit_concurrency():
+            with self._pending.new(req_id) as req:
+                try:
+                    await self._api.aps_data_request(
+                        req_id, dst_addr_ep, profile, cluster, min(1, src_ep), data
+                    )
+                except zigpy_deconz.exception.CommandError as ex:
+                    return (
+                        ex.status,
+                        f"Couldn't enqueue send data request for broadcast: {ex!r}",
+                    )
 
-            r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
+                r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
 
-            if r:
-                LOGGER.debug("Error while sending %s req id broadcast: %s", req_id, r)
-                return r, "broadcast send failure"
-            return r, "broadcast send success"
+                if r:
+                    LOGGER.debug(
+                        "Error while sending %s req id broadcast: %s", req_id, r
+                    )
+                    return r, f"broadcast send failure: {r}"
+                return r, "broadcast send success"
 
     async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
