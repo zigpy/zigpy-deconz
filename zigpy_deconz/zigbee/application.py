@@ -4,7 +4,6 @@ import asyncio
 import binascii
 import contextlib
 import logging
-import random
 import re
 import time
 from typing import Any, Dict
@@ -332,44 +331,30 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK)
             dst_addr_ep.address = device.nwk
 
-        relays = None
         tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
 
-        if expect_reply:
-            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
+        async with self._limit_concurrency():
+            with self._pending.new(req_id) as req:
+                try:
+                    await self._api.aps_data_request(
+                        req_id,
+                        dst_addr_ep,
+                        profile,
+                        cluster,
+                        min(1, src_ep),
+                        data,
+                        tx_options=tx_options,
+                    )
+                except zigpy_deconz.exception.CommandError as ex:
+                    return ex.status, f"Couldn't enqueue send data request: {ex!r}"
 
-        for attempt in (1, 2):
-            async with self._limit_concurrency():
-                with self._pending.new(req_id) as req:
-                    try:
-                        await self._api.aps_data_request(
-                            req_id,
-                            dst_addr_ep,
-                            profile,
-                            cluster,
-                            min(1, src_ep),
-                            data,
-                            relays=relays,
-                            tx_options=tx_options,
-                        )
-                    except zigpy_deconz.exception.CommandError as ex:
-                        return ex.status, f"Couldn't enqueue send data request: {ex}"
+                r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
 
-                    r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
-
-                    if not r:
-                        return r, "message send success"
-
+                if r:
                     LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
+                    return r, "message send failure"
 
-                    await asyncio.sleep(random.uniform(0, MAX_REQUEST_RETRY_DELAY))
-
-                    if attempt == 2:
-                        return r, f"message send failure: {r}"
-                    elif self._api.protocol_version >= PROTO_VER_MANUAL_SOURCE_ROUTE:
-                        # Force the request to send by including the coordinator
-                        relays = [0x0000] + (device.relays or [])[::-1]
-                        LOGGER.debug("Trying manual source route: %s", relays)
+                return r, "message send success"
 
     async def broadcast(
         self,
