@@ -13,6 +13,7 @@ import serial
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
 from zigpy.types import APSStatus, Bool, Channels
+from zigpy.zdo.types import SimpleDescriptor
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -189,6 +190,7 @@ class NetworkParameter(t.uint8_t, enum.Enum):
     aps_extended_panid = 0x0B
     trust_center_address = 0x0E
     security_mode = 0x10
+    configure_endpoint = 0x13
     use_predefined_nwk_panid = 0x15
     network_key = 0x18
     link_key = 0x19
@@ -216,6 +218,7 @@ NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.link_key: (t.EUI64, t.Key),
     NetworkParameter.current_channel: (t.uint8_t,),
     NetworkParameter.permit_join: (t.uint8_t,),
+    NetworkParameter.configure_endpoint: (t.uint8_t, SimpleDescriptor),
     NetworkParameter.protocol_version: (t.uint16_t,),
     NetworkParameter.nwk_update_id: (t.uint8_t,),
     NetworkParameter.watchdog_ttl: (t.uint32_t,),

@@ -785,3 +785,79 @@ async def test_change_network_state(app, support_watchdog):
     else:
         assert cancel_mock.call_count == 0
         assert app._reset_watchdog_task is old_watchdog_task
+
+
+ENDPOINT = zdo_t.SimpleDescriptor(
+    endpoint=None,
+    profile=1,
+    device_type=2,
+    device_version=3,
+    input_clusters=[4],
+    output_clusters=[5],
+)
+INVALID_DESCRIPTOR = zdo_t.SimpleDescriptor(
+    endpoint=184,
+    profile=7329,
+    device_type=19200,
+    device_version=18,
+    input_clusters=[],
+    output_clusters=[],
+)
+
+
+@pytest.mark.parametrize(
+    "descriptor, slots, target_slot",
+    [
+        # No defined endpoints
+        (ENDPOINT.replace(endpoint=1), {0: None, 1: None, 2: None}, 0),
+        # Target the first invalid endpoint ID
+        (
+            ENDPOINT.replace(endpoint=184),
+            {0: None, 1: INVALID_DESCRIPTOR, 2: INVALID_DESCRIPTOR},
+            1,
+        ),
+        # Target the endpoint with the same ID
+        (
+            ENDPOINT.replace(endpoint=1),
+            {0: None, 1: INVALID_DESCRIPTOR, 2: ENDPOINT.replace(endpoint=1)},
+            2,
+        ),
+        # No free endpoint slots, this is an error
+        (
+            ENDPOINT.replace(endpoint=1),
+            {
+                0: ENDPOINT.replace(endpoint=2),
+                1: ENDPOINT.replace(endpoint=3),
+                2: ENDPOINT.replace(endpoint=4),
+            },
+            None,
+        ),
+    ],
+)
+async def test_add_endpoint(app, descriptor, slots, target_slot):
+    async def read_param(param_id, index):
+        assert param_id == deconz_api.NetworkParameter.configure_endpoint
+        assert 0 <= index <= 2
+
+        if slots[index] is None:
+            raise zigpy_deconz.exception.CommandError(
+                deconz_api.Status.UNSUPPORTED, "Unsupported"
+            )
+        else:
+            return index, slots[index]
+
+    app._api.read_parameter = AsyncMock(side_effect=read_param)
+    app._api.write_parameter = AsyncMock()
+
+    if target_slot is None:
+        with pytest.raises(ValueError):
+            await app.add_endpoint(descriptor)
+
+        app._api.write_parameter.assert_not_called()
+
+        return
+
+    await app.add_endpoint(descriptor)
+    app._api.write_parameter.assert_called_once_with(
+        deconz_api.NetworkParameter.configure_endpoint, target_slot, descriptor
+    )

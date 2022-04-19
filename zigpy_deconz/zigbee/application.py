@@ -48,6 +48,7 @@ PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
+MAX_NUM_ENDPOINTS = 3  # defined in firmware
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -105,6 +106,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         raise NotImplementedError()
 
     async def start_network(self):
+        await self.register_endpoints()
         await self.load_network_info(load_devices=False)
 
         device_state, _, _ = await self._api.device_state()
@@ -318,6 +320,61 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
         pass
+
+    async def add_endpoint(self, descriptor: zdo_t.SimpleDescriptor) -> None:
+        """Register a new endpoint on the device, replacing any with conflicting IDs.
+
+        Only three endpoints can be defined.
+        """
+
+        endpoints = {}
+
+        # Read the current endpoints
+        for index in range(MAX_NUM_ENDPOINTS):
+            try:
+                _, current_descriptor = await self._api.read_parameter(
+                    NetworkParameter.configure_endpoint, index
+                )
+            except zigpy_deconz.exception.CommandError as ex:
+                assert ex.status == Status.UNSUPPORTED
+                current_descriptor = None
+
+            endpoints[index] = current_descriptor
+
+        LOGGER.debug("Got endpoint slots: %r", endpoints)
+
+        # Keep track of the best endpoint descriptor to replace
+        target_index = None
+
+        for index, current_descriptor in endpoints.items():
+            if (
+                current_descriptor is not None
+                and current_descriptor.endpoint == descriptor.endpoint
+            ):
+                # Prefer to replace the endpoint with the same ID
+                target_index = index
+                break
+            elif (
+                # Otherwise, pick one with a missing simple descriptor
+                current_descriptor is None
+                or (
+                    # Or one with the "invalid" value
+                    not current_descriptor.input_clusters
+                    and not current_descriptor.output_clusters
+                    and current_descriptor.device_type == 19200
+                )
+            ) and target_index is None:
+                # Pick the first free slot
+                target_index = index
+
+        if target_index is None:
+            raise ValueError(f"No available endpoint slots exist: {endpoints!r}")
+
+        LOGGER.debug("Writing %s to slot %r", descriptor, target_index)
+
+        await self._api.write_parameter(
+            NetworkParameter.configure_endpoint, target_index, descriptor
+        )
 
     @contextlib.asynccontextmanager
     async def _limit_concurrency(self):
