@@ -795,11 +795,19 @@ ENDPOINT = zdo_t.SimpleDescriptor(
     input_clusters=[4],
     output_clusters=[5],
 )
-INVALID_DESCRIPTOR = zdo_t.SimpleDescriptor(
+INVALID_DESCRIPTOR1 = zdo_t.SimpleDescriptor(
     endpoint=184,
     profile=7329,
     device_type=19200,
     device_version=18,
+    input_clusters=[],
+    output_clusters=[],
+)
+INVALID_DESCRIPTOR2 = zdo_t.SimpleDescriptor(
+    endpoint=80,
+    profile=56832,
+    device_type=1,
+    device_version=1,
     input_clusters=[],
     output_clusters=[],
 )
@@ -813,13 +821,13 @@ INVALID_DESCRIPTOR = zdo_t.SimpleDescriptor(
         # Target the first invalid endpoint ID
         (
             ENDPOINT.replace(endpoint=184),
-            {0: None, 1: INVALID_DESCRIPTOR, 2: INVALID_DESCRIPTOR},
+            {0: None, 1: INVALID_DESCRIPTOR1, 2: INVALID_DESCRIPTOR2},
             1,
         ),
         # Target the endpoint with the same ID
         (
             ENDPOINT.replace(endpoint=1),
-            {0: None, 1: INVALID_DESCRIPTOR, 2: ENDPOINT.replace(endpoint=1)},
+            {0: None, 1: INVALID_DESCRIPTOR1, 2: ENDPOINT.replace(endpoint=1)},
             2,
         ),
         # No free endpoint slots, this is an error

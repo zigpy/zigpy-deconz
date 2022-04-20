@@ -361,7 +361,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                     # Or one with the "invalid" value
                     not current_descriptor.input_clusters
                     and not current_descriptor.output_clusters
-                    and current_descriptor.device_type == 19200
                 )
             ) and target_index is None:
                 # Pick the first free slot
