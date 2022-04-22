@@ -795,57 +795,24 @@ ENDPOINT = zdo_t.SimpleDescriptor(
     input_clusters=[4],
     output_clusters=[5],
 )
-INVALID_DESCRIPTOR1 = zdo_t.SimpleDescriptor(
-    endpoint=184,
-    profile=7329,
-    device_type=19200,
-    device_version=18,
-    input_clusters=[],
-    output_clusters=[],
-)
-INVALID_DESCRIPTOR2 = zdo_t.SimpleDescriptor(
-    endpoint=80,
-    profile=56832,
-    device_type=1,
-    device_version=1,
-    input_clusters=[],
-    output_clusters=[],
-)
 
 
 @pytest.mark.parametrize(
     "descriptor, slots, target_slot",
     [
-        # No defined endpoints
-        (ENDPOINT.replace(endpoint=1), {0: None, 1: None, 2: None}, 0),
-        # Target the first invalid endpoint ID
-        (
-            ENDPOINT.replace(endpoint=184),
-            {0: None, 1: INVALID_DESCRIPTOR1, 2: INVALID_DESCRIPTOR2},
-            1,
-        ),
-        # Target the endpoint with the same ID
+        (ENDPOINT.replace(endpoint=1), {0: ENDPOINT.replace(endpoint=2), 1: None}, 1),
+        # Prefer the endpoint with the same ID
         (
             ENDPOINT.replace(endpoint=1),
-            {0: None, 1: INVALID_DESCRIPTOR1, 2: ENDPOINT.replace(endpoint=1)},
-            2,
-        ),
-        # No free endpoint slots, this is an error
-        (
-            ENDPOINT.replace(endpoint=1),
-            {
-                0: ENDPOINT.replace(endpoint=2),
-                1: ENDPOINT.replace(endpoint=3),
-                2: ENDPOINT.replace(endpoint=4),
-            },
-            None,
+            {0: ENDPOINT.replace(endpoint=1, profile=1234), 1: None},
+            0,
         ),
     ],
 )
 async def test_add_endpoint(app, descriptor, slots, target_slot):
     async def read_param(param_id, index):
         assert param_id == deconz_api.NetworkParameter.configure_endpoint
-        assert 0 <= index <= 2
+        assert index in (0x00, 0x01)
 
         if slots[index] is None:
             raise zigpy_deconz.exception.CommandError(
@@ -868,4 +835,44 @@ async def test_add_endpoint(app, descriptor, slots, target_slot):
     await app.add_endpoint(descriptor)
     app._api.write_parameter.assert_called_once_with(
         deconz_api.NetworkParameter.configure_endpoint, target_slot, descriptor
+    )
+
+
+async def test_add_endpoint_no_free_space(app):
+    async def read_param(param_id, index):
+        assert param_id == deconz_api.NetworkParameter.configure_endpoint
+        assert index in (0x00, 0x01)
+
+        raise zigpy_deconz.exception.CommandError(
+            deconz_api.Status.UNSUPPORTED, "Unsupported"
+        )
+
+    app._api.read_parameter = AsyncMock(side_effect=read_param)
+    app._api.write_parameter = AsyncMock()
+    app._written_endpoints.add(0x00)
+    app._written_endpoints.add(0x01)
+
+    with pytest.raises(ValueError):
+        await app.add_endpoint(ENDPOINT.replace(endpoint=1))
+
+    app._api.write_parameter.assert_not_called()
+
+
+async def test_add_endpoint_no_unnecessary_writes(app):
+    async def read_param(param_id, index):
+        assert param_id == deconz_api.NetworkParameter.configure_endpoint
+        assert index in (0x00, 0x01)
+
+        return index, ENDPOINT.replace(endpoint=1)
+
+    app._api.read_parameter = AsyncMock(side_effect=read_param)
+    app._api.write_parameter = AsyncMock()
+
+    await app.add_endpoint(ENDPOINT.replace(endpoint=1))
+    app._api.write_parameter.assert_not_called()
+
+    # Writing another endpoint will cause a write
+    await app.add_endpoint(ENDPOINT.replace(endpoint=2))
+    app._api.write_parameter.assert_called_once_with(
+        deconz_api.NetworkParameter.configure_endpoint, 1, ENDPOINT.replace(endpoint=2)
     )

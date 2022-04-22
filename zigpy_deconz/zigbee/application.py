@@ -48,7 +48,7 @@ PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
-MAX_NUM_ENDPOINTS = 3  # defined in firmware
+MAX_NUM_ENDPOINTS = 2  # defined in firmware
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -71,6 +71,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self.version = 0
         self._reset_watchdog_task = None
 
+        self._written_endpoints = set()
+
     async def _reset_watchdog(self):
         while True:
             try:
@@ -86,6 +88,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await api.connect()
         self.version = await api.version()
         self._api = api
+        self._written_endpoints.clear()
 
     async def disconnect(self):
         if self._reset_watchdog_task is not None:
@@ -343,28 +346,31 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         LOGGER.debug("Got endpoint slots: %r", endpoints)
 
+        # Don't write endpoints unnecessarily
+        if descriptor in endpoints.values():
+            LOGGER.debug("Endpoint already registered, skipping")
+
+            # Pretend we wrote it
+            index = next(i for i, desc in endpoints.items() if desc == descriptor)
+            self._written_endpoints.add(index)
+            return
+
         # Keep track of the best endpoint descriptor to replace
         target_index = None
 
         for index, current_descriptor in endpoints.items():
+            # Ignore ones we've already written
+            if index in self._written_endpoints:
+                continue
+
+            target_index = index
+
             if (
                 current_descriptor is not None
                 and current_descriptor.endpoint == descriptor.endpoint
             ):
                 # Prefer to replace the endpoint with the same ID
-                target_index = index
                 break
-            elif (
-                # Otherwise, pick one with a missing simple descriptor
-                current_descriptor is None
-                or (
-                    # Or one with the "invalid" value
-                    not current_descriptor.input_clusters
-                    and not current_descriptor.output_clusters
-                )
-            ) and target_index is None:
-                # Pick the first free slot
-                target_index = index
 
         if target_index is None:
             raise ValueError(f"No available endpoint slots exist: {endpoints!r}")
