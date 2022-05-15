@@ -73,6 +73,11 @@ class SecurityMode(t.uint8_t, enum.Enum):
     ONLY_TCLK = 0x03
 
 
+class ZDPResponseHandling(t.bitmap16):
+    NONE = 0x0000
+    NodeDescRsp = 0x0001
+
+
 class Command(t.uint8_t, enum.Enum):
     aps_data_confirm = 0x04
     device_state = 0x07
@@ -223,7 +228,7 @@ NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.nwk_update_id: (t.uint8_t,),
     NetworkParameter.watchdog_ttl: (t.uint32_t,),
     NetworkParameter.nwk_frame_counter: (t.uint32_t,),
-    NetworkParameter.app_zdp_response_handling: (t.uint16_t,),
+    NetworkParameter.app_zdp_response_handling: (ZDPResponseHandling,),
 }
 
 

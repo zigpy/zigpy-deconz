@@ -149,6 +149,10 @@ class bitmap8(bitmap_factory(uint8_t)):
     pass
 
 
+class bitmap16(bitmap_factory(uint16_t)):
+    pass
+
+
 class DeconzSendDataFlags(bitmap8):
     NONE = 0x00
     NODE_ID = 0x01
