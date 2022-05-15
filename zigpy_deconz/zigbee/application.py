@@ -22,6 +22,7 @@ import zigpy.types
 import zigpy.util
 import zigpy.zdo.types as zdo_t
 
+import zigpy_deconz
 from zigpy_deconz import types as t
 from zigpy_deconz.api import (
     Deconz,
@@ -256,6 +257,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def load_network_info(self, *, load_devices=False):
         network_info = self.state.network_info
         node_info = self.state.node_info
+
+        network_info.source = f"zigpy-deconz@{zigpy_deconz.__version__}"
+        network_info.metadata = {
+            "deconz": {
+                "version": self.version,
+            }
+        }
 
         (ieee,) = await self._api[NetworkParameter.mac_address]
         node_info.ieee = zigpy.types.EUI64(ieee)
