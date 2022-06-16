@@ -6,6 +6,7 @@ import zigpy.state as app_state
 import zigpy.types as t
 import zigpy.zdo.types as zdo_t
 
+import zigpy_deconz
 import zigpy_deconz.api
 import zigpy_deconz.exception
 import zigpy_deconz.zigbee.application as application
@@ -56,6 +57,12 @@ def network_info(node_info):
         children=[],
         nwk_addresses={},
         stack_specific={},
+        source=f"zigpy-deconz@{zigpy_deconz.__version__}",
+        metadata={
+            "deconz": {
+                "version": 0,
+            }
+        },
     )
 
 
