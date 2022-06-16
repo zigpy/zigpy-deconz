@@ -234,6 +234,7 @@ def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
 async def test_start_network(app, proto_ver, nwk_state, error):
     app.load_network_info = AsyncMock()
     app.restore_neighbours = AsyncMock()
+    app.add_endpoint = AsyncMock()
     app._change_network_state = AsyncMock(side_effect=error)
 
     app._api.device_state = AsyncMock(
