@@ -280,7 +280,7 @@ class Deconz:
         self._uart = None
         if self._conn_lost_task and not self._conn_lost_task.done():
             self._conn_lost_task.cancel()
-        self._conn_lost_task = asyncio.ensure_future(self._connection_lost())
+        self._conn_lost_task = asyncio.create_task(self._connection_lost())
 
     async def _connection_lost(self) -> None:
         """Reconnect serial port."""
