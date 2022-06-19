@@ -14,7 +14,6 @@ import zigpy_deconz.zigbee.application
 
 from .async_mock import AsyncMock, MagicMock, patch, sentinel
 
-pytestmark = pytest.mark.asyncio
 DEVICE_CONFIG = {zigpy.config.CONF_DEVICE_PATH: "/dev/null"}
 
 
