@@ -7,7 +7,7 @@ import pytest
 import zigpy.config
 import zigpy.device
 import zigpy.neighbor
-from zigpy.types import EUI64, Channels
+from zigpy.types import EUI64
 import zigpy.zdo.types as zdo_t
 
 from zigpy_deconz import types as t
@@ -18,7 +18,6 @@ import zigpy_deconz.zigbee.application as application
 
 from .async_mock import AsyncMock, MagicMock, patch, sentinel
 
-pytestmark = pytest.mark.asyncio
 ZIGPY_NWK_CONFIG = {
     zigpy.config.CONF_NWK: {
         zigpy.config.CONF_NWK_PAN_ID: 0x4567,
@@ -38,28 +37,44 @@ def device_path():
 @pytest.fixture
 def api():
     """Return API fixture."""
-    api = MagicMock(spec_set=zigpy_deconz.api.Deconz)
+    api = MagicMock(spec_set=zigpy_deconz.api.Deconz(None, None))
     api.device_state = AsyncMock(
         return_value=(deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED), 0, 0)
     )
     api.write_parameter = AsyncMock()
-    api.change_network_state = AsyncMock()
+
+    # So the protocol version is effectively infinite
+    api._proto_ver.__ge__.return_value = True
+    api._proto_ver.__lt__.return_value = False
+
+    api.protocol_version.__ge__.return_value = True
+    api.protocol_version.__lt__.return_value = False
+
     return api
 
 
 @pytest.fixture
-def app(device_path, api, database_file=None):
+def app(device_path, api):
     config = application.ControllerApplication.SCHEMA(
         {
             **ZIGPY_NWK_CONFIG,
             zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: device_path},
-            zigpy.config.CONF_DATABASE: database_file,
         }
     )
 
     app = application.ControllerApplication(config)
+
+    api.change_network_state = AsyncMock()
+
+    device_state = MagicMock()
+    device_state.network_state.__eq__.return_value = True
+    api.device_state = AsyncMock(return_value=(device_state, 0, 0))
+
+    p1 = patch.object(app, "_api", api)
     p2 = patch.object(app, "_delayed_neighbour_scan")
-    with patch.object(app, "_api", api), p2:
+    p3 = patch.object(app, "_change_network_state", wraps=app._change_network_state)
+
+    with p1, p2, p3:
         yield app
 
 
@@ -207,106 +222,50 @@ def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
     assert app.handle_message.call_count == 0
 
 
-@patch.object(application, "CHANGE_NETWORK_WAIT", 0.001)
-async def test_form_network(app, api):
-    """Test network forming."""
-
-    await app.form_network()
-    assert api.change_network_state.await_count == 2
-    assert (
-        api.change_network_state.call_args_list[0][0][0]
-        == deconz_api.NetworkState.OFFLINE
-    )
-    assert (
-        api.change_network_state.call_args_list[1][0][0]
-        == deconz_api.NetworkState.CONNECTED
-    )
-    assert api.write_parameter.await_count >= 3
-    assert (
-        api.write_parameter.await_args_list[0][0][0]
-        == deconz_api.NetworkParameter.aps_designed_coordinator
-    )
-    assert api.write_parameter.await_args_list[0][0][1] == 1
-
-    api.device_state.return_value = (
-        deconz_api.DeviceState(deconz_api.NetworkState.JOINING),
-        0,
-        0,
-    )
-    with pytest.raises(Exception):
-        await app.form_network()
-
-
 @pytest.mark.parametrize(
-    "protocol_ver, watchdog_cc, nwk_state, designed_coord, form_count",
+    "proto_ver, nwk_state, error",
     [
-        (0x0107, False, deconz_api.NetworkState.CONNECTED, 1, 0),
-        (0x0108, True, deconz_api.NetworkState.CONNECTED, 1, 0),
-        (0x010B, True, deconz_api.NetworkState.CONNECTED, 1, 0),
-        (0x010B, True, deconz_api.NetworkState.CONNECTED, 0, 1),
-        (0x010B, True, deconz_api.NetworkState.OFFLINE, 1, 1),
-        (0x010B, True, deconz_api.NetworkState.OFFLINE, 0, 1),
+        (0x0107, deconz_api.NetworkState.CONNECTED, None),
+        (0x0106, deconz_api.NetworkState.CONNECTED, None),
+        (0x0107, deconz_api.NetworkState.OFFLINE, None),
+        (0x0107, deconz_api.NetworkState.OFFLINE, asyncio.TimeoutError()),
     ],
 )
-async def test_startup(
-    protocol_ver, watchdog_cc, app, nwk_state, designed_coord, form_count, version=0
-):
-    async def _version():
-        app._api._proto_ver = protocol_ver
-        return [version]
+async def test_start_network(app, proto_ver, nwk_state, error):
+    app.load_network_info = AsyncMock()
+    app.restore_neighbours = AsyncMock()
+    app.add_endpoint = AsyncMock()
+    app._change_network_state = AsyncMock(side_effect=error)
 
-    params = {
-        deconz_api.NetworkParameter.aps_designed_coordinator: [designed_coord],
-        deconz_api.NetworkParameter.nwk_address: [designed_coord],
-        deconz_api.NetworkParameter.protocol_version: [protocol_ver],
-        deconz_api.NetworkParameter.mac_address: [EUI64([0x01] * 8)],
-        deconz_api.NetworkParameter.nwk_address: [0x0000],
-        deconz_api.NetworkParameter.nwk_panid: [0x1234],
-        deconz_api.NetworkParameter.nwk_extended_panid: [EUI64([0x02] * 8)],
-        deconz_api.NetworkParameter.channel_mask: [Channels.CHANNEL_25],
-        deconz_api.NetworkParameter.aps_extended_panid: [EUI64([0x02] * 8)],
-        deconz_api.NetworkParameter.network_key: [0, t.Key([0x03] * 16)],
-        deconz_api.NetworkParameter.trust_center_address: [EUI64([0x04] * 8)],
-        deconz_api.NetworkParameter.link_key: [
-            EUI64([0x04] * 8),
-            t.Key(b"ZigBeeAlliance09"),
-        ],
-        deconz_api.NetworkParameter.security_mode: [3],
-        deconz_api.NetworkParameter.current_channel: [25],
-        deconz_api.NetworkParameter.nwk_update_id: [0],
-    }
-
-    async def _read_param(param, *args):
-        try:
-            return params[param]
-        except KeyError:
-            raise zigpy_deconz.exception.CommandError(
-                deconz_api.Status.UNSUPPORTED, "Unsupported"
-            )
-
-    app._reset_watchdog = AsyncMock()
-    app.form_network = AsyncMock()
-    app._delayed_neighbour_scan = AsyncMock()
-
-    app._api._command = AsyncMock()
-    api = deconz_api.Deconz(app, app._config[zigpy.config.CONF_DEVICE])
-    api.connect = AsyncMock()
-    api._command = AsyncMock()
-    api.device_state = AsyncMock(return_value=(deconz_api.DeviceState(nwk_state), 0, 0))
-    api.read_parameter = AsyncMock(side_effect=_read_param)
-    api.version = MagicMock(side_effect=_version)
-    api.write_parameter = AsyncMock()
-
-    p2 = patch(
-        "zigpy_deconz.zigbee.application.DeconzDevice.new",
-        new=AsyncMock(return_value=zigpy.device.Device(app, sentinel.ieee, 0x0000)),
+    app._api.device_state = AsyncMock(
+        return_value=(deconz_api.DeviceState(nwk_state), 0, 0)
     )
-    with patch.object(application, "Deconz", return_value=api), p2:
-        await app.startup(auto_form=False)
-        assert app.form_network.call_count == 0
-        assert app._reset_watchdog.call_count == watchdog_cc
-        await app.startup(auto_form=True)
-        assert app.form_network.call_count == form_count
+    app._api._proto_ver = proto_ver
+    app._api.protocol_version = proto_ver
+
+    if nwk_state != deconz_api.NetworkState.CONNECTED and error is not None:
+        with pytest.raises(zigpy.exceptions.FormationFailure):
+            await app.start_network()
+
+        return
+
+    with patch.object(application.DeconzDevice, "initialize", AsyncMock()):
+        await app.start_network()
+        assert app.load_network_info.await_count == 1
+
+        if nwk_state != deconz_api.NetworkState.CONNECTED:
+            assert app._change_network_state.await_count == 1
+            assert (
+                app._change_network_state.await_args_list[0][0][0]
+                == deconz_api.NetworkState.CONNECTED
+            )
+        else:
+            assert app._change_network_state.await_count == 0
+
+        if proto_ver >= application.PROTO_VER_NEIGBOURS:
+            assert app.restore_neighbours.await_count == 1
+        else:
+            assert app.restore_neighbours.await_count == 0
 
 
 async def test_permit(app, nwk):
@@ -439,10 +398,48 @@ def _handle_reply(app, tsn):
     )
 
 
-async def test_shutdown(app):
+async def test_connect(app):
+    def new_api(*args):
+        api = MagicMock()
+        api.connect = AsyncMock()
+        api.version = AsyncMock(return_value=sentinel.version)
+
+        return api
+
+    with patch.object(application, "Deconz", new=new_api):
+        app._api = None
+        await app.connect()
+        assert app._api is not None
+
+        assert app._api.connect.await_count == 1
+        assert app._api.version.await_count == 1
+        assert app.version is sentinel.version
+
+
+async def test_disconnect(app):
+    app._reset_watchdog_task = MagicMock()
     app._api.close = MagicMock()
-    await app.shutdown()
+
+    await app.disconnect()
     assert app._api.close.call_count == 1
+    assert app._reset_watchdog_task.cancel.call_count == 1
+
+
+async def test_disconnect_no_api(app):
+    app._api = None
+    await app.disconnect()
+
+
+async def test_disconnect_close_error(app):
+    app._api.write_parameter = MagicMock(
+        side_effect=zigpy_deconz.exception.CommandError(1, "Error")
+    )
+    await app.disconnect()
+
+
+async def test_permit_with_key_not_implemented(app):
+    with pytest.raises(NotImplementedError):
+        await app.permit_with_key(node=MagicMock(), code=b"abcdef")
 
 
 def test_rx_device_annce(app, addr_ieee, addr_nwk):
@@ -622,14 +619,14 @@ async def test_mrequest_send_aps_data_error(app):
 async def test_reset_watchdog(app):
     """Test watchdog."""
     with patch.object(app._api, "write_parameter") as mock_api:
-        dog = asyncio.ensure_future(app._reset_watchdog())
+        dog = asyncio.create_task(app._reset_watchdog())
         await asyncio.sleep(0.3)
         dog.cancel()
         assert mock_api.call_count == 1
 
     with patch.object(app._api, "write_parameter") as mock_api:
         mock_api.side_effect = zigpy_deconz.exception.CommandError
-        dog = asyncio.ensure_future(app._reset_watchdog())
+        dog = asyncio.create_task(app._reset_watchdog())
         await asyncio.sleep(0.3)
         dog.cancel()
         assert mock_api.call_count == 1
@@ -688,7 +685,7 @@ async def test_restore_neighbours(app):
     neighbours.neighbors.append(nei_5)
     coord.neighbors = neighbours
 
-    p2 = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz)
+    p2 = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz(None, None))
     with patch.object(app, "get_device", return_value=coord), p2 as api_mock:
         api_mock.add_neighbour = AsyncMock()
         await app.restore_neighbours()
@@ -756,3 +753,127 @@ async def test_request_concurrency(app):
     await asyncio.gather(*requests)
 
     assert max_concurrency == 20
+
+
+@patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_WAIT", 0.001)
+@pytest.mark.parametrize("support_watchdog", [False, True])
+async def test_change_network_state(app, support_watchdog):
+    app._reset_watchdog_task = MagicMock()
+
+    app._api.device_state = AsyncMock(
+        side_effect=[
+            (deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE), 0, 0),
+            (deconz_api.DeviceState(deconz_api.NetworkState.JOINING), 0, 0),
+            (deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED), 0, 0),
+        ]
+    )
+
+    if support_watchdog:
+        app._api._proto_ver = application.PROTO_VER_WATCHDOG
+        app._api.protocol_version = application.PROTO_VER_WATCHDOG
+    else:
+        app._api._proto_ver = application.PROTO_VER_WATCHDOG - 1
+        app._api.protocol_version = application.PROTO_VER_WATCHDOG - 1
+
+    old_watchdog_task = app._reset_watchdog_task
+    cancel_mock = app._reset_watchdog_task.cancel = MagicMock()
+
+    await app._change_network_state(deconz_api.NetworkState.CONNECTED, timeout=0.01)
+
+    if support_watchdog:
+        assert cancel_mock.call_count == 1
+        assert app._reset_watchdog_task is not old_watchdog_task
+    else:
+        assert cancel_mock.call_count == 0
+        assert app._reset_watchdog_task is old_watchdog_task
+
+
+ENDPOINT = zdo_t.SimpleDescriptor(
+    endpoint=None,
+    profile=1,
+    device_type=2,
+    device_version=3,
+    input_clusters=[4],
+    output_clusters=[5],
+)
+
+
+@pytest.mark.parametrize(
+    "descriptor, slots, target_slot",
+    [
+        (ENDPOINT.replace(endpoint=1), {0: ENDPOINT.replace(endpoint=2), 1: None}, 1),
+        # Prefer the endpoint with the same ID
+        (
+            ENDPOINT.replace(endpoint=1),
+            {0: ENDPOINT.replace(endpoint=1, profile=1234), 1: None},
+            0,
+        ),
+    ],
+)
+async def test_add_endpoint(app, descriptor, slots, target_slot):
+    async def read_param(param_id, index):
+        assert param_id == deconz_api.NetworkParameter.configure_endpoint
+        assert index in (0x00, 0x01)
+
+        if slots[index] is None:
+            raise zigpy_deconz.exception.CommandError(
+                deconz_api.Status.UNSUPPORTED, "Unsupported"
+            )
+        else:
+            return index, slots[index]
+
+    app._api.read_parameter = AsyncMock(side_effect=read_param)
+    app._api.write_parameter = AsyncMock()
+
+    if target_slot is None:
+        with pytest.raises(ValueError):
+            await app.add_endpoint(descriptor)
+
+        app._api.write_parameter.assert_not_called()
+
+        return
+
+    await app.add_endpoint(descriptor)
+    app._api.write_parameter.assert_called_once_with(
+        deconz_api.NetworkParameter.configure_endpoint, target_slot, descriptor
+    )
+
+
+async def test_add_endpoint_no_free_space(app):
+    async def read_param(param_id, index):
+        assert param_id == deconz_api.NetworkParameter.configure_endpoint
+        assert index in (0x00, 0x01)
+
+        raise zigpy_deconz.exception.CommandError(
+            deconz_api.Status.UNSUPPORTED, "Unsupported"
+        )
+
+    app._api.read_parameter = AsyncMock(side_effect=read_param)
+    app._api.write_parameter = AsyncMock()
+    app._written_endpoints.add(0x00)
+    app._written_endpoints.add(0x01)
+
+    with pytest.raises(ValueError):
+        await app.add_endpoint(ENDPOINT.replace(endpoint=1))
+
+    app._api.write_parameter.assert_not_called()
+
+
+async def test_add_endpoint_no_unnecessary_writes(app):
+    async def read_param(param_id, index):
+        assert param_id == deconz_api.NetworkParameter.configure_endpoint
+        assert index in (0x00, 0x01)
+
+        return index, ENDPOINT.replace(endpoint=1)
+
+    app._api.read_parameter = AsyncMock(side_effect=read_param)
+    app._api.write_parameter = AsyncMock()
+
+    await app.add_endpoint(ENDPOINT.replace(endpoint=1))
+    app._api.write_parameter.assert_not_called()
+
+    # Writing another endpoint will cause a write
+    await app.add_endpoint(ENDPOINT.replace(endpoint=2))
+    app._api.write_parameter.assert_called_once_with(
+        deconz_api.NetworkParameter.configure_endpoint, 1, ENDPOINT.replace(endpoint=2)
+    )
