@@ -100,7 +100,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         try:
             if self._api.protocol_version >= PROTO_VER_WATCHDOG:
-                await self._api.write_parameter(NetworkParameter.watchdog_ttl, 0)
+                await self._api.write_parameter(NetworkParameter.watchdog_ttl, 1)
         except zigpy_deconz.exception.CommandError:
             pass
         finally:
