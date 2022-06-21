@@ -49,7 +49,7 @@ PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
-MAX_NUM_ENDPOINTS = 2  # defined in firmware
+MAX_NUM_ENDPOINTS = 4  # defined in firmware
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
