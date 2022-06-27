@@ -80,8 +80,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 await self._api.write_parameter(
                     NetworkParameter.watchdog_ttl, self._config[CONF_WATCHDOG_TTL]
                 )
-            except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
-                LOGGER.warning("No watchdog response")
+            except Exception as e:
+                LOGGER.warning("Failed to reset watchdog", exc_info=e)
+
             await asyncio.sleep(self._config[CONF_WATCHDOG_TTL] * 0.75)
 
     async def connect(self):
@@ -95,15 +96,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if self._reset_watchdog_task is not None:
             self._reset_watchdog_task.cancel()
 
-        if self._api is None:
-            return
-
-        try:
-            if self._api.protocol_version >= PROTO_VER_WATCHDOG:
-                await self._api.write_parameter(NetworkParameter.watchdog_ttl, 1)
-        except zigpy_deconz.exception.CommandError:
-            pass
-        finally:
+        if self._api is not None:
             self._api.close()
 
     async def permit_with_key(self, node: t.EUI64, code: bytes, time_s=60):
@@ -113,13 +106,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self.register_endpoints()
         await self.load_network_info(load_devices=False)
 
-        device_state, _, _ = await self._api.device_state()
-
-        if device_state.network_state != NetworkState.CONNECTED:
-            try:
-                await self._change_network_state(NetworkState.CONNECTED)
-            except asyncio.TimeoutError as e:
-                raise FormationFailure() from e
+        try:
+            await self._change_network_state(NetworkState.CONNECTED)
+        except asyncio.TimeoutError as e:
+            raise FormationFailure() from e
 
         coordinator = await DeconzDevice.new(
             self,
