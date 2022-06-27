@@ -252,15 +252,12 @@ async def test_start_network(app, proto_ver, nwk_state, error):
     with patch.object(application.DeconzDevice, "initialize", AsyncMock()):
         await app.start_network()
         assert app.load_network_info.await_count == 1
+        assert app._change_network_state.await_count == 1
 
-        if nwk_state != deconz_api.NetworkState.CONNECTED:
-            assert app._change_network_state.await_count == 1
-            assert (
-                app._change_network_state.await_args_list[0][0][0]
-                == deconz_api.NetworkState.CONNECTED
-            )
-        else:
-            assert app._change_network_state.await_count == 0
+        assert (
+            app._change_network_state.await_args_list[0][0][0]
+            == deconz_api.NetworkState.CONNECTED
+        )
 
         if proto_ver >= application.PROTO_VER_NEIGBOURS:
             assert app.restore_neighbours.await_count == 1
