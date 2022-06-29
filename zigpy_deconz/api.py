@@ -1,16 +1,19 @@
 """deCONZ serial protocol API."""
 
+from __future__ import annotations
+
 import asyncio
 import binascii
 import enum
 import functools
 import logging
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional
 
 import serial
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
-from zigpy.types import APSStatus, Channels
+from zigpy.types import APSStatus, Bool, Channels
+from zigpy.zdo.types import SimpleDescriptor
 
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
@@ -41,7 +44,7 @@ class DeviceState(enum.IntFlag):
     APSDE_DATA_REQUEST_SLOTS_AVAILABLE = 0x20
 
     @classmethod
-    def deserialize(cls, data) -> Tuple["DeviceState", bytes]:
+    def deserialize(cls, data) -> tuple["DeviceState", bytes]:
         """Deserialize DevceState."""
         state, data = t.uint8_t.deserialize(data)
         return cls(state), data
@@ -61,6 +64,18 @@ class NetworkState(t.uint8_t, enum.Enum):
     JOINING = 1
     CONNECTED = 2
     LEAVING = 3
+
+
+class SecurityMode(t.uint8_t, enum.Enum):
+    NO_SECURITY = 0x00
+    PRECONFIGURED_NETWORK_KEY = 0x01
+    NETWORK_KEY_FROM_TC = 0x02
+    ONLY_TCLK = 0x03
+
+
+class ZDPResponseHandling(t.bitmap16):
+    NONE = 0x0000
+    NodeDescRsp = 0x0001
 
 
 class Command(t.uint8_t, enum.Enum):
@@ -98,7 +113,7 @@ TX_COMMANDS = {
     Command.aps_data_request: (
         t.uint16_t,
         t.uint8_t,
-        t.uint8_t,
+        t.DeconzSendDataFlags,
         t.DeconzAddressEndpoint,
         t.uint16_t,
         t.uint16_t,
@@ -106,6 +121,7 @@ TX_COMMANDS = {
         t.LVBytes,
         t.uint8_t,
         t.uint8_t,
+        t.NWKList,  # optional
     ),
     Command.change_network_state: (t.uint8_t,),
     Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
@@ -179,12 +195,17 @@ class NetworkParameter(t.uint8_t, enum.Enum):
     aps_extended_panid = 0x0B
     trust_center_address = 0x0E
     security_mode = 0x10
+    configure_endpoint = 0x13
+    use_predefined_nwk_panid = 0x15
     network_key = 0x18
+    link_key = 0x19
     current_channel = 0x1C
     permit_join = 0x21
     protocol_version = 0x22
     nwk_update_id = 0x24
     watchdog_ttl = 0x26
+    nwk_frame_counter = 0x27
+    app_zdp_response_handling = 0x28
 
 
 NETWORK_PARAMETER_SCHEMA = {
@@ -197,19 +218,24 @@ NETWORK_PARAMETER_SCHEMA = {
     NetworkParameter.aps_extended_panid: (t.ExtendedPanId,),
     NetworkParameter.trust_center_address: (t.EUI64,),
     NetworkParameter.security_mode: (t.uint8_t,),
+    NetworkParameter.use_predefined_nwk_panid: (Bool,),
     NetworkParameter.network_key: (t.uint8_t, t.Key),
+    NetworkParameter.link_key: (t.EUI64, t.Key),
     NetworkParameter.current_channel: (t.uint8_t,),
     NetworkParameter.permit_join: (t.uint8_t,),
+    NetworkParameter.configure_endpoint: (t.uint8_t, SimpleDescriptor),
     NetworkParameter.protocol_version: (t.uint16_t,),
     NetworkParameter.nwk_update_id: (t.uint8_t,),
     NetworkParameter.watchdog_ttl: (t.uint32_t,),
+    NetworkParameter.nwk_frame_counter: (t.uint32_t,),
+    NetworkParameter.app_zdp_response_handling: (ZDPResponseHandling,),
 }
 
 
 class Deconz:
     """deCONZ API class."""
 
-    def __init__(self, app: Callable, device_config: Dict[str, Any]):
+    def __init__(self, app: Callable, device_config: dict[str, Any]):
         """Init instance."""
         self._app = app
         self._aps_data_ind_flags: int = 0x01
@@ -254,7 +280,7 @@ class Deconz:
         self._uart = None
         if self._conn_lost_task and not self._conn_lost_task.done():
             self._conn_lost_task.cancel()
-        self._conn_lost_task = asyncio.ensure_future(self._connection_lost())
+        self._conn_lost_task = asyncio.create_task(self._connection_lost())
 
     async def _connection_lost(self) -> None:
         """Reconnect serial port."""
@@ -384,7 +410,7 @@ class Deconz:
         LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
 
     @classmethod
-    async def probe(cls, device_config: Dict[str, Any]) -> bool:
+    async def probe(cls, device_config: dict[str, Any]) -> bool:
         """Probe port for the device presence."""
         api = cls(None, device_config)
         try:
@@ -507,33 +533,61 @@ class Deconz:
             )  # rssi
 
     async def aps_data_request(
-        self, req_id, dst_addr_ep, profile, cluster, src_ep, aps_payload
+        self,
+        req_id,
+        dst_addr_ep,
+        profile,
+        cluster,
+        src_ep,
+        aps_payload,
+        *,
+        relays=None,
+        tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
+        radius=0,
     ):
         dst = dst_addr_ep.serialize()
         length = len(dst) + len(aps_payload) + 11
         delays = (0.5, 1.0, 1.5, None)
+
+        flags = t.DeconzSendDataFlags.NONE
+        extras = []
+
+        # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
+        if relays:
+            # There is a max of 9 relays
+            assert len(relays) <= 9
+
+            # APS ACKs should be used to mitigate errors.
+            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
+
+            flags |= t.DeconzSendDataFlags.RELAYS
+            extras.append(t.NWKList(relays))
+
+        length += sum(len(e.serialize()) for e in extras)
+
         for delay in delays:
             try:
                 return await self._command(
                     Command.aps_data_request,
                     length,
                     req_id,
-                    0,
+                    flags,
                     dst_addr_ep,
                     profile,
                     cluster,
                     src_ep,
                     aps_payload,
-                    2,
-                    0,
+                    tx_options,
+                    radius,
+                    *extras,
                 )
             except CommandError as ex:
                 LOGGER.debug("'aps_data_request' failure: %s", ex)
-                if delay is not None and ex.status == Status.BUSY:
-                    LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
-                    await asyncio.sleep(delay)
-                    continue
-                raise
+                if delay is None or ex.status != Status.BUSY:
+                    raise
+
+                LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
+                await asyncio.sleep(delay)
 
     def _handle_aps_data_request(self, data):
         LOGGER.debug("APS data request response: %s", data)
@@ -598,10 +652,10 @@ class Deconz:
             LOGGER.debug("Data request queue full.")
         if DeviceState.APSDE_DATA_INDICATION in state and not self._data_indication:
             self._data_indication = True
-            asyncio.ensure_future(self._aps_data_indication())
+            asyncio.create_task(self._aps_data_indication())
         if DeviceState.APSDE_DATA_CONFIRM in state and not self._data_confirm:
             self._data_confirm = True
-            asyncio.ensure_future(self._aps_data_confirm())
+            asyncio.create_task(self._aps_data_confirm())
 
     def __getitem__(self, key):
         """Access parameters via getitem."""
@@ -609,4 +663,4 @@ class Deconz:
 
     def __setitem__(self, key, value):
         """Set parameters via setitem."""
-        return asyncio.ensure_future(self.write_parameter(key, value))
+        return asyncio.create_task(self.write_parameter(key, value))
