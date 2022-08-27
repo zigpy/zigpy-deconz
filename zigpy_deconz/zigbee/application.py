@@ -82,6 +82,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 )
             except Exception as e:
                 LOGGER.warning("Failed to reset watchdog", exc_info=e)
+                self.connection_lost(e)
+                return
 
             await asyncio.sleep(self._config[CONF_WATCHDOG_TTL] * 0.75)
 
