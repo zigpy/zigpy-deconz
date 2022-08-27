@@ -242,7 +242,6 @@ class Deconz:
         self._awaiting = {}
         self._command_lock = asyncio.Lock()
         self._config = device_config
-        self._conn_lost_task: Optional[asyncio.Task] = None
         self._data_indication: bool = False
         self._data_confirm: bool = False
         self._device_state = DeviceState(NetworkState.OFFLINE)
@@ -277,13 +276,16 @@ class Deconz:
             self._config[CONF_DEVICE_PATH],
             exc,
         )
-        self._uart.close()
-        self._uart = None
 
-        self._app.connection_lost(exc)
+        if self._uart is not None:
+            self._uart.close()
+            self._uart = None
+
+        if self._app is not None:
+            self._app.connection_lost(exc)
 
     def close(self):
-        if self._uart:
+        if self._uart is not None:
             self._uart.close()
             self._uart = None
 
