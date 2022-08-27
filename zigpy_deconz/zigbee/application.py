@@ -45,10 +45,10 @@ LOGGER = logging.getLogger(__name__)
 CHANGE_NETWORK_WAIT = 1
 DELAY_NEIGHBOUR_SCAN_S = 1500
 SEND_CONFIRM_TIMEOUT = 60
+
 PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
-WATCHDOG_TTL = 600
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -67,7 +67,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
         self._currently_waiting_requests = 0
 
-        self._nwk = 0
         self.version = 0
         self._reset_watchdog_task = None
         self._reconnect_task = None
