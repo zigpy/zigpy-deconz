@@ -242,7 +242,6 @@ class Deconz:
         self._awaiting = {}
         self._command_lock = asyncio.Lock()
         self._config = device_config
-        self._conn_lost_task: Optional[asyncio.Task] = None
         self._data_indication: bool = False
         self._data_confirm: bool = False
         self._device_state = DeviceState(NetworkState.OFFLINE)
@@ -277,43 +276,16 @@ class Deconz:
             self._config[CONF_DEVICE_PATH],
             exc,
         )
-        self._uart = None
-        if self._conn_lost_task and not self._conn_lost_task.done():
-            self._conn_lost_task.cancel()
-        self._conn_lost_task = asyncio.create_task(self._connection_lost())
 
-    async def _connection_lost(self) -> None:
-        """Reconnect serial port."""
-        try:
-            await self._reconnect_till_done()
-        except asyncio.CancelledError:
-            LOGGER.debug("Cancelling reconnection attempt")
+        if self._uart is not None:
+            self._uart.close()
+            self._uart = None
 
-    async def _reconnect_till_done(self) -> None:
-        attempt = 1
-        while True:
-            try:
-                await asyncio.wait_for(self.reconnect(), timeout=10)
-                break
-            except (asyncio.TimeoutError, OSError) as exc:
-                wait = 2 ** min(attempt, 5)
-                attempt += 1
-                LOGGER.debug(
-                    "Couldn't re-open '%s' serial port, retrying in %ss: %s",
-                    self._config[CONF_DEVICE_PATH],
-                    wait,
-                    str(exc),
-                )
-                await asyncio.sleep(wait)
-
-        LOGGER.debug(
-            "Reconnected '%s' serial port after %s attempts",
-            self._config[CONF_DEVICE_PATH],
-            attempt,
-        )
+        if self._app is not None:
+            self._app.connection_lost(exc)
 
     def close(self):
-        if self._uart:
+        if self._uart is not None:
             self._uart.close()
             self._uart = None
 
@@ -478,7 +450,9 @@ class Deconz:
         LOGGER.debug("Write parameter %s: SUCCESS", param.name)
 
     async def version(self):
-        (self._proto_ver,) = await self[NetworkParameter.protocol_version]
+        (self._proto_ver,) = await self.read_parameter(
+            NetworkParameter.protocol_version
+        )
         (self._firmware_version,) = await self._command(Command.version, 0)
         if (
             self.protocol_version >= MIN_PROTO_VERSION

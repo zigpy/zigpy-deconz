@@ -3,7 +3,6 @@
 import asyncio
 import binascii
 import enum
-import logging
 
 import pytest
 import zigpy.config
@@ -458,47 +457,6 @@ def test_device_state_network_state(data, network_state):
         assert state.serialize() == new_data
 
 
-@patch("zigpy_deconz.uart.connect")
-async def test_reconnect_multiple_disconnects(connect_mock, caplog):
-    api = deconz_api.Deconz(None, DEVICE_CONFIG)
-    gw = MagicMock(spec_set=uart.Gateway)
-    connect_mock.return_value = gw
-
-    await api.connect()
-
-    caplog.set_level(logging.DEBUG)
-    connect_mock.reset_mock()
-    connect_mock.return_value = asyncio.Future()
-    api.connection_lost("connection lost")
-    await asyncio.sleep(0)
-    connect_mock.return_value = sentinel.uart_reconnect
-    api.connection_lost("connection lost 2")
-    await asyncio.sleep(0)
-
-    assert api._uart is sentinel.uart_reconnect
-    assert connect_mock.call_count == 1
-
-
-@patch("zigpy_deconz.uart.connect")
-async def test_reconnect_multiple_attempts(connect_mock, caplog):
-    api = deconz_api.Deconz(None, DEVICE_CONFIG)
-    gw = MagicMock(spec_set=uart.Gateway)
-    connect_mock.return_value = gw
-
-    await api.connect()
-
-    caplog.set_level(logging.DEBUG)
-    connect_mock.reset_mock()
-    connect_mock.side_effect = [asyncio.TimeoutError, OSError, gw]
-
-    with patch("asyncio.sleep"):
-        api.connection_lost("connection lost")
-        await api._conn_lost_task
-
-    assert api._uart is gw
-    assert connect_mock.call_count == 3
-
-
 @patch.object(deconz_api.Deconz, "device_state", new_callable=AsyncMock)
 @patch("zigpy_deconz.uart.connect", return_value=MagicMock(spec_set=uart.Gateway))
 async def test_probe_success(mock_connect, mock_device_state):
@@ -631,3 +589,14 @@ async def test_aps_data_request_relays(relays, api):
     if relays:
         assert isinstance(mock_cmd.mock_calls[0][1][-1], t.NWKList)
         assert mock_cmd.mock_calls[0][1][-1] == t.NWKList(relays)
+
+
+async def test_connection_lost(api):
+    app = api._app = MagicMock()
+    uart = api._uart = MagicMock()
+
+    err = RuntimeError()
+    api.connection_lost(err)
+
+    app.connection_lost.assert_called_once_with(err)
+    uart.close.assert_called_once()

@@ -122,4 +122,4 @@ def test_connection_lost_exc(gw):
 def test_connection_closed(gw):
     gw.connection_lost(None)
 
-    assert gw._api.connection_lost.call_count == 0
+    assert gw._api.connection_lost.call_count == 1
