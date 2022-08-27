@@ -49,7 +49,6 @@ PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 WATCHDOG_TTL = 600
-MAX_NUM_ENDPOINTS = 2  # defined in firmware
 
 
 class ControllerApplication(zigpy.application.ControllerApplication):
@@ -323,24 +322,21 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         pass
 
     async def add_endpoint(self, descriptor: zdo_t.SimpleDescriptor) -> None:
-        """Register a new endpoint on the device, replacing any with conflicting IDs.
-
-        Only three endpoints can be defined.
-        """
+        """Register an endpoint on the device, replacing any with conflicting IDs."""
 
         endpoints = {}
 
-        # Read the current endpoints
-        for index in range(MAX_NUM_ENDPOINTS):
+        # Read and count the current endpoints. Some firmwares have three, others four.
+        for index in range(255 + 1):
             try:
                 _, current_descriptor = await self._api.read_parameter(
                     NetworkParameter.configure_endpoint, index
                 )
             except zigpy_deconz.exception.CommandError as ex:
                 assert ex.status == Status.UNSUPPORTED
-                current_descriptor = None
-
-            endpoints[index] = current_descriptor
+                break
+            else:
+                endpoints[index] = current_descriptor
 
         LOGGER.debug("Got endpoint slots: %r", endpoints)
 
@@ -349,8 +345,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             LOGGER.debug("Endpoint already registered, skipping")
 
             # Pretend we wrote it
-            index = next(i for i, desc in endpoints.items() if desc == descriptor)
-            self._written_endpoints.add(index)
+            self._written_endpoints.add(list(endpoints.values()).index(descriptor))
             return
 
         # Keep track of the best endpoint descriptor to replace
@@ -363,10 +358,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
             target_index = index
 
-            if (
-                current_descriptor is not None
-                and current_descriptor.endpoint == descriptor.endpoint
-            ):
+            if current_descriptor.endpoint == descriptor.endpoint:
                 # Prefer to replace the endpoint with the same ID
                 break
 

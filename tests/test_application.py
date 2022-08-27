@@ -798,21 +798,23 @@ ENDPOINT = zdo_t.SimpleDescriptor(
 @pytest.mark.parametrize(
     "descriptor, slots, target_slot",
     [
-        (ENDPOINT.replace(endpoint=1), {0: ENDPOINT.replace(endpoint=2), 1: None}, 1),
+        (ENDPOINT.replace(endpoint=1), {0: ENDPOINT.replace(endpoint=2)}, 0),
         # Prefer the endpoint with the same ID
         (
             ENDPOINT.replace(endpoint=1),
-            {0: ENDPOINT.replace(endpoint=1, profile=1234), 1: None},
-            0,
+            {
+                0: ENDPOINT.replace(endpoint=2, profile=1234),
+                1: ENDPOINT.replace(endpoint=1, profile=1234),
+            },
+            1,
         ),
     ],
 )
 async def test_add_endpoint(app, descriptor, slots, target_slot):
     async def read_param(param_id, index):
         assert param_id == deconz_api.NetworkParameter.configure_endpoint
-        assert index in (0x00, 0x01)
 
-        if slots[index] is None:
+        if index not in slots:
             raise zigpy_deconz.exception.CommandError(
                 deconz_api.Status.UNSUPPORTED, "Unsupported"
             )
@@ -821,14 +823,6 @@ async def test_add_endpoint(app, descriptor, slots, target_slot):
 
     app._api.read_parameter = AsyncMock(side_effect=read_param)
     app._api.write_parameter = AsyncMock()
-
-    if target_slot is None:
-        with pytest.raises(ValueError):
-            await app.add_endpoint(descriptor)
-
-        app._api.write_parameter.assert_not_called()
-
-        return
 
     await app.add_endpoint(descriptor)
     app._api.write_parameter.assert_called_once_with(
@@ -859,7 +853,11 @@ async def test_add_endpoint_no_free_space(app):
 async def test_add_endpoint_no_unnecessary_writes(app):
     async def read_param(param_id, index):
         assert param_id == deconz_api.NetworkParameter.configure_endpoint
-        assert index in (0x00, 0x01)
+
+        if index > 0x01:
+            raise zigpy_deconz.exception.CommandError(
+                deconz_api.Status.UNSUPPORTED, "Unsupported"
+            )
 
         return index, ENDPOINT.replace(endpoint=1)
 
