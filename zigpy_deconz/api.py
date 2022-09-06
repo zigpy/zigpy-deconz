@@ -632,7 +632,3 @@ class Deconz:
     def __getitem__(self, key):
         """Access parameters via getitem."""
         return self.read_parameter(key)
-
-    def __setitem__(self, key, value):
-        """Set parameters via setitem."""
-        return asyncio.create_task(self.write_parameter(key, value))
