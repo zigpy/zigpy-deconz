@@ -271,20 +271,18 @@ class Deconz:
 
     def connection_lost(self, exc: Exception) -> None:
         """Lost serial connection."""
-        LOGGER.warning(
+        LOGGER.debug(
             "Serial '%s' connection lost unexpectedly: %s",
             self._config[CONF_DEVICE_PATH],
             exc,
         )
 
-        if self._uart is not None:
-            self._uart.close()
-            self._uart = None
-
         if self._app is not None:
             self._app.connection_lost(exc)
 
     def close(self):
+        self._app = None
+
         if self._uart is not None:
             self._uart.close()
             self._uart = None

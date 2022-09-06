@@ -593,10 +593,8 @@ async def test_aps_data_request_relays(relays, api):
 
 async def test_connection_lost(api):
     app = api._app = MagicMock()
-    uart = api._uart = MagicMock()
 
     err = RuntimeError()
     api.connection_lost(err)
 
     app.connection_lost.assert_called_once_with(err)
-    uart.close.assert_called_once()
