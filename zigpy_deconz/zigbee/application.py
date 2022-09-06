@@ -659,7 +659,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     def connection_lost(self, exc: Exception) -> None:
         """Lost connection."""
 
-        LOGGER.debug("Lost connection: %r", exc)
+        if exc is not None:
+            LOGGER.warning("Lost connection: %r", exc)
 
         self.close()
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())

@@ -272,7 +272,7 @@ class Deconz:
     def connection_lost(self, exc: Exception) -> None:
         """Lost serial connection."""
         LOGGER.debug(
-            "Serial '%s' connection lost unexpectedly: %s",
+            "Serial %r connection lost unexpectedly: %r",
             self._config[CONF_DEVICE_PATH],
             exc,
         )
