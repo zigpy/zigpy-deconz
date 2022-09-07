@@ -271,20 +271,18 @@ class Deconz:
 
     def connection_lost(self, exc: Exception) -> None:
         """Lost serial connection."""
-        LOGGER.warning(
-            "Serial '%s' connection lost unexpectedly: %s",
+        LOGGER.debug(
+            "Serial %r connection lost unexpectedly: %r",
             self._config[CONF_DEVICE_PATH],
             exc,
         )
-
-        if self._uart is not None:
-            self._uart.close()
-            self._uart = None
 
         if self._app is not None:
             self._app.connection_lost(exc)
 
     def close(self):
+        self._app = None
+
         if self._uart is not None:
             self._uart.close()
             self._uart = None
@@ -634,7 +632,3 @@ class Deconz:
     def __getitem__(self, key):
         """Access parameters via getitem."""
         return self.read_parameter(key)
-
-    def __setitem__(self, key, value):
-        """Set parameters via setitem."""
-        return asyncio.create_task(self.write_parameter(key, value))

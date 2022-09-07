@@ -559,18 +559,6 @@ async def test_aps_data_req_deserialize_error(api, uart_gw, status, caplog):
     assert api._data_indication is False
 
 
-async def test_set_item(api):
-    """Test item setter."""
-
-    with patch.object(api, "write_parameter", new=AsyncMock()) as write_mock:
-        api["test"] = sentinel.test_param
-        for i in range(10):
-            await asyncio.sleep(0)
-        assert write_mock.await_count == 1
-        assert write_mock.call_args[0][0] == "test"
-        assert write_mock.call_args[0][1] is sentinel.test_param
-
-
 @pytest.mark.parametrize("relays", (None, [], [0x1234, 0x5678]))
 async def test_aps_data_request_relays(relays, api):
     mock_cmd = api._command = AsyncMock()
@@ -593,10 +581,8 @@ async def test_aps_data_request_relays(relays, api):
 
 async def test_connection_lost(api):
     app = api._app = MagicMock()
-    uart = api._uart = MagicMock()
 
     err = RuntimeError()
     api.connection_lost(err)
 
     app.connection_lost.assert_called_once_with(err)
-    uart.close.assert_called_once()

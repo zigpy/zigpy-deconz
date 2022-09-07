@@ -33,13 +33,7 @@ class Gateway(asyncio.Protocol):
         """Port was closed expectedly or unexpectedly."""
 
         if exc is not None:
-            LOGGER.error("Lost serial connection: %s", exc)
-
-        if self._connected_future and not self._connected_future.done():
-            if exc is None:
-                self._connected_future.set_result(True)
-            else:
-                self._connected_future.set_exception(exc)
+            LOGGER.warning("Lost connection: %r", exc, exc_info=exc)
 
         self._api.connection_lost(exc)
 
