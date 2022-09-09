@@ -1,5 +1,6 @@
 """Tests for the uart module."""
 
+import logging
 from unittest import mock
 
 import pytest
@@ -16,7 +17,6 @@ def gw():
     return gw
 
 
-@pytest.mark.asyncio
 async def test_connect(monkeypatch):
     api = mock.MagicMock()
 
@@ -84,6 +84,20 @@ def test_data_received_wrong_checksum(gw):
     assert gw._api.data_received.call_count == 0
 
 
+def test_data_received_error(gw, caplog):
+    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xFF\xC0"
+
+    gw._api.data_received.side_effect = [RuntimeError("error")]
+
+    with caplog.at_level(logging.ERROR):
+        gw.data_received(data)
+
+    assert "RuntimeError" in caplog.text and "handling the frame" in caplog.text
+
+    assert gw._api.data_received.call_count == 1
+    assert gw._api.data_received.call_args[0][0] == data[:-3]
+
+
 def test_unescape(gw):
     data = b"\x00\xDB\xDC\x00\xDB\xDD\x00\x00\x00"
     data_unescaped = b"\x00\xC0\x00\xDB\x00\x00\x00"
@@ -122,4 +136,4 @@ def test_connection_lost_exc(gw):
 def test_connection_closed(gw):
     gw.connection_lost(None)
 
-    assert gw._api.connection_lost.call_count == 0
+    assert gw._api.connection_lost.call_count == 1

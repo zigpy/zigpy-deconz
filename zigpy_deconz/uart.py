@@ -32,16 +32,9 @@ class Gateway(asyncio.Protocol):
     def connection_lost(self, exc) -> None:
         """Port was closed expectedly or unexpectedly."""
 
-        if self._connected_future and not self._connected_future.done():
-            if exc is None:
-                self._connected_future.set_result(True)
-            else:
-                self._connected_future.set_exception(exc)
-        if exc is None:
-            LOGGER.debug("Closed serial connection")
-            return
+        if exc is not None:
+            LOGGER.warning("Lost connection: %r", exc, exc_info=exc)
 
-        LOGGER.error("Lost serial connection: %s", exc)
         self._api.connection_lost(exc)
 
     def connection_made(self, transport):
@@ -49,7 +42,7 @@ class Gateway(asyncio.Protocol):
 
         LOGGER.debug("Connection made")
         self._transport = transport
-        if self._connected_future:
+        if self._connected_future and not self._connected_future.done():
             self._connected_future.set_result(True)
 
     def close(self):
@@ -132,16 +125,16 @@ class Gateway(asyncio.Protocol):
         return bytes(ret)
 
 
-async def connect(config: Dict[str, str], api: Callable, loop=None) -> Gateway:
-    if loop is None:
-        loop = asyncio.get_event_loop()
-
-    connected_future = asyncio.Future()
+async def connect(config: Dict[str, str], api: Callable) -> Gateway:
+    loop = asyncio.get_running_loop()
+    connected_future = loop.create_future()
     protocol = Gateway(api, connected_future)
 
+    LOGGER.debug("Connecting to %s", config[CONF_DEVICE_PATH])
+
     _, protocol = await serial_asyncio.create_serial_connection(
-        loop,
-        lambda: protocol,
+        loop=loop,
+        protocol_factory=lambda: protocol,
         url=config[CONF_DEVICE_PATH],
         baudrate=DECONZ_BAUDRATE,
         parity=serial.PARITY_NONE,
@@ -150,5 +143,7 @@ async def connect(config: Dict[str, str], api: Callable, loop=None) -> Gateway:
     )
 
     await connected_future
+
+    LOGGER.debug("Connected to to %s", config[CONF_DEVICE_PATH])
 
     return protocol

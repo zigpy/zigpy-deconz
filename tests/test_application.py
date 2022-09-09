@@ -414,12 +414,16 @@ async def test_connect(app):
 
 
 async def test_disconnect(app):
-    app._reset_watchdog_task = MagicMock()
-    app._api.close = MagicMock()
+    reset_watchdog_task = app._reset_watchdog_task = MagicMock()
+    api_close = app._api.close = MagicMock()
 
     await app.disconnect()
-    assert app._api.close.call_count == 1
-    assert app._reset_watchdog_task.cancel.call_count == 1
+
+    assert app._api is None
+    assert app._reset_watchdog_task is None
+
+    assert api_close.call_count == 1
+    assert reset_watchdog_task.cancel.call_count == 1
 
 
 async def test_disconnect_no_api(app):
@@ -798,21 +802,23 @@ ENDPOINT = zdo_t.SimpleDescriptor(
 @pytest.mark.parametrize(
     "descriptor, slots, target_slot",
     [
-        (ENDPOINT.replace(endpoint=1), {0: ENDPOINT.replace(endpoint=2), 1: None}, 1),
+        (ENDPOINT.replace(endpoint=1), {0: ENDPOINT.replace(endpoint=2)}, 0),
         # Prefer the endpoint with the same ID
         (
             ENDPOINT.replace(endpoint=1),
-            {0: ENDPOINT.replace(endpoint=1, profile=1234), 1: None},
-            0,
+            {
+                0: ENDPOINT.replace(endpoint=2, profile=1234),
+                1: ENDPOINT.replace(endpoint=1, profile=1234),
+            },
+            1,
         ),
     ],
 )
 async def test_add_endpoint(app, descriptor, slots, target_slot):
     async def read_param(param_id, index):
         assert param_id == deconz_api.NetworkParameter.configure_endpoint
-        assert index in (0x00, 0x01)
 
-        if slots[index] is None:
+        if index not in slots:
             raise zigpy_deconz.exception.CommandError(
                 deconz_api.Status.UNSUPPORTED, "Unsupported"
             )
@@ -821,14 +827,6 @@ async def test_add_endpoint(app, descriptor, slots, target_slot):
 
     app._api.read_parameter = AsyncMock(side_effect=read_param)
     app._api.write_parameter = AsyncMock()
-
-    if target_slot is None:
-        with pytest.raises(ValueError):
-            await app.add_endpoint(descriptor)
-
-        app._api.write_parameter.assert_not_called()
-
-        return
 
     await app.add_endpoint(descriptor)
     app._api.write_parameter.assert_called_once_with(
@@ -859,7 +857,11 @@ async def test_add_endpoint_no_free_space(app):
 async def test_add_endpoint_no_unnecessary_writes(app):
     async def read_param(param_id, index):
         assert param_id == deconz_api.NetworkParameter.configure_endpoint
-        assert index in (0x00, 0x01)
+
+        if index > 0x01:
+            raise zigpy_deconz.exception.CommandError(
+                deconz_api.Status.UNSUPPORTED, "Unsupported"
+            )
 
         return index, ENDPOINT.replace(endpoint=1)
 
@@ -874,3 +876,32 @@ async def test_add_endpoint_no_unnecessary_writes(app):
     app._api.write_parameter.assert_called_once_with(
         deconz_api.NetworkParameter.configure_endpoint, 1, ENDPOINT.replace(endpoint=2)
     )
+
+
+@patch("zigpy_deconz.zigbee.application.asyncio.sleep", new_callable=AsyncMock)
+@patch(
+    "zigpy_deconz.zigbee.application.ControllerApplication.initialize",
+    side_effect=[RuntimeError(), None],
+)
+@patch(
+    "zigpy_deconz.zigbee.application.ControllerApplication.connect",
+    side_effect=[RuntimeError(), None, None],
+)
+async def test_reconnect(mock_connect, mock_initialize, mock_sleep, app):
+    assert app._reconnect_task is None
+    app.connection_lost(RuntimeError())
+
+    assert app._reconnect_task is not None
+    await app._reconnect_task
+
+    assert mock_connect.call_count == 3
+    assert mock_initialize.call_count == 2
+
+
+async def test_disconnect_during_reconnect(app):
+    assert app._reconnect_task is None
+    app.connection_lost(RuntimeError())
+    await asyncio.sleep(0)
+    await app.disconnect()
+
+    assert app._reconnect_task is None
