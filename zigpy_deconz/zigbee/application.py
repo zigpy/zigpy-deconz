@@ -421,7 +421,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         LOGGER.debug("Sending packet: %r", packet)
 
         dst_addr_ep = t.DeconzAddressEndpoint()
-        dst_addr_ep.endpoint = t.uint8_t(packet.dst_ep)
+        dst_addr_ep.endpoint = t.uint8_t(packet.dst_ep or 0)
         dst_addr_ep.address = packet.dst.address
 
         if packet.dst.addr_mode == zigpy.types.AddrMode.IEEE:
