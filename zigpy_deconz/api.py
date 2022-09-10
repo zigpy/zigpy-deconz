@@ -364,7 +364,8 @@ class Deconz:
                     "Duplicate or delayed response for 0x:%02x sequence", seq
                 )
 
-        getattr(self, "_handle_%s" % (command.name,))(data)
+        LOGGER.debug("Received command %s%r", command.name, data)
+        getattr(self, f"_handle_{command.name}")(data)
 
     add_neighbour = functools.partialmethod(_command, Command.add_neighbour, 12)
     device_state = functools.partialmethod(_command, Command.device_state, 0, 0, 0)
