@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import re
-import time
 from typing import Any
 
 import zigpy.application
@@ -31,13 +29,7 @@ from zigpy_deconz.api import (
     Status,
     TXStatus,
 )
-from zigpy_deconz.config import (
-    CONF_DECONZ_CONFIG,
-    CONF_MAX_CONCURRENT_REQUESTS,
-    CONF_WATCHDOG_TTL,
-    CONFIG_SCHEMA,
-    SCHEMA_DEVICE,
-)
+from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA, SCHEMA_DEVICE
 import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
@@ -62,10 +54,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._api = None
 
         self._pending = zigpy.util.Requests()
-        self._concurrent_requests_semaphore = asyncio.Semaphore(
-            self._config[CONF_DECONZ_CONFIG][CONF_MAX_CONCURRENT_REQUESTS]
-        )
-        self._currently_waiting_requests = 0
 
         self.version = 0
         self._reset_watchdog_task = None
@@ -384,38 +372,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._api.write_parameter(
             NetworkParameter.configure_endpoint, target_index, descriptor
         )
-
-    @contextlib.asynccontextmanager
-    async def _limit_concurrency(self):
-        """Async context manager to prevent devices from being overwhelmed by requests.
-
-        Mainly a thin wrapper around `asyncio.Semaphore` that logs when it has to wait.
-        """
-
-        start_time = time.time()
-        was_locked = self._concurrent_requests_semaphore.locked()
-
-        if was_locked:
-            self._currently_waiting_requests += 1
-            LOGGER.debug(
-                "Max concurrency (%s) reached, delaying requests (%s enqueued)",
-                self._config[CONF_DECONZ_CONFIG][CONF_MAX_CONCURRENT_REQUESTS],
-                self._currently_waiting_requests,
-            )
-
-        try:
-            async with self._concurrent_requests_semaphore:
-                if was_locked:
-                    LOGGER.debug(
-                        "Previously delayed request is now running, "
-                        "delayed by %0.2f seconds",
-                        time.time() - start_time,
-                    )
-
-                yield
-        finally:
-            if was_locked:
-                self._currently_waiting_requests -= 1
 
     async def send_packet(self, packet):
         LOGGER.debug("Sending packet: %r", packet)
