@@ -450,7 +450,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 ),
                 dst_ep=dst_ep,
                 tsn=None,
-                profile=profile_id,
+                profile_id=profile_id,
                 cluster_id=cluster_id,
                 data=data,
                 lqi=lqi,
