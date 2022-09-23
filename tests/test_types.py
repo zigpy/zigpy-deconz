@@ -13,7 +13,7 @@ def test_deconz_address_group():
 
     addr, rest = t.DeconzAddress.deserialize(data + extra)
     assert rest == extra
-    assert addr.address_mode == t.ADDRESS_MODE.GROUP
+    assert addr.address_mode == t.AddressMode.GROUP
     assert addr.address_mode == 1
     assert addr.address == 0xAA55
 
@@ -26,7 +26,7 @@ def test_deconz_address_nwk():
 
     addr, rest = t.DeconzAddress.deserialize(data + extra)
     assert rest == extra
-    assert addr.address_mode == t.ADDRESS_MODE.NWK
+    assert addr.address_mode == t.AddressMode.NWK
     assert addr.address_mode == 2
     assert addr.address == 0xAA55
 
@@ -39,7 +39,7 @@ def test_deconz_address_ieee():
 
     addr, rest = t.DeconzAddress.deserialize(data + extra)
     assert rest == extra
-    assert addr.address_mode == t.ADDRESS_MODE.IEEE
+    assert addr.address_mode == t.AddressMode.IEEE
     assert addr.address_mode == 3
     assert addr.address[0] == 0x55
     assert addr.address[1] == 0xAA
@@ -59,7 +59,7 @@ def test_deconz_address_nwk_and_ieee():
 
     addr, rest = t.DeconzAddress.deserialize(data + extra)
     assert rest == extra
-    assert addr.address_mode == t.ADDRESS_MODE.NWK_AND_IEEE
+    assert addr.address_mode == t.AddressMode.NWK_AND_IEEE
     assert addr.address_mode == 4
     assert addr.ieee[0] == 0x88
     assert addr.ieee[1] == 0x99
@@ -218,7 +218,7 @@ def test_addr_ep_nwk():
 
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.NWK
+    assert r.address_mode == t.AddressMode.NWK
     assert r.address == 0x55AA
     assert r.endpoint == 0xCC
 
@@ -229,7 +229,7 @@ def test_addr_ep_ieee():
 
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.IEEE
+    assert r.address_mode == t.AddressMode.IEEE
     assert repr(r.address) == "31:32:33:34:35:36:37:38"
     assert r.endpoint == 0xCC
 
@@ -240,7 +240,7 @@ def test_deconz_addr_ep():
 
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.GROUP
+    assert r.address_mode == t.AddressMode.GROUP
     assert r.address == 0x55AA
     assert r.serialize() == data
     a = t.DeconzAddressEndpoint()
@@ -251,7 +251,7 @@ def test_deconz_addr_ep():
     data = b"\x02\xaa\x55\xcc"
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.NWK
+    assert r.address_mode == t.AddressMode.NWK
     assert r.address == 0x55AA
     assert r.endpoint == 0xCC
     assert r.serialize() == data
@@ -266,7 +266,7 @@ def test_deconz_addr_ep():
     data = b"\x03\x31\x32\x33\x34\x35\x36\x37\x38\xcc"
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.IEEE
+    assert r.address_mode == t.AddressMode.IEEE
     assert r.address == [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]
     assert r.endpoint == 0xCC
     assert r.serialize() == data

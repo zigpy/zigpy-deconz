@@ -12,7 +12,6 @@ import zigpy.zdo.types as zdo_t
 
 from zigpy_deconz import types as t
 import zigpy_deconz.api as deconz_api
-from zigpy_deconz.config import CONF_DECONZ_CONFIG, CONF_MAX_CONCURRENT_REQUESTS
 import zigpy_deconz.exception
 import zigpy_deconz.zigbee.application as application
 
@@ -25,7 +24,6 @@ ZIGPY_NWK_CONFIG = {
         zigpy.config.CONF_NWK_UPDATE_ID: 22,
         zigpy.config.CONF_NWK_KEY: [0xAA] * 16,
     },
-    CONF_DECONZ_CONFIG: {CONF_MAX_CONCURRENT_REQUESTS: 20},
 }
 
 
@@ -91,7 +89,7 @@ def nwk():
 @pytest.fixture
 def addr_ieee(ieee):
     addr = t.DeconzAddress()
-    addr.address_mode = t.ADDRESS_MODE.IEEE
+    addr.address_mode = t.AddressMode.IEEE
     addr.address = ieee
     return addr
 
@@ -99,7 +97,7 @@ def addr_ieee(ieee):
 @pytest.fixture
 def addr_nwk(nwk):
     addr = t.DeconzAddress()
-    addr.address_mode = t.ADDRESS_MODE.NWK
+    addr.address_mode = t.AddressMode.NWK
     addr.address = nwk
     return addr
 
@@ -107,7 +105,7 @@ def addr_nwk(nwk):
 @pytest.fixture
 def addr_nwk_and_ieee(nwk, ieee):
     addr = t.DeconzAddress()
-    addr.address_mode = t.ADDRESS_MODE.NWK_AND_IEEE
+    addr.address_mode = t.AddressMode.NWK_AND_IEEE
     addr.address = nwk
     addr.ieee = ieee
     return addr

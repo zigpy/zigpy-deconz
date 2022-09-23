@@ -149,7 +149,7 @@ def _fake_args(arg_type):
         return list(arg_type)[0]  # Pick the first enum value
     elif issubclass(arg_type, t.DeconzAddressEndpoint):
         addr = t.DeconzAddressEndpoint()
-        addr.address_mode = t.ADDRESS_MODE.NWK
+        addr.address_mode = t.AddressMode.NWK
         addr.address = t.uint8_t(0)
         addr.endpoint = t.uint8_t(0)
         return addr

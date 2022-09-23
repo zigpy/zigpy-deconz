@@ -376,23 +376,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def send_packet(self, packet):
         LOGGER.debug("Sending packet: %r", packet)
 
-        dst_addr_ep = t.DeconzAddressEndpoint()
-        dst_addr_ep.endpoint = t.uint8_t(packet.dst_ep or 0)
-        dst_addr_ep.address = packet.dst.address
-
-        if packet.dst.addr_mode == zigpy.types.AddrMode.IEEE:
-            dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.IEEE)
-        elif packet.dst.addr_mode in (
-            zigpy.types.AddrMode.NWK,
-            zigpy.types.AddrMode.Broadcast,
-        ):
-            dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK)
-        elif packet.dst.addr_mode == zigpy.types.AddrMode.Group:
-            dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.GROUP)
-
         tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
 
-        if zigpy.types.TransmitOptions.ACK in packet.tx_options:
+        if (
+            zigpy.types.TransmitOptions.ACK in packet.tx_options
+            and packet.dst.addr_mode
+            in (zigpy.types.AddrMode.NWK, zigpy.types.AddrMode.IEEE)
+        ):
             tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
 
         async with self._limit_concurrency():
@@ -401,14 +391,17 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             with self._pending.new(req_id) as req:
                 try:
                     await self._api.aps_data_request(
-                        req_id,
-                        dst_addr_ep,
-                        packet.profile_id,
-                        packet.cluster_id,
-                        min(1, packet.src_ep),
-                        packet.data.serialize(),
+                        req_id=req_id,
+                        dst_addr_ep=t.DeconzAddressEndpoint.from_zigpy_type(
+                            packet.dst, packet.dst_ep or 0
+                        ),
+                        profile=packet.profile_id,
+                        cluster=packet.cluster_id,
+                        src_ep=min(1, packet.src_ep),
+                        aps_payload=packet.data.serialize(),
                         tx_options=tx_options,
                         relays=packet.source_route,
+                        radius=packet.radius or 0,
                     )
                 except zigpy_deconz.exception.CommandError as ex:
                     raise zigpy.exceptions.DeliveryError(
@@ -423,36 +416,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                     )
 
     def handle_rx(
-        self, src_addr, src_ep, dst_ep, profile_id, cluster_id, data, lqi, rssi
+        self, src, src_ep, dst, dst_ep, profile_id, cluster_id, data, lqi, rssi
     ):
-        if src_addr.address_mode == t.ADDRESS_MODE.NWK_AND_IEEE:
-            src = zigpy.types.AddrModeAddress(
-                addr_mode=zigpy.types.AddrMode.IEEE,
-                address=src_addr.ieee,
-            )
-        elif src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
-            src = zigpy.types.AddrModeAddress(
-                addr_mode=zigpy.types.AddrMode.NWK,
-                address=src_addr.address,
-            )
-        elif src_addr.address_mode == t.ADDRESS_MODE.IEEE.value:
-            src = zigpy.types.AddrModeAddress(
-                addr_mode=zigpy.types.AddrMode.IEEE,
-                address=src_addr.address,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported address mode in handle_rx: {src_addr.address_mode}"
-            )
-
         self.packet_received(
             zigpy.types.ZigbeePacket(
-                src=src,
+                src=src.as_zigpy_type(),
                 src_ep=src_ep,
-                dst=zigpy.types.AddrModeAddress(
-                    addr_mode=zigpy.types.AddrMode.NWK,
-                    address=self.state.node_info.nwk,
-                ),
+                dst=dst.as_zigpy_type(),
                 dst_ep=dst_ep,
                 tsn=None,
                 profile_id=profile_id,
