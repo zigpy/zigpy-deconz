@@ -390,20 +390,25 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         elif packet.dst.addr_mode == zigpy.types.AddrMode.Group:
             dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.GROUP)
 
-        req_id = self.get_sequence()
         tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
 
+        if zigpy.types.TransmitOptions.ACK in packet.tx_options:
+            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
+
         async with self._limit_concurrency():
+            req_id = self.get_sequence()
+
             with self._pending.new(req_id) as req:
                 try:
                     await self._api.aps_data_request(
                         req_id,
                         dst_addr_ep,
-                        packet.profile,
+                        packet.profile_id,
                         packet.cluster_id,
                         min(1, packet.src_ep),
-                        packet.data,
+                        packet.data.serialize(),
                         tx_options=tx_options,
+                        relays=packet.source_route,
                     )
                 except zigpy_deconz.exception.CommandError as ex:
                     raise zigpy.exceptions.DeliveryError(
@@ -452,7 +457,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 tsn=None,
                 profile_id=profile_id,
                 cluster_id=cluster_id,
-                data=data,
+                data=zigpy.types.SerializableBytes(data),
                 lqi=lqi,
                 rssi=rssi,
             )
