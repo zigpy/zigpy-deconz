@@ -586,3 +586,53 @@ async def test_connection_lost(api):
     api.connection_lost(err)
 
     app.connection_lost.assert_called_once_with(err)
+
+
+async def test_aps_data_indication(api):
+    dst = t.DeconzAddress()
+    dst.address_mode = t.AddressMode.NWK
+    dst.address = 0x0000
+
+    src = t.DeconzAddress()
+    src.address_mode = t.AddressMode.NWK
+    src.address = 0xC643
+
+    data = b"\x18\x1f\x01\x04\x00\x00B\x12Third Reality, Inc\x05\x00\x00B\t3RSP019BZ"
+
+    packet = [
+        63,
+        (deconz_api.DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE | 2),
+        dst,
+        1,
+        src,
+        1,
+        260,
+        0,
+        data,
+        0,
+        175,
+        255,
+        186,
+        25,
+        78,
+        3,
+        -47,
+    ]
+
+    api._handle_aps_data_indication(packet)
+
+    api._app.handle_rx.assert_called_once_with(
+        src=src,
+        src_ep=1,
+        dst=dst,
+        dst_ep=1,
+        profile_id=260,
+        cluster_id=0x0000,
+        data=data,
+        lqi=255,
+        rssi=-47,
+    )
+
+    # No error is thrown when the app is disconnected
+    api._app = None
+    api._handle_aps_data_indication(packet)

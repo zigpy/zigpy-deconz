@@ -110,7 +110,10 @@ class TXStatus(t.uint8_t, enum.Enum):
 TX_COMMANDS = {
     Command.add_neighbour: (t.uint16_t, t.uint8_t, t.NWK, t.EUI64, t.uint8_t),
     Command.aps_data_confirm: (t.uint16_t,),
-    Command.aps_data_indication: (t.DataIndicationFlags,),
+    Command.aps_data_indication: (
+        t.uint16_t,
+        t.DataIndicationFlags,
+    ),
     Command.aps_data_request: (
         t.uint16_t,
         t.uint8_t,
@@ -501,13 +504,13 @@ class Deconz:
             return
 
         self._app.handle_rx(
-            src=data[2],
-            src_ep=data[3],
-            dst=data[4],
-            dst_ep=data[5],
+            src=data[4],
+            src_ep=data[5],
+            dst=data[2],
+            dst_ep=data[3],
             profile_id=data[6],
             cluster_id=data[7],
-            payload=data[8],
+            data=data[8],
             lqi=data[11],
             rssi=data[16],
         )
