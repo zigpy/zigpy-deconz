@@ -197,6 +197,13 @@ class Struct:
             setattr(r, field_name, v)
         return r, data
 
+    def __eq__(self, other):
+        """Check equality between structs."""
+        if not isinstance(other, type(self)):
+            return NotImplemented
+
+        return all(getattr(self, n) == getattr(other, n) for n, _ in self._fields)
+
     def __repr__(self):
         """Instance representation."""
         r = "<%s " % (self.__class__.__name__,)
@@ -310,11 +317,27 @@ ZIGPY_ADDR_MODE_MAPPING = {
 }
 
 
+ZIGPY_ADDR_TYPE_MAPPING = {
+    zigpy_t.AddrMode.NWK: NWK,
+    zigpy_t.AddrMode.IEEE: EUI64,
+    zigpy_t.AddrMode.Group: GroupId,
+    zigpy_t.AddrMode.Broadcast: NWK,
+}
+
+
 ZIGPY_ADDR_MODE_REVERSE_MAPPING = {
     AddressMode.NWK: zigpy_t.AddrMode.NWK,
     AddressMode.IEEE: zigpy_t.AddrMode.IEEE,
     AddressMode.GROUP: zigpy_t.AddrMode.Group,
     AddressMode.NWK_AND_IEEE: zigpy_t.AddrMode.IEEE,
+}
+
+
+ZIGPY_ADDR_TYPE_REVERSE_MAPPING = {
+    AddressMode.NWK: zigpy_t.NWK,
+    AddressMode.IEEE: zigpy_t.EUI64,
+    AddressMode.GROUP: zigpy_t.Group,
+    AddressMode.NWK_AND_IEEE: zigpy_t.NWK,
 }
 
 
@@ -346,13 +369,13 @@ class DeconzAddress(Struct):
 
     def as_zigpy_type(self):
         addr_mode = ZIGPY_ADDR_MODE_REVERSE_MAPPING[self.address_mode]
-        address = self.address
+        address = ZIGPY_ADDR_TYPE_REVERSE_MAPPING[self.address_mode](self.address)
 
         if self.address_mode == AddressMode.NWK and self.address > 0xFFF7:
             addr_mode = zigpy_t.AddrMode.Broadcast
             address = zigpy_t.BroadcastAddress(self.address)
         elif self.address_mode == AddressMode.NWK_AND_IEEE:
-            address = self.ieee
+            address = zigpy_t.EUI64(self.ieee)
 
         return zigpy_t.AddrModeAddress(
             addr_mode=addr_mode,
@@ -363,7 +386,7 @@ class DeconzAddress(Struct):
     def from_zigpy_type(cls, addr):
         instance = cls()
         instance.address_mode = ZIGPY_ADDR_MODE_MAPPING[addr.addr_mode]
-        instance.address = addr.address
+        instance.address = ZIGPY_ADDR_TYPE_MAPPING[addr.addr_mode](addr.address)
 
         return instance
 
@@ -378,24 +401,13 @@ class DeconzAddressEndpoint(Struct):
 
     @classmethod
     def deserialize(cls, data):
-        r = cls()
+        r, data = DeconzAddress.deserialize.__func__(cls, data)
 
-        mode, data = AddressMode.deserialize(data)
-        r.address_mode = mode
-
-        if mode == AddressMode.GROUP:
-            r.address, data = GroupId.deserialize(data)
-        elif mode in (AddressMode.NWK, AddressMode.NWK_AND_IEEE):
-            r.address, data = NWK.deserialize(data)
-        elif mode == AddressMode.IEEE:
-            r.address, data = EUI64.deserialize(data)
-
-        if mode == AddressMode.NWK_AND_IEEE:
-            r.ieee, data = NWK.deserialize(data)
-        else:
-            r.ieee = None
-
-        if mode in (AddressMode.NWK, AddressMode.IEEE, AddressMode.NWK_AND_IEEE):
+        if r.address_mode in (
+            AddressMode.NWK,
+            AddressMode.IEEE,
+            AddressMode.NWK_AND_IEEE,
+        ):
             r.endpoint, data = uint8_t.deserialize(data)
         else:
             r.endpoint = None
@@ -404,6 +416,7 @@ class DeconzAddressEndpoint(Struct):
 
     def serialize(self):
         r = uint8_t(self.address_mode).serialize()
+
         if self.address_mode in (AddressMode.NWK, AddressMode.NWK_AND_IEEE):
             r += NWK(self.address).serialize()
         elif self.address_mode == AddressMode.GROUP:

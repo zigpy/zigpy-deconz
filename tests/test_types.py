@@ -3,6 +3,7 @@
 from unittest import mock
 
 import pytest
+import zigpy.types as zigpy_t
 
 import zigpy_deconz.types as t
 
@@ -19,6 +20,14 @@ def test_deconz_address_group():
 
     assert addr.serialize() == data
 
+    zigpy_addr = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.Group, address=0xAA55
+    )
+    assert addr.as_zigpy_type() == zigpy_addr
+
+    converted_addr = t.DeconzAddress.from_zigpy_type(zigpy_addr)
+    assert converted_addr == addr
+
 
 def test_deconz_address_nwk():
     data = b"\x02\x55\xaa"
@@ -31,6 +40,34 @@ def test_deconz_address_nwk():
     assert addr.address == 0xAA55
 
     assert addr.serialize() == data
+
+    zigpy_addr = zigpy_t.AddrModeAddress(addr_mode=zigpy_t.AddrMode.NWK, address=0xAA55)
+    assert addr.as_zigpy_type() == zigpy_addr
+
+    converted_addr = t.DeconzAddress.from_zigpy_type(zigpy_addr)
+    assert converted_addr == addr
+
+
+def test_deconz_address_nwk_broadcast():
+    data = b"\x02\xfc\xff"
+    extra = b"the rest of the owl"
+
+    addr, rest = t.DeconzAddress.deserialize(data + extra)
+    assert rest == extra
+    assert addr.address_mode == t.AddressMode.NWK
+    assert addr.address_mode == 2
+    assert addr.address == 0xFFFC
+
+    assert addr.serialize() == data
+
+    zigpy_addr = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.Broadcast,
+        address=zigpy_t.BroadcastAddress.ALL_ROUTERS_AND_COORDINATOR,
+    )
+    assert addr.as_zigpy_type() == zigpy_addr
+
+    converted_addr = t.DeconzAddress.from_zigpy_type(zigpy_addr)
+    assert converted_addr == addr
 
 
 def test_deconz_address_ieee():
@@ -52,6 +89,15 @@ def test_deconz_address_ieee():
 
     assert addr.serialize() == data
 
+    zigpy_addr = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.IEEE,
+        address=zigpy_t.EUI64.convert("BE:EF:EE:DD:CC:BB:AA:55"),
+    )
+    assert addr.as_zigpy_type() == zigpy_addr
+
+    converted_addr = t.DeconzAddress.from_zigpy_type(zigpy_addr)
+    assert converted_addr == addr
+
 
 def test_deconz_address_nwk_and_ieee():
     data = b"\x04\x55\xaa\x88\x99\xbb\xcc\xdd\xee\xef\xbe"
@@ -72,6 +118,12 @@ def test_deconz_address_nwk_and_ieee():
     assert addr.address == 0xAA55
 
     assert addr.serialize() == data
+
+    zigpy_addr = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.IEEE,
+        address=zigpy_t.EUI64.convert("BE:EF:EE:DD:CC:BB:99:88"),
+    )
+    assert addr.as_zigpy_type() == zigpy_addr
 
 
 def test_pan_id():
@@ -124,6 +176,8 @@ def test_struct():
     ts2 = TestStruct(ts)
     assert ts2.a == ts.a
     assert ts2.b == ts.b
+    assert ts == ts2
+    assert ts != 123
 
     r = repr(ts)
     assert "TestStruct" in r
