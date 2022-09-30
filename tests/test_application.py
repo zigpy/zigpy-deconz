@@ -561,3 +561,10 @@ async def test_disconnect_during_reconnect(app):
     await app.disconnect()
 
     assert app._reconnect_task is None
+
+
+async def test_reset_network_info(app):
+    app.form_network = AsyncMock()
+    await app.reset_network_info()
+
+    app.form_network.assert_called_once()

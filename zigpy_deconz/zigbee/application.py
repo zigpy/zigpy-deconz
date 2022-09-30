@@ -148,6 +148,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if target_state == NetworkState.CONNECTED:
             self._reset_watchdog_task = asyncio.create_task(self._reset_watchdog())
 
+    async def reset_network_info(self):
+        # TODO: There does not appear to be a way to factory reset a Conbee
+        await self.form_network()
+
     async def write_network_info(self, *, network_info, node_info):
         try:
             await self._api.write_parameter(
