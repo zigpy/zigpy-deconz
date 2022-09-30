@@ -9,7 +9,6 @@ import functools
 import logging
 from typing import Any, Callable, Optional
 
-import serial
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
 from zigpy.types import APSStatus, Bool, Channels
@@ -393,7 +392,7 @@ class Deconz:
         try:
             await asyncio.wait_for(api._probe(), timeout=PROBE_TIMEOUT)
             return True
-        except (asyncio.TimeoutError, serial.SerialException, APIException) as exc:
+        except Exception as exc:
             LOGGER.debug(
                 "Unsuccessful radio probe of '%s' port",
                 device_config[CONF_DEVICE_PATH],
