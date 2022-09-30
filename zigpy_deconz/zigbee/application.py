@@ -156,7 +156,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
             LOGGER.warning(
-                "Writing network frame counter is not supported with this firmware"
+                "Writing the network frame counter is not supported with this firmware,"
+                " please update your Conbee"
             )
 
         if node_info.logical_type == zdo_t.LogicalType.Coordinator:
