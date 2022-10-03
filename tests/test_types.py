@@ -3,6 +3,7 @@
 from unittest import mock
 
 import pytest
+import zigpy.types as zigpy_t
 
 import zigpy_deconz.types as t
 
@@ -13,11 +14,19 @@ def test_deconz_address_group():
 
     addr, rest = t.DeconzAddress.deserialize(data + extra)
     assert rest == extra
-    assert addr.address_mode == t.ADDRESS_MODE.GROUP
+    assert addr.address_mode == t.AddressMode.GROUP
     assert addr.address_mode == 1
     assert addr.address == 0xAA55
 
     assert addr.serialize() == data
+
+    zigpy_addr = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.Group, address=0xAA55
+    )
+    assert addr.as_zigpy_type() == zigpy_addr
+
+    converted_addr = t.DeconzAddress.from_zigpy_type(zigpy_addr)
+    assert converted_addr == addr
 
 
 def test_deconz_address_nwk():
@@ -26,11 +35,39 @@ def test_deconz_address_nwk():
 
     addr, rest = t.DeconzAddress.deserialize(data + extra)
     assert rest == extra
-    assert addr.address_mode == t.ADDRESS_MODE.NWK
+    assert addr.address_mode == t.AddressMode.NWK
     assert addr.address_mode == 2
     assert addr.address == 0xAA55
 
     assert addr.serialize() == data
+
+    zigpy_addr = zigpy_t.AddrModeAddress(addr_mode=zigpy_t.AddrMode.NWK, address=0xAA55)
+    assert addr.as_zigpy_type() == zigpy_addr
+
+    converted_addr = t.DeconzAddress.from_zigpy_type(zigpy_addr)
+    assert converted_addr == addr
+
+
+def test_deconz_address_nwk_broadcast():
+    data = b"\x02\xfc\xff"
+    extra = b"the rest of the owl"
+
+    addr, rest = t.DeconzAddress.deserialize(data + extra)
+    assert rest == extra
+    assert addr.address_mode == t.AddressMode.NWK
+    assert addr.address_mode == 2
+    assert addr.address == 0xFFFC
+
+    assert addr.serialize() == data
+
+    zigpy_addr = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.Broadcast,
+        address=zigpy_t.BroadcastAddress.ALL_ROUTERS_AND_COORDINATOR,
+    )
+    assert addr.as_zigpy_type() == zigpy_addr
+
+    converted_addr = t.DeconzAddress.from_zigpy_type(zigpy_addr)
+    assert converted_addr == addr
 
 
 def test_deconz_address_ieee():
@@ -39,7 +76,7 @@ def test_deconz_address_ieee():
 
     addr, rest = t.DeconzAddress.deserialize(data + extra)
     assert rest == extra
-    assert addr.address_mode == t.ADDRESS_MODE.IEEE
+    assert addr.address_mode == t.AddressMode.IEEE
     assert addr.address_mode == 3
     assert addr.address[0] == 0x55
     assert addr.address[1] == 0xAA
@@ -52,6 +89,15 @@ def test_deconz_address_ieee():
 
     assert addr.serialize() == data
 
+    zigpy_addr = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.IEEE,
+        address=zigpy_t.EUI64.convert("BE:EF:EE:DD:CC:BB:AA:55"),
+    )
+    assert addr.as_zigpy_type() == zigpy_addr
+
+    converted_addr = t.DeconzAddress.from_zigpy_type(zigpy_addr)
+    assert converted_addr == addr
+
 
 def test_deconz_address_nwk_and_ieee():
     data = b"\x04\x55\xaa\x88\x99\xbb\xcc\xdd\xee\xef\xbe"
@@ -59,7 +105,7 @@ def test_deconz_address_nwk_and_ieee():
 
     addr, rest = t.DeconzAddress.deserialize(data + extra)
     assert rest == extra
-    assert addr.address_mode == t.ADDRESS_MODE.NWK_AND_IEEE
+    assert addr.address_mode == t.AddressMode.NWK_AND_IEEE
     assert addr.address_mode == 4
     assert addr.ieee[0] == 0x88
     assert addr.ieee[1] == 0x99
@@ -72,6 +118,12 @@ def test_deconz_address_nwk_and_ieee():
     assert addr.address == 0xAA55
 
     assert addr.serialize() == data
+
+    zigpy_addr = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.IEEE,
+        address=zigpy_t.EUI64.convert("BE:EF:EE:DD:CC:BB:99:88"),
+    )
+    assert addr.as_zigpy_type() == zigpy_addr
 
 
 def test_pan_id():
@@ -124,6 +176,8 @@ def test_struct():
     ts2 = TestStruct(ts)
     assert ts2.a == ts.a
     assert ts2.b == ts.b
+    assert ts == ts2
+    assert ts != 123
 
     r = repr(ts)
     assert "TestStruct" in r
@@ -218,7 +272,7 @@ def test_addr_ep_nwk():
 
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.NWK
+    assert r.address_mode == t.AddressMode.NWK
     assert r.address == 0x55AA
     assert r.endpoint == 0xCC
 
@@ -229,7 +283,7 @@ def test_addr_ep_ieee():
 
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.IEEE
+    assert r.address_mode == t.AddressMode.IEEE
     assert repr(r.address) == "31:32:33:34:35:36:37:38"
     assert r.endpoint == 0xCC
 
@@ -240,7 +294,7 @@ def test_deconz_addr_ep():
 
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.GROUP
+    assert r.address_mode == t.AddressMode.GROUP
     assert r.address == 0x55AA
     assert r.serialize() == data
     a = t.DeconzAddressEndpoint()
@@ -251,7 +305,7 @@ def test_deconz_addr_ep():
     data = b"\x02\xaa\x55\xcc"
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.NWK
+    assert r.address_mode == t.AddressMode.NWK
     assert r.address == 0x55AA
     assert r.endpoint == 0xCC
     assert r.serialize() == data
@@ -266,7 +320,7 @@ def test_deconz_addr_ep():
     data = b"\x03\x31\x32\x33\x34\x35\x36\x37\x38\xcc"
     r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
     assert rest == extra
-    assert r.address_mode == t.ADDRESS_MODE.IEEE
+    assert r.address_mode == t.AddressMode.IEEE
     assert r.address == [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]
     assert r.endpoint == 0xCC
     assert r.serialize() == data

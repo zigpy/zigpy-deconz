@@ -4,8 +4,8 @@ import logging
 from unittest import mock
 
 import pytest
-import serial_asyncio
 from zigpy.config import CONF_DEVICE_PATH
+import zigpy.serial
 
 from zigpy_deconz import uart
 
@@ -25,7 +25,7 @@ async def test_connect(monkeypatch):
         loop.call_soon(protocol.connection_made, None)
         return None, protocol
 
-    monkeypatch.setattr(serial_asyncio, "create_serial_connection", mock_conn)
+    monkeypatch.setattr(zigpy.serial, "create_serial_connection", mock_conn)
 
     await uart.connect({CONF_DEVICE_PATH: "/dev/null"}, api)
 

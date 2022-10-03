@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import binascii
-import contextlib
 import logging
 import re
-import time
 from typing import Any
 
 import zigpy.application
@@ -30,14 +27,9 @@ from zigpy_deconz.api import (
     NetworkState,
     SecurityMode,
     Status,
+    TXStatus,
 )
-from zigpy_deconz.config import (
-    CONF_DECONZ_CONFIG,
-    CONF_MAX_CONCURRENT_REQUESTS,
-    CONF_WATCHDOG_TTL,
-    CONFIG_SCHEMA,
-    SCHEMA_DEVICE,
-)
+from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA, SCHEMA_DEVICE
 import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
@@ -62,10 +54,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._api = None
 
         self._pending = zigpy.util.Requests()
-        self._concurrent_requests_semaphore = asyncio.Semaphore(
-            self._config[CONF_DECONZ_CONFIG][CONF_MAX_CONCURRENT_REQUESTS]
-        )
-        self._currently_waiting_requests = 0
 
         self.version = 0
         self._reset_watchdog_task = None
@@ -160,6 +148,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if target_state == NetworkState.CONNECTED:
             self._reset_watchdog_task = asyncio.create_task(self._reset_watchdog())
 
+    async def reset_network_info(self):
+        # TODO: There does not appear to be a way to factory reset a Conbee
+        await self.form_network()
+
     async def write_network_info(self, *, network_info, node_info):
         try:
             await self._api.write_parameter(
@@ -168,7 +160,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
             LOGGER.warning(
-                "Writing network frame counter is not supported with this firmware"
+                "Writing the network frame counter is not supported with this firmware,"
+                " please update your Conbee"
             )
 
         if node_info.logical_type == zdo_t.LogicalType.Coordinator:
@@ -385,224 +378,69 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             NetworkParameter.configure_endpoint, target_index, descriptor
         )
 
-    @contextlib.asynccontextmanager
-    async def _limit_concurrency(self):
-        """Async context manager to prevent devices from being overwhelmed by requests.
-
-        Mainly a thin wrapper around `asyncio.Semaphore` that logs when it has to wait.
-        """
-
-        start_time = time.time()
-        was_locked = self._concurrent_requests_semaphore.locked()
-
-        if was_locked:
-            self._currently_waiting_requests += 1
-            LOGGER.debug(
-                "Max concurrency (%s) reached, delaying requests (%s enqueued)",
-                self._config[CONF_DECONZ_CONFIG][CONF_MAX_CONCURRENT_REQUESTS],
-                self._currently_waiting_requests,
-            )
-
-        try:
-            async with self._concurrent_requests_semaphore:
-                if was_locked:
-                    LOGGER.debug(
-                        "Previously delayed request is now running, "
-                        "delayed by %0.2f seconds",
-                        time.time() - start_time,
-                    )
-
-                yield
-        finally:
-            if was_locked:
-                self._currently_waiting_requests -= 1
-
-    async def mrequest(
-        self,
-        group_id,
-        profile,
-        cluster,
-        src_ep,
-        sequence,
-        data,
-        *,
-        hops=0,
-        non_member_radius=3,
-    ):
-        """Submit and send data out as a multicast transmission.
-
-        :param group_id: destination multicast address
-        :param profile: Zigbee Profile ID to use for outgoing message
-        :param cluster: cluster id where the message is being sent
-        :param src_ep: source endpoint id
-        :param sequence: transaction sequence number of the message
-        :param data: Zigbee message payload
-        :param hops: the message will be delivered to all nodes within this number of
-                     hops of the sender. A value of zero is converted to MAX_HOPS
-        :param non_member_radius: the number of hops that the message will be forwarded
-                                  by devices that are not members of the group. A value
-                                  of 7 or greater is treated as infinite
-        :returns: return a tuple of a status and an error_message. Original requestor
-                  has more context to provide a more meaningful error message
-        """
-        req_id = self.get_sequence()
-        LOGGER.debug(
-            "Sending Zigbee multicast with tsn %s under %s request id, data: %s",
-            sequence,
-            req_id,
-            binascii.hexlify(data),
-        )
-        dst_addr_ep = t.DeconzAddressEndpoint()
-        dst_addr_ep.address_mode = t.ADDRESS_MODE.GROUP
-        dst_addr_ep.address = group_id
-
-        async with self._limit_concurrency():
-            with self._pending.new(req_id) as req:
-                try:
-                    await self._api.aps_data_request(
-                        req_id, dst_addr_ep, profile, cluster, min(1, src_ep), data
-                    )
-                except zigpy_deconz.exception.CommandError as ex:
-                    return ex.status, f"Couldn't enqueue send data request: {ex!r}"
-
-                r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
-                if r:
-                    LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
-                    return r, f"message send failure: {r}"
-
-            return Status.SUCCESS, "message send success"
-
-    @zigpy.util.retryable_request
-    async def request(
-        self,
-        device,
-        profile,
-        cluster,
-        src_ep,
-        dst_ep,
-        sequence,
-        data,
-        expect_reply=True,
-        use_ieee=False,
-    ):
-        req_id = self.get_sequence()
-        LOGGER.debug(
-            "Sending Zigbee request with tsn %s under %s request id, data: %s",
-            sequence,
-            req_id,
-            binascii.hexlify(data),
-        )
-        dst_addr_ep = t.DeconzAddressEndpoint()
-        dst_addr_ep.endpoint = t.uint8_t(dst_ep)
-        if use_ieee:
-            dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.IEEE)
-            dst_addr_ep.address = device.ieee
-        else:
-            dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK)
-            dst_addr_ep.address = device.nwk
+    async def send_packet(self, packet):
+        LOGGER.debug("Sending packet: %r", packet)
 
         tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
 
+        if (
+            zigpy.types.TransmitOptions.ACK in packet.tx_options
+            and packet.dst.addr_mode
+            in (zigpy.types.AddrMode.NWK, zigpy.types.AddrMode.IEEE)
+        ):
+            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
+
         async with self._limit_concurrency():
+            req_id = self.get_sequence()
+
             with self._pending.new(req_id) as req:
                 try:
                     await self._api.aps_data_request(
-                        req_id,
-                        dst_addr_ep,
-                        profile,
-                        cluster,
-                        min(1, src_ep),
-                        data,
+                        req_id=req_id,
+                        dst_addr_ep=t.DeconzAddressEndpoint.from_zigpy_type(
+                            packet.dst, packet.dst_ep or 0
+                        ),
+                        profile=packet.profile_id,
+                        cluster=packet.cluster_id,
+                        src_ep=min(1, packet.src_ep),
+                        aps_payload=packet.data.serialize(),
                         tx_options=tx_options,
+                        relays=packet.source_route,
+                        radius=packet.radius or 0,
                     )
                 except zigpy_deconz.exception.CommandError as ex:
-                    return ex.status, f"Couldn't enqueue send data request: {ex!r}"
+                    raise zigpy.exceptions.DeliveryError(
+                        f"Failed to enqueue packet: {ex!r}", ex.status
+                    )
 
-                r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
+                status = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
 
-                if r:
-                    LOGGER.debug("Error while sending %s req id frame: %s", req_id, r)
-                    return r, "message send failure"
+                if status != TXStatus.SUCCESS:
+                    raise zigpy.exceptions.DeliveryError(
+                        f"Failed to deliver packet: {status!r}", status
+                    )
 
-                return r, "message send success"
-
-    async def broadcast(
-        self,
-        profile,
-        cluster,
-        src_ep,
-        dst_ep,
-        grpid,
-        radius,
-        sequence,
-        data,
-        broadcast_address=zigpy.types.BroadcastAddress.RX_ON_WHEN_IDLE,
+    def handle_rx(
+        self, src, src_ep, dst, dst_ep, profile_id, cluster_id, data, lqi, rssi
     ):
-        req_id = self.get_sequence()
-        LOGGER.debug(
-            "Sending Zigbee broadcast with tsn %s under %s request id, data: %s",
-            sequence,
-            req_id,
-            binascii.hexlify(data),
+        self.packet_received(
+            zigpy.types.ZigbeePacket(
+                src=src.as_zigpy_type(),
+                src_ep=src_ep,
+                dst=dst.as_zigpy_type(),
+                dst_ep=dst_ep,
+                tsn=None,
+                profile_id=profile_id,
+                cluster_id=cluster_id,
+                data=zigpy.types.SerializableBytes(data),
+                lqi=lqi,
+                rssi=rssi,
+            )
         )
-        dst_addr_ep = t.DeconzAddressEndpoint()
-        dst_addr_ep.address_mode = t.uint8_t(t.ADDRESS_MODE.NWK.value)
-        dst_addr_ep.address = t.uint16_t(broadcast_address)
-        dst_addr_ep.endpoint = dst_ep
-
-        async with self._limit_concurrency():
-            with self._pending.new(req_id) as req:
-                try:
-                    await self._api.aps_data_request(
-                        req_id, dst_addr_ep, profile, cluster, min(1, src_ep), data
-                    )
-                except zigpy_deconz.exception.CommandError as ex:
-                    return (
-                        ex.status,
-                        f"Couldn't enqueue send data request for broadcast: {ex!r}",
-                    )
-
-                r = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
-
-                if r:
-                    LOGGER.debug(
-                        "Error while sending %s req id broadcast: %s", req_id, r
-                    )
-                    return r, f"broadcast send failure: {r}"
-                return r, "broadcast send success"
 
     async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
         await self._api.write_parameter(NetworkParameter.permit_join, time_s)
-
-    def handle_rx(
-        self, src_addr, src_ep, dst_ep, profile_id, cluster_id, data, lqi, rssi
-    ):
-        # intercept ZDO device announce frames
-        if dst_ep == 0 and cluster_id == 0x13:
-            nwk, rest = t.uint16_t.deserialize(data[1:])
-            ieee, _ = zigpy.types.EUI64.deserialize(rest)
-            LOGGER.info("New device joined: 0x%04x, %s", nwk, ieee)
-            self.handle_join(nwk, ieee, 0)
-
-        try:
-            if src_addr.address_mode == t.ADDRESS_MODE.NWK_AND_IEEE:
-                device = self.get_device(ieee=src_addr.ieee)
-            elif src_addr.address_mode == t.ADDRESS_MODE.NWK.value:
-                device = self.get_device(nwk=src_addr.address)
-            elif src_addr.address_mode == t.ADDRESS_MODE.IEEE.value:
-                device = self.get_device(ieee=src_addr.address)
-            else:
-                raise Exception(
-                    "Unsupported address mode in handle_rx: %s"
-                    % (src_addr.address_mode)
-                )
-        except KeyError:
-            LOGGER.debug("Received frame from unknown device: 0x%04x", src_addr.address)
-            return
-
-        device.radio_details(lqi, rssi)
-        self.handle_message(device, profile_id, cluster_id, src_ep, dst_ep, data)
 
     def handle_tx_confirm(self, req_id, status):
         try:

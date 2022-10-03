@@ -5,9 +5,8 @@ import binascii
 import logging
 from typing import Callable, Dict
 
-import serial
-import serial_asyncio
 from zigpy.config import CONF_DEVICE_PATH
+import zigpy.serial
 
 LOGGER = logging.getLogger(__name__)
 
@@ -132,18 +131,16 @@ async def connect(config: Dict[str, str], api: Callable) -> Gateway:
 
     LOGGER.debug("Connecting to %s", config[CONF_DEVICE_PATH])
 
-    _, protocol = await serial_asyncio.create_serial_connection(
+    _, protocol = await zigpy.serial.create_serial_connection(
         loop=loop,
         protocol_factory=lambda: protocol,
         url=config[CONF_DEVICE_PATH],
         baudrate=DECONZ_BAUDRATE,
-        parity=serial.PARITY_NONE,
-        stopbits=serial.STOPBITS_ONE,
         xonxoff=False,
     )
 
     await connected_future
 
-    LOGGER.debug("Connected to to %s", config[CONF_DEVICE_PATH])
+    LOGGER.debug("Connected to %s", config[CONF_DEVICE_PATH])
 
     return protocol

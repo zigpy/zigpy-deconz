@@ -9,7 +9,6 @@ import functools
 import logging
 from typing import Any, Callable, Optional
 
-import serial
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
 from zigpy.types import APSStatus, Bool, Channels
@@ -24,6 +23,7 @@ LOGGER = logging.getLogger(__name__)
 COMMAND_TIMEOUT = 1.8
 PROBE_TIMEOUT = 2
 MIN_PROTO_VERSION = 0x010B
+REQUEST_RETRY_DELAYS = (0.5, 1.0, 1.5, None)
 
 
 class Status(t.uint8_t, enum.Enum):
@@ -109,7 +109,10 @@ class TXStatus(t.uint8_t, enum.Enum):
 TX_COMMANDS = {
     Command.add_neighbour: (t.uint16_t, t.uint8_t, t.NWK, t.EUI64, t.uint8_t),
     Command.aps_data_confirm: (t.uint16_t,),
-    Command.aps_data_indication: (t.uint16_t, t.uint8_t),
+    Command.aps_data_indication: (
+        t.uint16_t,
+        t.DataIndicationFlags,
+    ),
     Command.aps_data_request: (
         t.uint16_t,
         t.uint8_t,
@@ -238,7 +241,9 @@ class Deconz:
     def __init__(self, app: Callable, device_config: dict[str, Any]):
         """Init instance."""
         self._app = app
-        self._aps_data_ind_flags: int = 0x01
+        self._aps_data_ind_flags: t.DataIndicationFlags = (
+            t.DataIndicationFlags.Always_Use_NWK_Source_Addr
+        )
         self._awaiting = {}
         self._command_lock = asyncio.Lock()
         self._config = device_config
@@ -364,7 +369,8 @@ class Deconz:
                     "Duplicate or delayed response for 0x:%02x sequence", seq
                 )
 
-        getattr(self, "_handle_%s" % (command.name,))(data)
+        LOGGER.debug("Received command %s%r", command.name, data)
+        getattr(self, f"_handle_{command.name}")(data)
 
     add_neighbour = functools.partialmethod(_command, Command.add_neighbour, 12)
     device_state = functools.partialmethod(_command, Command.device_state, 0, 0, 0)
@@ -386,7 +392,7 @@ class Deconz:
         try:
             await asyncio.wait_for(api._probe(), timeout=PROBE_TIMEOUT)
             return True
-        except (asyncio.TimeoutError, serial.SerialException, APIException) as exc:
+        except Exception as exc:
             LOGGER.debug(
                 "Unsuccessful radio probe of '%s' port",
                 device_config[CONF_DEVICE_PATH],
@@ -456,7 +462,7 @@ class Deconz:
             self.protocol_version >= MIN_PROTO_VERSION
             and (self.firmware_version & 0x0000FF00) == 0x00000500
         ):
-            self._aps_data_ind_flags = 0x04
+            self._aps_data_ind_flags = t.DataIndicationFlags.Include_Both_NWK_And_IEEE
         return self.firmware_version
 
     def _handle_version(self, data):
@@ -492,17 +498,21 @@ class Deconz:
         LOGGER.debug("APS data indication response: %s", data)
         self._data_indication = False
         self._handle_device_state_value(data[1])
-        if self._app:
-            self._app.handle_rx(
-                data[4],  # src_addr
-                data[5],  # src_ep
-                data[3],  # dst_ep
-                data[6],  # profile_id
-                data[7],  # cluster_id
-                data[8],  # APS payload
-                data[11],  # lqi
-                data[16],
-            )  # rssi
+
+        if not self._app:
+            return
+
+        self._app.handle_rx(
+            src=data[4],
+            src_ep=data[5],
+            dst=data[2],
+            dst_ep=data[3],
+            profile_id=data[6],
+            cluster_id=data[7],
+            data=data[8],
+            lqi=data[11],
+            rssi=data[16],
+        )
 
     async def aps_data_request(
         self,
@@ -519,7 +529,6 @@ class Deconz:
     ):
         dst = dst_addr_ep.serialize()
         length = len(dst) + len(aps_payload) + 11
-        delays = (0.5, 1.0, 1.5, None)
 
         flags = t.DeconzSendDataFlags.NONE
         extras = []
@@ -528,16 +537,12 @@ class Deconz:
         if relays:
             # There is a max of 9 relays
             assert len(relays) <= 9
-
-            # APS ACKs should be used to mitigate errors.
-            tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
-
             flags |= t.DeconzSendDataFlags.RELAYS
             extras.append(t.NWKList(relays))
 
         length += sum(len(e.serialize()) for e in extras)
 
-        for delay in delays:
+        for delay in REQUEST_RETRY_DELAYS:
             try:
                 return await self._command(
                     Command.aps_data_request,
@@ -569,7 +574,7 @@ class Deconz:
         try:
             r = await self._command(Command.aps_data_confirm, 0)
             LOGGER.debug(
-                ("Request id: 0x%02x 'aps_data_confirm' for %s, " "status: 0x%02x"),
+                "Request id: 0x%02x 'aps_data_confirm' for %s, status: 0x%02x",
                 r[2],
                 r[3],
                 r[5],

@@ -4,6 +4,7 @@ import voluptuous as vol
 from zigpy.config import (  # noqa: F401 pylint: disable=unused-import
     CONF_DEVICE,
     CONF_DEVICE_PATH,
+    CONF_MAX_CONCURRENT_REQUESTS,
     CONF_NWK,
     CONF_NWK_CHANNEL,
     CONF_NWK_CHANNELS,
@@ -20,7 +21,6 @@ from zigpy.config import (  # noqa: F401 pylint: disable=unused-import
 
 CONF_DECONZ_CONFIG = "deconz_config"
 
-CONF_MAX_CONCURRENT_REQUESTS = "max_concurrent_requests"
 CONF_MAX_CONCURRENT_REQUESTS_DEFAULT = 8
 
 CONF_WATCHDOG_TTL = "watchdog_ttl"
@@ -31,13 +31,8 @@ CONFIG_SCHEMA = CONFIG_SCHEMA.extend(
         vol.Optional(CONF_WATCHDOG_TTL, default=CONF_WATCHDOG_TTL_DEFAULT): vol.All(
             int, vol.Range(min=180)
         ),
-        vol.Optional(CONF_DECONZ_CONFIG, default={}): vol.Schema(
-            {
-                vol.Optional(
-                    CONF_MAX_CONCURRENT_REQUESTS,
-                    default=CONF_MAX_CONCURRENT_REQUESTS_DEFAULT,
-                ): vol.All(int, vol.Range(min=1))
-            }
-        ),
+        vol.Optional(
+            CONF_MAX_CONCURRENT_REQUESTS, default=CONF_MAX_CONCURRENT_REQUESTS_DEFAULT
+        ): CONFIG_SCHEMA.schema[CONF_MAX_CONCURRENT_REQUESTS],
     }
 )

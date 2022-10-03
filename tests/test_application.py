@@ -12,7 +12,6 @@ import zigpy.zdo.types as zdo_t
 
 from zigpy_deconz import types as t
 import zigpy_deconz.api as deconz_api
-from zigpy_deconz.config import CONF_DECONZ_CONFIG, CONF_MAX_CONCURRENT_REQUESTS
 import zigpy_deconz.exception
 import zigpy_deconz.zigbee.application as application
 
@@ -25,7 +24,6 @@ ZIGPY_NWK_CONFIG = {
         zigpy.config.CONF_NWK_UPDATE_ID: 22,
         zigpy.config.CONF_NWK_KEY: [0xAA] * 16,
     },
-    CONF_DECONZ_CONFIG: {CONF_MAX_CONCURRENT_REQUESTS: 20},
 }
 
 
@@ -91,7 +89,7 @@ def nwk():
 @pytest.fixture
 def addr_ieee(ieee):
     addr = t.DeconzAddress()
-    addr.address_mode = t.ADDRESS_MODE.IEEE
+    addr.address_mode = t.AddressMode.IEEE
     addr.address = ieee
     return addr
 
@@ -99,7 +97,7 @@ def addr_ieee(ieee):
 @pytest.fixture
 def addr_nwk(nwk):
     addr = t.DeconzAddress()
-    addr.address_mode = t.ADDRESS_MODE.NWK
+    addr.address_mode = t.AddressMode.NWK
     addr.address = nwk
     return addr
 
@@ -107,119 +105,10 @@ def addr_nwk(nwk):
 @pytest.fixture
 def addr_nwk_and_ieee(nwk, ieee):
     addr = t.DeconzAddress()
-    addr.address_mode = t.ADDRESS_MODE.NWK_AND_IEEE
+    addr.address_mode = t.AddressMode.NWK_AND_IEEE
     addr.address = nwk
     addr.ieee = ieee
     return addr
-
-
-def _test_rx(app, addr_ieee, addr_nwk, device, data):
-    app.get_device = MagicMock(return_value=device)
-    app.devices = (EUI64(addr_ieee.address),)
-
-    app.handle_rx(
-        addr_nwk,
-        sentinel.src_ep,
-        sentinel.dst_ep,
-        sentinel.profile_id,
-        sentinel.cluster_id,
-        data,
-        sentinel.lqi,
-        sentinel.rssi,
-    )
-
-
-def test_rx(app, addr_ieee, addr_nwk):
-    device = MagicMock()
-    app.handle_message = MagicMock()
-    _test_rx(app, addr_ieee, addr_nwk, device, sentinel.args)
-    assert app.handle_message.call_count == 1
-    assert app.handle_message.call_args == (
-        (
-            device,
-            sentinel.profile_id,
-            sentinel.cluster_id,
-            sentinel.src_ep,
-            sentinel.dst_ep,
-            sentinel.args,
-        ),
-    )
-
-
-def test_rx_ieee(app, addr_ieee, addr_nwk):
-    device = MagicMock()
-    app.handle_message = MagicMock()
-    _test_rx(app, addr_ieee, addr_ieee, device, sentinel.args)
-    assert app.handle_message.call_count == 1
-    assert app.handle_message.call_args == (
-        (
-            device,
-            sentinel.profile_id,
-            sentinel.cluster_id,
-            sentinel.src_ep,
-            sentinel.dst_ep,
-            sentinel.args,
-        ),
-    )
-
-
-def test_rx_nwk_ieee(app, addr_ieee, addr_nwk_and_ieee):
-    device = MagicMock()
-    app.handle_message = MagicMock()
-    _test_rx(app, addr_ieee, addr_nwk_and_ieee, device, sentinel.args)
-    assert app.handle_message.call_count == 1
-    assert app.handle_message.call_args == (
-        (
-            device,
-            sentinel.profile_id,
-            sentinel.cluster_id,
-            sentinel.src_ep,
-            sentinel.dst_ep,
-            sentinel.args,
-        ),
-    )
-
-
-def test_rx_wrong_addr_mode(app, addr_ieee, addr_nwk, caplog):
-    device = MagicMock()
-    app.handle_message = MagicMock()
-    app.get_device = MagicMock(return_value=device)
-
-    app.devices = (EUI64(addr_ieee.address),)
-
-    with pytest.raises(Exception):  # TODO: don't use broad exceptions
-        addr_nwk.address_mode = 0x22
-        app.handle_rx(
-            addr_nwk,
-            sentinel.src_ep,
-            sentinel.dst_ep,
-            sentinel.profile_id,
-            sentinel.cluster_id,
-            b"",
-            sentinel.lqi,
-            sentinel.rssi,
-        )
-
-    assert app.handle_message.call_count == 0
-
-
-def test_rx_unknown_device(app, addr_ieee, addr_nwk, caplog):
-    app.handle_message = MagicMock()
-
-    caplog.set_level(logging.DEBUG)
-    app.handle_rx(
-        addr_nwk,
-        sentinel.src_ep,
-        sentinel.dst_ep,
-        sentinel.profile_id,
-        sentinel.cluster_id,
-        b"",
-        sentinel.lqi,
-        sentinel.rssi,
-    )
-
-    assert "Received frame from unknown device" in caplog.text
-    assert app.handle_message.call_count == 0
 
 
 @pytest.mark.parametrize(
@@ -273,128 +162,6 @@ async def test_permit(app, nwk):
     assert app._api.write_parameter.call_args_list[0][0][1] == time_s
 
 
-async def _test_request(app, *, send_success=True, aps_data_error=False, **kwargs):
-    seq = 123
-
-    async def req_mock(
-        req_id,
-        dst_addr_ep,
-        profile,
-        cluster,
-        src_ep,
-        data,
-        *,
-        relays=None,
-        tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
-        radius=0
-    ):
-        if aps_data_error:
-            raise zigpy_deconz.exception.CommandError(1, "Command Error")
-        if send_success:
-            app._pending[req_id].result.set_result(0)
-        else:
-            app._pending[req_id].result.set_result(1)
-
-    app._api.aps_data_request = MagicMock(side_effect=req_mock)
-    app._api.protocol_version = 0
-    device = zigpy.device.Device(app, sentinel.ieee, 0x1122)
-    app.get_device = MagicMock(return_value=device)
-
-    return await app.request(device, 0x0260, 1, 2, 3, seq, b"\x01\x02\x03", **kwargs)
-
-
-async def test_request_send_success(app):
-    req_id = sentinel.req_id
-    app.get_sequence = MagicMock(return_value=req_id)
-    r = await _test_request(app, send_success=True)
-    assert r[0] == 0
-
-    r = await _test_request(app, send_success=True, use_ieee=True)
-    assert r[0] == 0
-
-
-async def test_request_send_fail(app):
-    req_id = sentinel.req_id
-    app.get_sequence = MagicMock(return_value=req_id)
-    r = await _test_request(app, send_success=False)
-    assert r[0] != 0
-
-
-async def test_request_send_aps_data_error(app):
-    req_id = sentinel.req_id
-    app.get_sequence = MagicMock(return_value=req_id)
-    r = await _test_request(app, send_success=False, aps_data_error=True)
-    assert r[0] != 0
-
-
-async def _test_broadcast(app, send_success=True, aps_data_error=False, **kwargs):
-    seq = sentinel.req_id
-
-    async def req_mock(req_id, dst_addr_ep, profile, cluster, src_ep, data):
-        if aps_data_error:
-            raise zigpy_deconz.exception.CommandError(1, "Command Error")
-        if send_success:
-            app._pending[req_id].result.set_result(0)
-        else:
-            app._pending[req_id].result.set_result(1)
-
-    app._api.aps_data_request = MagicMock(side_effect=req_mock)
-    app.get_device = MagicMock(spec_set=zigpy.device.Device)
-
-    r = await app.broadcast(
-        sentinel.profile,
-        sentinel.cluster,
-        2,
-        sentinel.dst_ep,
-        sentinel.grp_id,
-        sentinel.radius,
-        seq,
-        b"\x01\x02\x03",
-        **kwargs
-    )
-    assert app._api.aps_data_request.call_count == 1
-    assert app._api.aps_data_request.call_args[0][0] is seq
-    assert app._api.aps_data_request.call_args[0][2] is sentinel.profile
-    assert app._api.aps_data_request.call_args[0][3] is sentinel.cluster
-    assert app._api.aps_data_request.call_args[0][5] == b"\x01\x02\x03"
-    return r
-
-
-async def test_broadcast_send_success(app):
-    req_id = sentinel.req_id
-    app.get_sequence = MagicMock(return_value=req_id)
-    r = await _test_broadcast(app, True)
-    assert r[0] == 0
-
-
-async def test_broadcast_send_fail(app):
-    req_id = sentinel.req_id
-    app.get_sequence = MagicMock(return_value=req_id)
-    r = await _test_broadcast(app, False)
-    assert r[0] != 0
-
-
-async def test_broadcast_send_aps_data_error(app):
-    req_id = sentinel.req_id
-    app.get_sequence = MagicMock(return_value=req_id)
-    r = await _test_broadcast(app, False, aps_data_error=True)
-    assert r[0] != 0
-
-
-def _handle_reply(app, tsn):
-    app.handle_message = MagicMock()
-    return app._handle_reply(
-        sentinel.device,
-        sentinel.profile,
-        sentinel.cluster,
-        sentinel.src_ep,
-        sentinel.dst_ep,
-        tsn,
-        sentinel.command_id,
-        sentinel.args,
-    )
-
-
 async def test_connect(app):
     def new_api(*args):
         api = MagicMock()
@@ -441,40 +208,6 @@ async def test_disconnect_close_error(app):
 async def test_permit_with_key_not_implemented(app):
     with pytest.raises(NotImplementedError):
         await app.permit_with_key(node=MagicMock(), code=b"abcdef")
-
-
-def test_rx_device_annce(app, addr_ieee, addr_nwk):
-    dst_ep = 0
-    cluster_id = zdo_t.ZDOCmd.Device_annce
-    device = MagicMock()
-    device.status = zigpy.device.Status.NEW
-    app.get_device = MagicMock(return_value=device)
-
-    app.handle_join = MagicMock()
-    app._handle_reply = MagicMock()
-    app.handle_message = MagicMock()
-
-    data = t.uint8_t(0xAA).serialize()
-    data += addr_nwk.address.serialize()
-    data += addr_ieee.address.serialize()
-    data += t.uint8_t(0x8E).serialize()
-
-    app.handle_rx(
-        addr_nwk,
-        sentinel.src_ep,
-        dst_ep,
-        sentinel.profile_id,
-        cluster_id,
-        data,
-        sentinel.lqi,
-        sentinel.rssi,
-    )
-
-    assert app.handle_message.call_count == 1
-    assert app.handle_join.call_count == 1
-    assert app.handle_join.call_args[0][0] == addr_nwk.address
-    assert app.handle_join.call_args[0][1] == addr_ieee.address
-    assert app.handle_join.call_args[0][2] == 0
 
 
 async def test_deconz_dev_add_to_group(app, nwk, device_path):
@@ -582,41 +315,6 @@ def test_tx_confirm_unexpcted(app, caplog):
     assert "Unexpected transmit confirm for request id" in caplog.text
 
 
-async def _test_mrequest(app, send_success=True, aps_data_error=False, **kwargs):
-    seq = 123
-    req_id = sentinel.req_id
-    app.get_sequence = MagicMock(return_value=req_id)
-
-    async def req_mock(req_id, dst_addr_ep, profile, cluster, src_ep, data):
-        if aps_data_error:
-            raise zigpy_deconz.exception.CommandError(1, "Command Error")
-        if send_success:
-            app._pending[req_id].result.set_result(0)
-        else:
-            app._pending[req_id].result.set_result(1)
-
-    app._api.aps_data_request = MagicMock(side_effect=req_mock)
-    device = zigpy.device.Device(app, sentinel.ieee, 0x1122)
-    app.get_device = MagicMock(return_value=device)
-
-    return await app.mrequest(0x55AA, 0x0260, 1, 2, seq, b"\x01\x02\x03", **kwargs)
-
-
-async def test_mrequest_send_success(app):
-    r = await _test_mrequest(app, True)
-    assert r[0] == 0
-
-
-async def test_mrequest_send_fail(app):
-    r = await _test_mrequest(app, False)
-    assert r[0] != 0
-
-
-async def test_mrequest_send_aps_data_error(app):
-    r = await _test_mrequest(app, False, aps_data_error=True)
-    assert r[0] != 0
-
-
 async def test_reset_watchdog(app):
     """Test watchdog."""
     with patch.object(app._api, "write_parameter") as mock_api:
@@ -712,48 +410,6 @@ async def test_delayed_scan():
     with patch.object(app, "get_device", return_value=coord):
         await app._delayed_neighbour_scan()
     assert coord.neighbors.scan.await_count == 1
-
-
-async def test_request_concurrency(app):
-    """Test the request concurrency limit."""
-    max_concurrency = 0
-    num_concurrent = 0
-
-    async def req_mock(
-        req_id,
-        dst_addr_ep,
-        profile,
-        cluster,
-        src_ep,
-        data,
-        *,
-        relays=None,
-        tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
-        radius=0
-    ):
-        nonlocal num_concurrent, max_concurrency
-
-        num_concurrent += 1
-        max_concurrency = max(num_concurrent, max_concurrency)
-
-        try:
-            await asyncio.sleep(0.01)
-            app._pending[req_id].result.set_result(0)
-        finally:
-            num_concurrent -= 1
-
-    app._api.aps_data_request = MagicMock(side_effect=req_mock)
-    app._api.protocol_version = 0
-    device = zigpy.device.Device(app, sentinel.ieee, 0x1122)
-    app.get_device = MagicMock(return_value=device)
-
-    requests = [
-        app.request(device, 0x0260, 1, 2, 3, seq, b"\x01\x02\x03") for seq in range(100)
-    ]
-
-    await asyncio.gather(*requests)
-
-    assert max_concurrency == 20
 
 
 @patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_WAIT", 0.001)
@@ -905,3 +561,10 @@ async def test_disconnect_during_reconnect(app):
     await app.disconnect()
 
     assert app._reconnect_task is None
+
+
+async def test_reset_network_info(app):
+    app.form_network = AsyncMock()
+    await app.reset_network_info()
+
+    app.form_network.assert_called_once()
