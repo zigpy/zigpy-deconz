@@ -2,6 +2,8 @@
 
 import enum
 
+import zigpy.types as zigpy_t
+
 
 def deserialize(data, schema):
     result = []
@@ -117,7 +119,7 @@ class uint64_t(uint_t):
     _size = 8
 
 
-class ADDRESS_MODE(uint8_t, enum.Enum):
+class AddressMode(uint8_t, enum.Enum):
     # Address modes used in deconz protocol
 
     GROUP = 0x01
@@ -194,6 +196,13 @@ class Struct:
             v, data = field_type.deserialize(data)
             setattr(r, field_name, v)
         return r, data
+
+    def __eq__(self, other):
+        """Check equality between structs."""
+        if not isinstance(other, type(self)):
+            return NotImplemented
+
+        return all(getattr(self, n) == getattr(other, n) for n, _ in self._fields)
 
     def __repr__(self):
         """Instance representation."""
@@ -300,72 +309,149 @@ class NWKList(LVList):
     _itemtype = NWK
 
 
+ZIGPY_ADDR_MODE_MAPPING = {
+    zigpy_t.AddrMode.NWK: AddressMode.NWK,
+    zigpy_t.AddrMode.IEEE: AddressMode.IEEE,
+    zigpy_t.AddrMode.Group: AddressMode.GROUP,
+    zigpy_t.AddrMode.Broadcast: AddressMode.NWK,
+}
+
+
+ZIGPY_ADDR_TYPE_MAPPING = {
+    zigpy_t.AddrMode.NWK: NWK,
+    zigpy_t.AddrMode.IEEE: EUI64,
+    zigpy_t.AddrMode.Group: GroupId,
+    zigpy_t.AddrMode.Broadcast: NWK,
+}
+
+
+ZIGPY_ADDR_MODE_REVERSE_MAPPING = {
+    AddressMode.NWK: zigpy_t.AddrMode.NWK,
+    AddressMode.IEEE: zigpy_t.AddrMode.IEEE,
+    AddressMode.GROUP: zigpy_t.AddrMode.Group,
+    AddressMode.NWK_AND_IEEE: zigpy_t.AddrMode.IEEE,
+}
+
+
+ZIGPY_ADDR_TYPE_REVERSE_MAPPING = {
+    AddressMode.NWK: zigpy_t.NWK,
+    AddressMode.IEEE: zigpy_t.EUI64,
+    AddressMode.GROUP: zigpy_t.Group,
+    AddressMode.NWK_AND_IEEE: zigpy_t.NWK,
+}
+
+
 class DeconzAddress(Struct):
     _fields = [
         # The address format (AddressMode)
-        ("address_mode", ADDRESS_MODE),
+        ("address_mode", AddressMode),
         ("address", EUI64),
     ]
 
     @classmethod
     def deserialize(cls, data):
         r = cls()
-        mode, data = ADDRESS_MODE.deserialize(data)
+        mode, data = AddressMode.deserialize(data)
         r.address_mode = mode
-        if mode in [ADDRESS_MODE.GROUP, ADDRESS_MODE.NWK, ADDRESS_MODE.NWK_AND_IEEE]:
+        if mode in [AddressMode.GROUP, AddressMode.NWK, AddressMode.NWK_AND_IEEE]:
             r.address, data = NWK.deserialize(data)
-        elif mode == ADDRESS_MODE.IEEE:
+        elif mode == AddressMode.IEEE:
             r.address, data = EUI64.deserialize(data)
-        if mode == ADDRESS_MODE.NWK_AND_IEEE:
+        if mode == AddressMode.NWK_AND_IEEE:
             r.ieee, data = EUI64.deserialize(data)
         return r, data
 
     def serialize(self):
         r = super().serialize()
-        if self.address_mode == ADDRESS_MODE.NWK_AND_IEEE:
+        if self.address_mode == AddressMode.NWK_AND_IEEE:
             r += self.ieee.serialize()
         return r
+
+    def as_zigpy_type(self):
+        addr_mode = ZIGPY_ADDR_MODE_REVERSE_MAPPING[self.address_mode]
+        address = ZIGPY_ADDR_TYPE_REVERSE_MAPPING[self.address_mode](self.address)
+
+        if self.address_mode == AddressMode.NWK and self.address > 0xFFF7:
+            addr_mode = zigpy_t.AddrMode.Broadcast
+            address = zigpy_t.BroadcastAddress(self.address)
+        elif self.address_mode == AddressMode.NWK_AND_IEEE:
+            address = zigpy_t.EUI64(self.ieee)
+
+        return zigpy_t.AddrModeAddress(
+            addr_mode=addr_mode,
+            address=address,
+        )
+
+    @classmethod
+    def from_zigpy_type(cls, addr):
+        instance = cls()
+        instance.address_mode = ZIGPY_ADDR_MODE_MAPPING[addr.addr_mode]
+        instance.address = ZIGPY_ADDR_TYPE_MAPPING[addr.addr_mode](addr.address)
+
+        return instance
 
 
 class DeconzAddressEndpoint(Struct):
     _fields = [
         # The address format (AddressMode)
-        ("address_mode", ADDRESS_MODE),
+        ("address_mode", AddressMode),
         ("address", EUI64),
         ("endpoint", uint8_t),
     ]
 
     @classmethod
     def deserialize(cls, data):
-        r = cls()
-        mode, data = ADDRESS_MODE.deserialize(data)
-        r.address_mode = mode
-        a = e = None
-        if mode == ADDRESS_MODE.GROUP:
-            a, data = GroupId.deserialize(data)
-        elif mode == ADDRESS_MODE.NWK:
-            a, data = NWK.deserialize(data)
-        elif mode == ADDRESS_MODE.IEEE:
-            a, data = EUI64.deserialize(data)
-        setattr(r, cls._fields[1][0], a)
-        if mode in [ADDRESS_MODE.NWK, ADDRESS_MODE.IEEE]:
-            e, data = uint8_t.deserialize(data)
-        setattr(r, cls._fields[2][0], e)
+        r, data = DeconzAddress.deserialize.__func__(cls, data)
+
+        if r.address_mode in (
+            AddressMode.NWK,
+            AddressMode.IEEE,
+            AddressMode.NWK_AND_IEEE,
+        ):
+            r.endpoint, data = uint8_t.deserialize(data)
+        else:
+            r.endpoint = None
+
         return r, data
 
     def serialize(self):
         r = uint8_t(self.address_mode).serialize()
-        if self.address_mode == ADDRESS_MODE.NWK:
+
+        if self.address_mode in (AddressMode.NWK, AddressMode.NWK_AND_IEEE):
             r += NWK(self.address).serialize()
-        elif self.address_mode == ADDRESS_MODE.GROUP:
+        elif self.address_mode == AddressMode.GROUP:
             r += GroupId(self.address).serialize()
-        elif self.address_mode == ADDRESS_MODE.IEEE:
+
+        if self.address_mode in (AddressMode.IEEE, AddressMode.NWK_AND_IEEE):
             r += EUI64(self.address).serialize()
-        if self.address_mode in (ADDRESS_MODE.NWK, ADDRESS_MODE.IEEE):
+
+        if self.address_mode in (
+            AddressMode.NWK,
+            AddressMode.IEEE,
+            AddressMode.NWK_AND_IEEE,
+        ):
             r += uint8_t(self.endpoint).serialize()
+
         return r
+
+    @classmethod
+    def from_zigpy_type(cls, addr, endpoint):
+        temp_addr = DeconzAddress.from_zigpy_type(addr)
+
+        instance = cls()
+        instance.address_mode = temp_addr.address_mode
+        instance.address = temp_addr.address
+        instance.endpoint = endpoint
+
+        return instance
 
 
 class Key(FixedList):
     _itemtype = uint8_t
     _length = 16
+
+
+class DataIndicationFlags(bitmap8):
+    Always_Use_NWK_Source_Addr = 0b00000001
+    Last_Hop_In_Reserved_Bytes = 0b00000010
+    Include_Both_NWK_And_IEEE = 0b00000100

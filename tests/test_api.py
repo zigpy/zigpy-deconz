@@ -149,7 +149,7 @@ def _fake_args(arg_type):
         return list(arg_type)[0]  # Pick the first enum value
     elif issubclass(arg_type, t.DeconzAddressEndpoint):
         addr = t.DeconzAddressEndpoint()
-        addr.address_mode = t.ADDRESS_MODE.NWK
+        addr.address_mode = t.AddressMode.NWK
         addr.address = t.uint8_t(0)
         addr.endpoint = t.uint8_t(0)
         return addr
@@ -242,11 +242,34 @@ async def test_aps_data_confirm(api, monkeypatch):
 
     success = True
 
-    def mock_cmd(*args, **kwargs):
-        res = asyncio.Future()
-        if success:
-            res.set_result([7, 0x22, 0x11, sentinel.dst_addr, 1, 0x00, 0, 0, 0, 0])
-        return asyncio.wait_for(res, timeout=deconz_api.COMMAND_TIMEOUT)
+    async def mock_cmd(*args, **kwargs):
+        if not success:
+            raise asyncio.TimeoutError()
+
+        dst = t.DeconzAddressEndpoint()
+        dst.address_mode = t.AddressMode.NWK
+        dst.address = 0x26FF
+        dst.endpoint = 1
+
+        rsp = [
+            12,
+            (
+                deconz_api.DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE
+                | deconz_api.DeviceState.APSDE_DATA_INDICATION
+                | deconz_api.DeviceState.APSDE_DATA_CONFIRM
+                | 2
+            ),
+            98,
+            dst,
+            1,
+            deconz_api.TXStatus.SUCCESS,
+            0,
+            0,
+            0,
+            0,
+        ]
+        api._handle_aps_data_confirm(rsp)
+        return rsp
 
     api._command = mock_cmd
     api._data_confirm = True
@@ -586,3 +609,53 @@ async def test_connection_lost(api):
     api.connection_lost(err)
 
     app.connection_lost.assert_called_once_with(err)
+
+
+async def test_aps_data_indication(api):
+    dst = t.DeconzAddress()
+    dst.address_mode = t.AddressMode.NWK
+    dst.address = 0x0000
+
+    src = t.DeconzAddress()
+    src.address_mode = t.AddressMode.NWK
+    src.address = 0xC643
+
+    data = b"\x18\x1f\x01\x04\x00\x00B\x12Third Reality, Inc\x05\x00\x00B\t3RSP019BZ"
+
+    packet = [
+        63,
+        (deconz_api.DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE | 2),
+        dst,
+        1,
+        src,
+        1,
+        260,
+        0,
+        data,
+        0,
+        175,
+        255,
+        186,
+        25,
+        78,
+        3,
+        -47,
+    ]
+
+    api._handle_aps_data_indication(packet)
+
+    api._app.handle_rx.assert_called_once_with(
+        src=src,
+        src_ep=1,
+        dst=dst,
+        dst_ep=1,
+        profile_id=260,
+        cluster_id=0x0000,
+        data=data,
+        lqi=255,
+        rssi=-47,
+    )
+
+    # No error is thrown when the app is disconnected
+    api._app = None
+    api._handle_aps_data_indication(packet)
