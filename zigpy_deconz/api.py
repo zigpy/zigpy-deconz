@@ -574,7 +574,7 @@ class Deconz:
         try:
             r = await self._command(Command.aps_data_confirm, 0)
             LOGGER.debug(
-                ("Request id: 0x%02x 'aps_data_confirm' for %s, " "status: 0x%02x"),
+                "Request id: 0x%02x 'aps_data_confirm' for %s, status: 0x%02x",
                 r[2],
                 r[3],
                 r[5],

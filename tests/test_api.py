@@ -242,11 +242,34 @@ async def test_aps_data_confirm(api, monkeypatch):
 
     success = True
 
-    def mock_cmd(*args, **kwargs):
-        res = asyncio.Future()
-        if success:
-            res.set_result([7, 0x22, 0x11, sentinel.dst_addr, 1, 0x00, 0, 0, 0, 0])
-        return asyncio.wait_for(res, timeout=deconz_api.COMMAND_TIMEOUT)
+    async def mock_cmd(*args, **kwargs):
+        if not success:
+            raise asyncio.TimeoutError()
+
+        dst = t.DeconzAddressEndpoint()
+        dst.address_mode = t.AddressMode.NWK
+        dst.address = 0x26FF
+        dst.endpoint = 1
+
+        rsp = [
+            12,
+            (
+                deconz_api.DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE
+                | deconz_api.DeviceState.APSDE_DATA_INDICATION
+                | deconz_api.DeviceState.APSDE_DATA_CONFIRM
+                | 2
+            ),
+            98,
+            dst,
+            1,
+            deconz_api.TXStatus.SUCCESS,
+            0,
+            0,
+            0,
+            0,
+        ]
+        api._handle_aps_data_confirm(rsp)
+        return rsp
 
     api._command = mock_cmd
     api._data_confirm = True
