@@ -180,6 +180,23 @@ async def test_connect(app):
         assert app.version is sentinel.version
 
 
+async def test_connect_failure(app):
+    with patch.object(application, "Deconz") as api_mock:
+        api = api_mock.return_value = MagicMock()
+        api.connect = AsyncMock()
+        api.version = AsyncMock(side_effect=RuntimeError("Broken"))
+
+        app._api = None
+
+        with pytest.raises(RuntimeError):
+            await app.connect()
+
+        assert app._api is None
+        api.connect.assert_called_once()
+        api.version.assert_called_once()
+        api.close.assert_called_once()
+
+
 async def test_disconnect(app):
     reset_watchdog_task = app._reset_watchdog_task = MagicMock()
     api_close = app._api.close = MagicMock()
