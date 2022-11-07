@@ -76,8 +76,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def connect(self):
         api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
-        await api.connect()
-        self.version = await api.version()
+
+        try:
+            await api.connect()
+            self.version = await api.version()
+        except Exception:
+            api.close()
+            raise
+
         self._api = api
         self._written_endpoints.clear()
 
