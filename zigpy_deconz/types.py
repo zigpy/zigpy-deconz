@@ -3,6 +3,7 @@
 import enum
 
 import zigpy.types as zigpy_t
+from zigpy.types import bitmap8, bitmap16  # noqa: F401
 
 
 def deserialize(data, schema):
@@ -126,33 +127,6 @@ class AddressMode(uint8_t, enum.Enum):
     NWK = 0x02
     IEEE = 0x03
     NWK_AND_IEEE = 0x04
-
-
-def bitmap_factory(int_type: uint_t) -> enum.Flag:
-    class _NewEnum(int_type, enum.Flag):
-        # Rebind classmethods to our own class
-        _missing_ = classmethod(enum.IntFlag._missing_.__func__)
-        _create_pseudo_member_ = classmethod(
-            enum.IntFlag._create_pseudo_member_.__func__
-        )
-
-        __or__ = enum.IntFlag.__or__
-        __and__ = enum.IntFlag.__and__
-        __xor__ = enum.IntFlag.__xor__
-        __ror__ = enum.IntFlag.__ror__
-        __rand__ = enum.IntFlag.__rand__
-        __rxor__ = enum.IntFlag.__rxor__
-        __invert__ = enum.IntFlag.__invert__
-
-    return _NewEnum
-
-
-class bitmap8(bitmap_factory(uint8_t)):
-    pass
-
-
-class bitmap16(bitmap_factory(uint16_t)):
-    pass
 
 
 class DeconzSendDataFlags(bitmap8):
