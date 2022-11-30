@@ -13,7 +13,6 @@ import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
 from zigpy.exceptions import FormationFailure, NetworkNotFormed
-import zigpy.neighbor
 import zigpy.state
 import zigpy.types
 import zigpy.util
@@ -126,7 +125,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
         )
 
-        coordinator.neighbors.add_context_listener(self._dblistener)
         self.devices[self.state.node_info.ieee] = coordinator
         if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
             await self.restore_neighbours()
@@ -466,10 +464,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def restore_neighbours(self) -> None:
         """Restore children."""
         coord = self.get_device(ieee=self.state.node_info.ieee)
-        devices = (nei.device for nei in coord.neighbors)
-        for device in devices:
-            if device is None:
+
+        for neighbor in self.topology.neighbors[coord.ieee]:
+            try:
+                device = self.get_device(ieee=neighbor.ieee)
+            except KeyError:
                 continue
+
             descr = device.node_desc
             LOGGER.debug(
                 "device: 0x%04x - %s %s, FFD=%s, Rx_on_when_idle=%s",
@@ -498,7 +499,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         """Scan coordinator's neighbours."""
         await asyncio.sleep(DELAY_NEIGHBOUR_SCAN_S)
         coord = self.get_device(ieee=self.state.node_info.ieee)
-        await coord.neighbors.scan()
+        await self.topology.scan(devices=[coord])
 
     def connection_lost(self, exc: Exception) -> None:
         """Lost connection."""
@@ -584,9 +585,6 @@ class DeconzDevice(zigpy.device.Device):
             from_dev = application.get_device(ieee=ieee)
             dev.status = from_dev.status
             dev.node_desc = from_dev.node_desc
-            dev.neighbors = zigpy.neighbor.Neighbors(dev)
-            for nei in from_dev.neighbors.neighbors:
-                dev.neighbors.add_neighbor(nei.neighbor)
             for ep_id, from_ep in from_dev.endpoints.items():
                 if not ep_id:
                     continue  # Skip ZDO
