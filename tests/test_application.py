@@ -385,7 +385,9 @@ async def test_restore_neighbours(app):
     ]
 
     p = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz(None, None))
+
     with p as api_mock:
+        api_mock.add_neighbour = AsyncMock()
         await app.restore_neighbours()
 
     assert api_mock.add_neighbour.call_count == 1
