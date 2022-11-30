@@ -6,7 +6,6 @@ import logging
 import pytest
 import zigpy.config
 import zigpy.device
-import zigpy.neighbor
 from zigpy.types import EUI64
 import zigpy.zdo.types as zdo_t
 
@@ -357,52 +356,37 @@ async def test_restore_neighbours(app):
     """Test neighbour restoration."""
 
     # FFD, Rx on when idle
-    desc_1 = zdo_t.NodeDescriptor(1, 64, 142, 0xBEEF, 82, 82, 0, 82, 0)
-    device_1 = MagicMock()
-    device_1.node_desc = desc_1
-    device_1.ieee = sentinel.ieee_1
-    device_1.nwk = 0x1111
-    nei_1 = zigpy.neighbor.Neighbor(sentinel.nei_1, device_1)
+    device_1 = app.add_device(nwk=0x0001, ieee=EUI64.convert("00:00:00:00:00:00:00:01"))
+    device_1.node_desc = zdo_t.NodeDescriptor(1, 64, 142, 0xBEEF, 82, 82, 0, 82, 0)
 
     # RFD, Rx on when idle
-    desc_2 = zdo_t.NodeDescriptor(1, 64, 142, 0xBEEF, 82, 82, 0, 82, 0)
-    device_2 = MagicMock()
-    device_2.node_desc = desc_2
-    device_2.ieee = sentinel.ieee_2
-    device_2.nwk = 0x2222
-    nei_2 = zigpy.neighbor.Neighbor(sentinel.nei_2, device_2)
+    device_2 = app.add_device(nwk=0x0002, ieee=EUI64.convert("00:00:00:00:00:00:00:02"))
+    device_2.node_desc = zdo_t.NodeDescriptor(1, 64, 142, 0xBEEF, 82, 82, 0, 82, 0)
 
-    # Missing node descriptor
-    device_3 = MagicMock()
+    device_3 = app.add_device(nwk=0x0003, ieee=EUI64.convert("00:00:00:00:00:00:00:03"))
     device_3.node_desc = None
-    device_3.ieee = sentinel.ieee_3
-    device_3.nwk = 0x3333
-    nei_3 = zigpy.neighbor.Neighbor(sentinel.nei_3, device_3)
-
-    # no device
-    nei_4 = zigpy.neighbor.Neighbor(sentinel.nei_4, None)
 
     # RFD, Rx off when idle
-    desc_5 = zdo_t.NodeDescriptor(2, 64, 128, 0xBEEF, 82, 82, 0, 82, 0)
-    device_5 = MagicMock()
-    device_5.node_desc = desc_5
-    device_5.ieee = sentinel.ieee_5
-    device_5.nwk = 0x5555
-    nei_5 = zigpy.neighbor.Neighbor(sentinel.nei_5, device_5)
+    device_5 = app.add_device(nwk=0x0005, ieee=EUI64.convert("00:00:00:00:00:00:00:05"))
+    device_5.node_desc = zdo_t.NodeDescriptor(2, 64, 128, 0xBEEF, 82, 82, 0, 82, 0)
 
     coord = MagicMock()
-    coord.ieee = sentinel.coord_ieee
-    coord.nwk = 0x0000
-    neighbours = zigpy.neighbor.Neighbors(coord)
-    neighbours.neighbors.append(nei_1)
-    neighbours.neighbors.append(nei_2)
-    neighbours.neighbors.append(nei_3)
-    neighbours.neighbors.append(nei_4)
-    neighbours.neighbors.append(nei_5)
-    coord.neighbors = neighbours
+    coord.ieee = EUI64.convert("aa:aa:aa:aa:aa:aa:aa:aa")
 
-    p2 = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz(None, None))
-    with patch.object(app, "get_device", return_value=coord), p2 as api_mock:
+    app.devices[coord.ieee] = coord
+    app.state.node_info.ieee = coord.ieee
+
+    app.topology.neighbors[coord.ieee] = [
+        zdo_t.Neighbor(ieee=device_1.ieee),
+        zdo_t.Neighbor(ieee=device_2.ieee),
+        zdo_t.Neighbor(ieee=device_3.ieee),
+        zdo_t.Neighbor(ieee=EUI64.convert("00:00:00:00:00:00:00:04")),
+        zdo_t.Neighbor(ieee=device_5.ieee),
+    ]
+
+    p = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz(None, None))
+
+    with p as api_mock:
         api_mock.add_neighbour = AsyncMock()
         await app.restore_neighbours()
 
@@ -415,7 +399,6 @@ async def test_delayed_scan():
     """Delayed scan."""
 
     coord = MagicMock()
-    coord.neighbors.scan = AsyncMock()
     config = application.ControllerApplication.SCHEMA(
         {
             zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: "usb0"},
@@ -425,8 +408,9 @@ async def test_delayed_scan():
 
     app = application.ControllerApplication(config)
     with patch.object(app, "get_device", return_value=coord):
-        await app._delayed_neighbour_scan()
-    assert coord.neighbors.scan.await_count == 1
+        with patch.object(app, "topology", AsyncMock()):
+            await app._delayed_neighbour_scan()
+            app.topology.scan.assert_called_once_with(devices=[coord])
 
 
 @patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_WAIT", 0.001)
