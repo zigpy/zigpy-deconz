@@ -335,7 +335,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def energy_scan(
         self, channels: t.Channels.ALL_CHANNELS, duration_exp: int, count: int
     ) -> dict[int, float]:
-        results = await super().energy_scan(channels=channels, duration_exp=duration_exp, count=count)
+        results = await super().energy_scan(
+            channels=channels, duration_exp=duration_exp, count=count
+        )
 
         # The Conbee seems to max out at an LQI of 85, which is exactly 255/3
         return {c: v * 3 for c, v in results.items()}
