@@ -7,7 +7,7 @@ on:
 
 env:
   CACHE_VERSION: 1
-  DEFAULT_PYTHON: 3.8
+  DEFAULT_PYTHON: 3.8.16
   PRE_COMMIT_HOME: ~/.cache/pre-commit
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8.14', '3.9.15', '3.10.8', '3.11.0']
+        python-version: ['3.8.16', '3.9.15', '3.10.8', '3.11.0']
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@v2
@@ -271,7 +271,7 @@ jobs:
     needs: prepare-base
     strategy:
       matrix:
-        python-version: ['3.8.14', '3.9.15', '3.10.8', '3.11.0']
+        python-version: ['3.8.16', '3.9.15', '3.10.8', '3.11.0']
     name: >-
       Run tests Python ${{ matrix.python-version }}
     steps:
@@ -311,7 +311,7 @@ jobs:
           . venv/bin/activate
           pytest \
             -qq \
-            --timeout=9 \
+            --timeout=15 \
             --durations=10 \
             --cov zigpy_deconz \
             --cov-report=term-missing \

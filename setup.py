@@ -21,6 +21,6 @@ setup(
     author_email="schmidt.d@aon.at",
     license="GPL-3.0",
     packages=find_packages(exclude=["tests"]),
-    install_requires=["zigpy>=0.52.1"],
+    install_requires=["zigpy>=0.54.0"],
     tests_require=["pytest", "asynctest"],
 )

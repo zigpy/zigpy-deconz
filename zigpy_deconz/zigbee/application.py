@@ -111,11 +111,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def start_network(self):
         await self.register_endpoints()
         await self.load_network_info(load_devices=False)
-
-        try:
-            await self._change_network_state(NetworkState.CONNECTED)
-        except asyncio.TimeoutError as e:
-            raise FormationFailure() from e
+        await self._change_network_state(NetworkState.CONNECTED)
 
         coordinator = await DeconzDevice.new(
             self,
@@ -141,7 +137,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 await asyncio.sleep(CHANGE_NETWORK_WAIT)
 
         await self._api.change_network_state(target_state)
-        await asyncio.wait_for(change_loop(), timeout=timeout)
+
+        try:
+            await asyncio.wait_for(change_loop(), timeout=timeout)
+        except asyncio.TimeoutError:
+            if target_state != NetworkState.CONNECTED:
+                raise
+
+            raise FormationFailure(
+                "Network formation refused: there is likely too much RF interference."
+                " Make sure your coordinator is on a USB 2.0 extension cable and"
+                " away from any sources of interference, like USB 3.0 ports, SSDs,"
+                " 2.4GHz routers, motherboards, etc."
+            )
 
         if self._api.protocol_version < PROTO_VER_WATCHDOG:
             return
@@ -331,6 +339,16 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
         pass
+
+    async def energy_scan(
+        self, channels: t.Channels.ALL_CHANNELS, duration_exp: int, count: int
+    ) -> dict[int, float]:
+        results = await super().energy_scan(
+            channels=channels, duration_exp=duration_exp, count=count
+        )
+
+        # The Conbee seems to max out at an LQI of 85, which is exactly 255/3
+        return {c: v * 3 for c, v in results.items()}
 
     async def add_endpoint(self, descriptor: zdo_t.SimpleDescriptor) -> None:
         """Register an endpoint on the device, replacing any with conflicting IDs."""
