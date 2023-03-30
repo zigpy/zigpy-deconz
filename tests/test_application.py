@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+from unittest import mock
 
 import pytest
+import zigpy.application
 import zigpy.config
 import zigpy.device
-from zigpy.types import EUI64
+from zigpy.types import EUI64, Channels
 import zigpy.zdo.types as zdo_t
 
 from zigpy_deconz import types as t
@@ -569,3 +571,16 @@ async def test_reset_network_info(app):
     await app.reset_network_info()
 
     app.form_network.assert_called_once()
+
+
+async def test_energy_scan(app):
+    with mock.patch.object(
+        zigpy.application.ControllerApplication,
+        "energy_scan",
+        return_value={c: c for c in Channels.ALL_CHANNELS},
+    ):
+        results = await app.energy_scan(
+            channels=Channels.ALL_CHANNELS, duration_exp=0, count=1
+        )
+
+    assert results == {c: c * 3 for c in Channels.ALL_CHANNELS}
