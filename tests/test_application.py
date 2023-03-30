@@ -112,28 +112,32 @@ def addr_nwk_and_ieee(nwk, ieee):
     return addr
 
 
+@patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_WAIT", 0.001)
 @pytest.mark.parametrize(
-    "proto_ver, nwk_state, error",
+    "proto_ver, target_state, returned_state",
     [
-        (0x0107, deconz_api.NetworkState.CONNECTED, None),
-        (0x0106, deconz_api.NetworkState.CONNECTED, None),
-        (0x0107, deconz_api.NetworkState.OFFLINE, None),
-        (0x0107, deconz_api.NetworkState.OFFLINE, asyncio.TimeoutError()),
+        (0x0107, deconz_api.NetworkState.CONNECTED, deconz_api.NetworkState.CONNECTED),
+        (0x0106, deconz_api.NetworkState.CONNECTED, deconz_api.NetworkState.CONNECTED),
+        (0x0107, deconz_api.NetworkState.OFFLINE, deconz_api.NetworkState.CONNECTED),
+        (0x0107, deconz_api.NetworkState.CONNECTED, deconz_api.NetworkState.OFFLINE),
     ],
 )
-async def test_start_network(app, proto_ver, nwk_state, error):
+async def test_start_network(app, proto_ver, target_state, returned_state):
     app.load_network_info = AsyncMock()
     app.restore_neighbours = AsyncMock()
     app.add_endpoint = AsyncMock()
-    app._change_network_state = AsyncMock(side_effect=error)
 
     app._api.device_state = AsyncMock(
-        return_value=(deconz_api.DeviceState(nwk_state), 0, 0)
+        return_value=(deconz_api.DeviceState(returned_state), 0, 0)
     )
+
     app._api._proto_ver = proto_ver
     app._api.protocol_version = proto_ver
 
-    if nwk_state != deconz_api.NetworkState.CONNECTED and error is not None:
+    if (
+        target_state == deconz_api.NetworkState.CONNECTED
+        and returned_state != deconz_api.NetworkState.CONNECTED
+    ):
         with pytest.raises(zigpy.exceptions.FormationFailure):
             await app.start_network()
 
