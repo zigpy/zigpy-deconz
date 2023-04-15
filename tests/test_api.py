@@ -179,7 +179,7 @@ def test_data_received(api, monkeypatch):
     for cmd, cmd_opts in deconz_api.RX_COMMANDS.items():
         payload = b"\x01\x02\x03\x04"
         data = cmd.serialize() + b"\x00\x00\x00\x00" + payload
-        setattr(api, "_handle_{}".format(cmd.name), my_handler)
+        setattr(api, f"_handle_{cmd.name}", my_handler)
         api._awaiting[0] = MagicMock()
         api.data_received(data)
         assert t.deserialize.call_count == 1
@@ -203,7 +203,7 @@ def test_data_received_unk_status(api, monkeypatch):
         payload = b"\x01\x02\x03\x04"
         status = t.uint8_t(0xFE).serialize()
         data = cmd.serialize() + b"\x00" + status + b"\x00\x00" + payload
-        setattr(api, "_handle_{}".format(cmd.name), my_handler)
+        setattr(api, f"_handle_{cmd.name}", my_handler)
         api._awaiting[0] = MagicMock()
         api.data_received(data)
         if solicited:
