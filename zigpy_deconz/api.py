@@ -7,7 +7,7 @@ import binascii
 import enum
 import functools
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
@@ -44,7 +44,7 @@ class DeviceState(enum.IntFlag):
     APSDE_DATA_REQUEST_SLOTS_AVAILABLE = 0x20
 
     @classmethod
-    def deserialize(cls, data) -> tuple["DeviceState", bytes]:
+    def deserialize(cls, data) -> tuple[DeviceState, bytes]:
         """Deserialize DevceState."""
         state, data = t.uint8_t.deserialize(data)
         return cls(state), data
@@ -54,7 +54,7 @@ class DeviceState(enum.IntFlag):
         return t.uint8_t(self).serialize()
 
     @property
-    def network_state(self) -> "NetworkState":
+    def network_state(self) -> NetworkState:
         """Return network state."""
         return NetworkState(self & 0x03)
 
@@ -251,12 +251,12 @@ class Deconz:
         self._data_confirm: bool = False
         self._device_state = DeviceState(NetworkState.OFFLINE)
         self._seq = 1
-        self._proto_ver: Optional[int] = None
-        self._firmware_version: Optional[int] = None
-        self._uart: Optional[zigpy_deconz.uart.Gateway] = None
+        self._proto_ver: int | None = None
+        self._firmware_version: int | None = None
+        self._uart: zigpy_deconz.uart.Gateway | None = None
 
     @property
-    def firmware_version(self) -> Optional[int]:
+    def firmware_version(self) -> int | None:
         """Return ConBee firmware version."""
         return self._firmware_version
 
@@ -266,7 +266,7 @@ class Deconz:
         return self._device_state.network_state
 
     @property
-    def protocol_version(self) -> Optional[int]:
+    def protocol_version(self) -> int | None:
         """Protocol Version."""
         return self._proto_ver
 
@@ -341,7 +341,7 @@ class Deconz:
             if status != Status.SUCCESS:
                 try:
                     fut.set_exception(
-                        CommandError(status, "%s, status: %s" % (command, status))
+                        CommandError(status, f"{command}, status: {status}")
                     )
                 except asyncio.InvalidStateError:
                     LOGGER.warning(
@@ -416,7 +416,7 @@ class Deconz:
             else:
                 param = NetworkParameter(id_)
         except (KeyError, ValueError):
-            raise KeyError("Unknown parameter id: %s" % (id_,))
+            raise KeyError(f"Unknown parameter id: {id_}")
 
         data = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
         r = await self._command(Command.read_parameter, 1 + len(data), param, data)
@@ -439,7 +439,7 @@ class Deconz:
             else:
                 param = NetworkParameter(id_)
         except (KeyError, ValueError):
-            raise KeyError("Unknown parameter id: %s write request" % (id_,))
+            raise KeyError(f"Unknown parameter id: {id_} write request")
 
         v = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
         length = len(v) + 1

@@ -338,7 +338,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def force_remove(self, dev):
         """Forcibly remove device from NCP."""
-        pass
 
     async def energy_scan(
         self, channels: t.Channels.ALL_CHANNELS, duration_exp: int, count: int
