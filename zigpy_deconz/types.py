@@ -180,10 +180,8 @@ class Struct:
 
     def __repr__(self):
         """Instance representation."""
-        r = "<%s " % (self.__class__.__name__,)
-        r += " ".join(
-            ["%s=%s" % (f[0], getattr(self, f[0], None)) for f in self._fields]
-        )
+        r = f"<{self.__class__.__name__} "
+        r += " ".join([f"{f[0]}={getattr(self, f[0], None)}" for f in self._fields])
         r += ">"
         return r
 
