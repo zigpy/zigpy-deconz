@@ -350,6 +350,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         # The Conbee seems to max out at an LQI of 85, which is exactly 255/3
         return {c: v * 3 for c, v in results.items()}
 
+    async def _move_network_to_channel(
+        self, new_channel: int, new_nwk_update_id: int
+    ) -> None:
+        """Move device to a new channel."""
+        channel_mask = zigpy.types.Channels.from_channel_list([new_channel])
+        await self._api.write_parameter(NetworkParameter.channel_mask, channel_mask)
+        await self._api.write_parameter(
+            NetworkParameter.nwk_update_id, new_nwk_update_id
+        )
+
+        await self._change_network_state(NetworkState.OFFLINE)
+        await self._change_network_state(NetworkState.CONNECTED)
+
     async def add_endpoint(self, descriptor: zdo_t.SimpleDescriptor) -> None:
         """Register an endpoint on the device, replacing any with conflicting IDs."""
 
