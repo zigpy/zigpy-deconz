@@ -588,3 +588,22 @@ async def test_energy_scan(app):
         )
 
     assert results == {c: c * 3 for c in Channels.ALL_CHANNELS}
+
+
+async def test_channel_migration(app):
+    app._api.write_parameter = AsyncMock()
+    app._change_network_state = AsyncMock()
+
+    await app._move_network_to_channel(new_channel=26, new_nwk_update_id=0x12)
+
+    assert app._api.write_parameter.mock_calls == [
+        mock.call(
+            deconz_api.NetworkParameter.channel_mask, Channels.from_channel_list([26])
+        ),
+        mock.call(deconz_api.NetworkParameter.nwk_update_id, 0x12),
+    ]
+
+    assert app._change_network_state.mock_calls == [
+        mock.call(deconz_api.NetworkState.OFFLINE),
+        mock.call(deconz_api.NetworkState.CONNECTED),
+    ]
