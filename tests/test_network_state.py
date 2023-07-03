@@ -1,5 +1,7 @@
 """Test `load_network_info` and `write_network_info` methods."""
 
+import importlib.metadata
+
 import pytest
 from zigpy.exceptions import NetworkNotFormed
 import zigpy.state as app_state
@@ -57,7 +59,7 @@ def network_info(node_info):
         children=[],
         nwk_addresses={},
         stack_specific={},
-        source=f"zigpy-deconz@{zigpy_deconz.__version__}",
+        source=f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}",
         metadata={
             "deconz": {
                 "version": 0,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import logging
 import re
 from typing import Any
@@ -266,7 +267,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         network_info = self.state.network_info
         node_info = self.state.node_info
 
-        network_info.source = f"zigpy-deconz@{zigpy_deconz.__version__}"
+        network_info.source = (
+            f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}"
+        )
         network_info.metadata = {
             "deconz": {
                 "version": self.version,
