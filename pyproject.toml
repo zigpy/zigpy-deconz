@@ -56,5 +56,8 @@ max-line-length = 88
 # E203: Whitespace before ':'
 # E501: line too long
 # D202 No blank lines allowed after function docstring
-ignore = ["W503", "E203", "E501", "D202"]
+ignore = [
+    "W503", "E203", "E501", "D202",
+    "D103", "D102", "D101",  # TODO: remove these once docstrings are added
+]
 per-file-ignores = ["tests/*:F811,F401,F403"]
