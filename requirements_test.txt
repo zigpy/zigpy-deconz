@@ -1,8 +1,20 @@
-# Test dependencies
+# Test dependencies.
 
 asynctest
-coveralls==3.0.1
-pytest
+isort
+black
+flake8
+codecov
+colorlog
+codespell
+mypy==1.2.0
+pre-commit
+pylint
 pytest-cov
-pytest-asyncio
+pytest-sugar
 pytest-timeout
+pytest-asyncio>=0.17
+pytest>=7.1.3
+zigpy>=0.54.1
+ruff==0.0.261
+Flake8-pyproject
