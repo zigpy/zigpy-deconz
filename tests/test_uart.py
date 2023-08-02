@@ -31,10 +31,16 @@ async def test_connect(monkeypatch):
 
 
 def test_send(gw):
-    data = b"\x00"
+    data = b"test"
     gw.send(data)
-    assert gw._transport.write.call_count == 1
-    assert gw._transport.write.called_once_with(data)
+
+    packet = b""
+    packet += b"\xC0"  # END
+    packet += b"test"  # data
+    packet += b"\x40\xFE"  # checksum
+    packet += b"\xC0"  # END
+
+    gw._transport.write.assert_called_once_with(packet)
 
 
 def test_close(gw):
