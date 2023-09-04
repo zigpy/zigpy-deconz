@@ -9,6 +9,7 @@ import functools
 import logging
 from typing import Any, Callable
 
+from zigpy.application import asyncio_timeout
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
 from zigpy.types import APSStatus, Bool, Channels
@@ -303,7 +304,8 @@ class Deconz:
             fut = asyncio.Future()
             self._awaiting[seq] = fut
             try:
-                return await asyncio.wait_for(fut, timeout=COMMAND_TIMEOUT)
+                async with asyncio_timeout(COMMAND_TIMEOUT):
+                    return await fut
             except asyncio.TimeoutError:
                 LOGGER.warning(
                     "No response to '%s' command with seq id '0x%02x'", cmd, seq
@@ -390,7 +392,8 @@ class Deconz:
         """Probe port for the device presence."""
         api = cls(None, device_config)
         try:
-            await asyncio.wait_for(api._probe(), timeout=PROBE_TIMEOUT)
+            async with asyncio_timeout(PROBE_TIMEOUT):
+                await api._probe()
             return True
         except Exception as exc:
             LOGGER.debug(
