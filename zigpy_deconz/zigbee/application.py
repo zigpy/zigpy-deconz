@@ -6,7 +6,13 @@ import asyncio
 import importlib.metadata
 import logging
 import re
+import sys
 from typing import Any
+
+if sys.version_info[:2] < (3, 11):
+    from async_timeout import timeout as asyncio_timeout  # pragma: no cover
+else:
+    from asyncio import timeout as asyncio_timeout  # pragma: no cover
 
 import zigpy.application
 import zigpy.config
@@ -140,7 +146,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._api.change_network_state(target_state)
 
         try:
-            await asyncio.wait_for(change_loop(), timeout=timeout)
+            async with asyncio_timeout(timeout):
+                await change_loop()
         except asyncio.TimeoutError:
             if target_state != NetworkState.CONNECTED:
                 raise
@@ -450,7 +457,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                         f"Failed to enqueue packet: {ex!r}", ex.status
                     )
 
-                status = await asyncio.wait_for(req.result, SEND_CONFIRM_TIMEOUT)
+                async with asyncio_timeout(SEND_CONFIRM_TIMEOUT):
+                    status = await req.result
 
                 if status != TXStatus.SUCCESS:
                     raise zigpy.exceptions.DeliveryError(
@@ -550,8 +558,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             LOGGER.debug("Reconnecting, attempt %s", attempt)
 
             try:
-                await asyncio.wait_for(self.connect(), timeout=10)
-                await asyncio.wait_for(self.initialize(), timeout=10)
+                async with asyncio_timeout(10):
+                    await self.connect()
+                async with asyncio_timeout(10):
+                    await self.initialize()
                 break
             except Exception as exc:
                 wait = 2 ** min(attempt, 5)
