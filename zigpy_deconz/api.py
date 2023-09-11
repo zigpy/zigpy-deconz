@@ -7,9 +7,14 @@ import binascii
 import enum
 import functools
 import logging
+import sys
 from typing import Any, Callable
 
-from zigpy.application import asyncio_timeout
+if sys.version_info[:2] < (3, 11):
+    from async_timeout import timeout as asyncio_timeout  # pragma: no cover
+else:
+    from asyncio import timeout as asyncio_timeout  # pragma: no cover
+
 from zigpy.config import CONF_DEVICE_PATH
 import zigpy.exceptions
 from zigpy.types import APSStatus, Bool, Channels
