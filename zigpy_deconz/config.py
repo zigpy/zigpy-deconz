@@ -29,7 +29,7 @@ CONF_WATCHDOG_TTL_DEFAULT = 600
 CONF_DEVICE_BAUDRATE = "baudrate"
 
 SCHEMA_DEVICE = SCHEMA_DEVICE.extend(
-    {vol.Optional(CONF_DEVICE_BAUDRATE, default=115200): int}
+    {vol.Optional(CONF_DEVICE_BAUDRATE, default=38400): int}
 )
 
 CONFIG_SCHEMA = CONFIG_SCHEMA.extend(
