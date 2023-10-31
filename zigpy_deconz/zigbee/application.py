@@ -61,7 +61,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self._pending = zigpy.util.Requests()
 
-        self.version = 0
+        self._version = 0
         self._reset_watchdog_task = None
         self._reconnect_task = None
 
@@ -85,7 +85,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         try:
             await api.connect()
-            self.version = await api.version()
+            self._version = await api.version()
         except Exception:
             api.close()
             raise
@@ -124,7 +124,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self,
             self.state.node_info.ieee,
             self.state.node_info.nwk,
-            self.version,
+            self._version,
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
         )
 
@@ -277,11 +277,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         network_info.source = (
             f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}"
         )
-        network_info.metadata = {
-            "deconz": {
-                "version": self.version,
-            }
-        }
 
         (ieee,) = await self._api[NetworkParameter.mac_address]
         node_info.ieee = zigpy.types.EUI64(ieee)
@@ -293,6 +288,20 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             node_info.logical_type = zdo_t.LogicalType.Router
 
         (node_info.nwk,) = await self._api[NetworkParameter.nwk_address]
+
+        node_info.version = f"{self._version:#010x}"
+        node_info.manufacturer = "dresden elektronik"
+
+        if re.match(
+            r"/dev/tty(S|AMA|ACM)\d+",
+            self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
+        ):
+            node_info.model = "RaspBee"
+        else:
+            node_info.model = "ConBee"
+
+        if (self._version & 0x0000FF00) == 0x00000700:
+            node_info.model += " II"
 
         (network_info.pan_id,) = await self._api[NetworkParameter.nwk_panid]
         (network_info.extended_pan_id,) = await self._api[

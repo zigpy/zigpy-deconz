@@ -32,6 +32,9 @@ def node_info():
         nwk=t.NWK(0x0000),
         ieee=t.EUI64.convert("93:2C:A9:34:D9:D0:5D:12"),
         logical_type=zdo_t.LogicalType.Coordinator,
+        manufacturer="dresden elektronik",
+        model="ConBee II",
+        version="0x26580700",
     )
 
 
@@ -60,11 +63,7 @@ def network_info(node_info):
         nwk_addresses={},
         stack_specific={},
         source=f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}",
-        metadata={
-            "deconz": {
-                "version": 0,
-            }
-        },
+        metadata={},
     )
 
 
@@ -258,6 +257,7 @@ async def test_load_network_info(
         ("security_mode",): [zigpy_deconz.api.SecurityMode.ONLY_TCLK],
     }
 
+    app._version = 0x26580700
     params.update(param_overrides)
 
     async def read_param(param, *args):
