@@ -20,6 +20,7 @@ from zigpy.zdo.types import SimpleDescriptor
 from zigpy_deconz.exception import APIException, CommandError
 import zigpy_deconz.types as t
 import zigpy_deconz.uart
+from zigpy_deconz.utils import restart_forever
 
 LOGGER = logging.getLogger(__name__)
 
@@ -419,11 +420,21 @@ class Deconz:
         self._awaiting = {}
         self._command_lock = asyncio.Lock()
         self._config = device_config
-        self._data_indication_task: asyncio.Task | None = None
-        self._data_confirm_task: asyncio.Task | None = None
+        self._device_state = DeviceState(
+            network_state=NetworkState2.OFFLINE,
+            device_state=(
+                DeviceStateFlags.APSDE_DATA_CONFIRM
+                | DeviceStateFlags.APSDE_DATA_INDICATION
+            ),
+        )
+
         self._free_slots_available_event = asyncio.Event()
         self._free_slots_available_event.set()
-        self._device_state = DeviceState(NetworkState.OFFLINE)
+
+        self._data_poller_event = asyncio.Event()
+        self._data_poller_event.set()
+        self._data_poller_task: asyncio.Task | None = None
+
         self._seq = 1
         self._proto_ver: int | None = None
         self._firmware_version: int | None = None
@@ -447,6 +458,9 @@ class Deconz:
     async def connect(self) -> None:
         assert self._uart is None
         self._uart = await zigpy_deconz.uart.connect(self._config, self)
+        await self._command(CommandId.device_state)
+
+        self._data_poller_task = asyncio.create_task(self._data_poller())
 
     def connection_lost(self, exc: Exception) -> None:
         """Lost serial connection."""
@@ -461,6 +475,10 @@ class Deconz:
 
     def close(self):
         self._app = None
+
+        if self._data_poller_task is not None:
+            self._data_poller_task.cancel()
+            self._data_poller_task = None
 
         if self._uart is not None:
             self._uart.close()
@@ -579,9 +597,10 @@ class Deconz:
 
         if "payload_length" in params:
             running_length = itertools.accumulate(
-                len(v.serialize()) for v in params.values()
+                len(v.serialize()) if v is not None else 0 for v in params.values()
             )
             length_at_param = dict(zip(params.keys(), running_length))
+
             assert (
                 len(data) - length_at_param["payload_length"] - 2
                 == params["payload_length"]
@@ -624,32 +643,8 @@ class Deconz:
                 if k not in ("frame_length", "payload_length")
             }
 
-            handler(**handler_params)
-
-    @classmethod
-    async def probe(cls, device_config: dict[str, Any]) -> bool:
-        """Probe port for the device presence."""
-        api = cls(None, device_config)
-        try:
-            async with asyncio_timeout(PROBE_TIMEOUT):
-                await api._probe()
-            return True
-        except Exception as exc:
-            LOGGER.debug(
-                "Unsuccessful radio probe of '%s' port",
-                device_config[CONF_DEVICE_PATH],
-                exc_info=exc,
-            )
-        finally:
-            api.close()
-
-        return False
-
-    async def _probe(self) -> None:
-        """Open port and try sending a commandId."""
-        await self.connect()
-        await self.device_state()
-        self.close()
+            # Queue up the callback within the event loop
+            asyncio.get_running_loop().call_soon(lambda: handler(**handler_params))
 
     async def read_parameter(
         self, parameter_id: NetworkParameter, parameter: Any = None
@@ -698,44 +693,6 @@ class Deconz:
         self._firmware_version = version_rsp["version"]
 
         return self.firmware_version
-
-    def _handle_aps_data_indication(
-        self,
-        status: Status,
-        device_state: DeviceState,
-        dst_addr: t.DeconzAddress,
-        dst_ep: t.uint8_t,
-        src_addr: t.DeconzAddress,
-        src_ep: t.uint8_t,
-        profile_id: t.uint16_t,
-        cluster_id: t.uint16_t,
-        asdu: t.LongOctetString,
-        reserved1: t.uint8_t,
-        reserved2: t.uint8_t,
-        lqi: t.uint8_t,
-        reserved3: t.uint8_t,
-        reserved4: t.uint8_t,
-        reserved5: t.uint8_t,
-        reserved6: t.uint8_t,
-        rssi: t.int8s,
-    ) -> None:
-        self._data_indication = False
-        self._handle_device_state_changed(status=status, device_state=device_state)
-
-        if not self._app:
-            return
-
-        self._app.handle_rx(
-            src=src_addr,
-            src_ep=src_ep,
-            dst=dst_addr,
-            dst_ep=dst_ep,
-            profile_id=profile_id,
-            cluster_id=cluster_id,
-            data=asdu,
-            lqi=lqi,
-            rssi=rssi,
-        )
 
     async def aps_data_request(
         self,
@@ -790,25 +747,57 @@ class Deconz:
                 )
                 return
 
-    async def _aps_data_confirm(self):
-        await self._command(CommandId.aps_data_confirm)
+    @restart_forever
+    async def _data_poller(self):
+        while True:
+            await self._data_poller_event.wait()
+            self._data_poller_event.clear()
 
-    def _handle_aps_data_confirm(
-        self,
-        status: Status,
-        device_state: DeviceState,
-        request_id: t.uint8_t,
-        dst_addr: t.DeconzAddressEndpoint,
-        src_ep: t.uint8_t,
-        confirm_status: TXStatus,
-        reserved1: t.uint8_t,
-        reserved2: t.uint8_t,
-        reserved3: t.uint8_t,
-        reserved4: t.uint8_t,
-    ):
-        self._data_confirm = False
-        self._handle_device_state_changed(status=status, device_state=device_state)
-        self._app.handle_tx_confirm(request_id, confirm_status)
+            # Poll data indication
+            if (
+                self._device_state.network_state != NetworkState2.OFFLINE
+                and DeviceStateFlags.APSDE_DATA_INDICATION
+                in self._device_state.device_state
+            ):
+                if (
+                    self.protocol_version is not None
+                    and self.firmware_version is not None
+                    and self.protocol_version >= MIN_PROTO_VERSION
+                    and (self.firmware_version & 0x0000FF00) == 0x00000500
+                ):
+                    flags = t.DataIndicationFlags.Include_Both_NWK_And_IEEE
+                else:
+                    flags = t.DataIndicationFlags.Always_Use_NWK_Source_Addr
+
+                rsp = await self._command(CommandId.aps_data_indication, flags=flags)
+                self._handle_device_state_changed(
+                    status=rsp["status"], device_state=rsp["device_state"]
+                )
+
+                self._app.handle_rx(
+                    src=rsp["src_addr"],
+                    src_ep=rsp["src_ep"],
+                    dst=rsp["dst_addr"],
+                    dst_ep=rsp["dst_ep"],
+                    profile_id=rsp["profile_id"],
+                    cluster_id=rsp["cluster_id"],
+                    data=rsp["asdu"],
+                    lqi=rsp["lqi"],
+                    rssi=rsp["rssi"],
+                )
+
+            # Poll data confirm
+            if (
+                self._device_state.network_state != NetworkState2.OFFLINE
+                and DeviceStateFlags.APSDE_DATA_CONFIRM
+                in self._device_state.device_state
+            ):
+                rsp = await self._command(CommandId.aps_data_confirm)
+
+                self._app.handle_tx_confirm(rsp["request_id"], rsp["confirm_status"])
+                self._handle_device_state_changed(
+                    status=rsp["status"], device_state=rsp["device_state"]
+                )
 
     def _handle_device_state_changed(
         self,
@@ -824,34 +813,13 @@ class Deconz:
             )
 
         self._device_state = device_state
+        self._data_poller_event.set()
 
         if (
             DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
-            not in device_state.device_state
+            in device_state.device_state
         ):
-            self._free_slots_available_event.clear()
-            LOGGER.debug("Data request queue full.")
-        else:
             self._free_slots_available_event.set()
-
-        if DeviceStateFlags.APSDE_DATA_INDICATION in device_state.device_state and (
-            self._data_indication_task is None or self._data_indication_task.done()
-        ):
-            if (
-                self.protocol_version >= MIN_PROTO_VERSION
-                and (self.firmware_version & 0x0000FF00) == 0x00000500
-            ):
-                flags = t.DataIndicationFlags.Include_Both_NWK_And_IEEE
-            else:
-                flags = t.DataIndicationFlags.Always_Use_NWK_Source_Addr
-
-            self._data_indication_task = asyncio.create_task(
-                self._command(CommandId.aps_data_indication, flags=flags)
-            )
-
-        if DeviceStateFlags.APSDE_DATA_CONFIRM in device_state.device_state and (
-            self._data_confirm_task is None or self._data_confirm_task.done()
-        ):
-            self._data_confirm_task = asyncio.create_task(
-                self._command(CommandId.aps_data_confirm)
-            )
+        else:
+            LOGGER.debug("Data request queue full.")
+            self._free_slots_available_event.clear()
