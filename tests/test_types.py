@@ -312,7 +312,7 @@ def test_deconz_addr_ep():
     a = t.DeconzAddressEndpoint()
     a.address_mode = 2
     a.address = 0x55AA
-    with pytest.raises(AttributeError):
+    with pytest.raises(TypeError):
         a.serialize()
     a.endpoint = 0xCC
     assert a.serialize() == data
@@ -327,7 +327,7 @@ def test_deconz_addr_ep():
     a = t.DeconzAddressEndpoint()
     a.address_mode = 3
     a.address = [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]
-    with pytest.raises(AttributeError):
+    with pytest.raises(TypeError):
         a.serialize()
     a.endpoint = 0xCC
     assert a.serialize() == data

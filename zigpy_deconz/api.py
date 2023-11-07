@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import binascii
-import enum
-import functools
+import itertools
 import logging
 import sys
 from typing import Any, Callable
@@ -16,8 +14,7 @@ else:
     from asyncio import timeout as asyncio_timeout  # pragma: no cover
 
 from zigpy.config import CONF_DEVICE_PATH
-import zigpy.exceptions
-from zigpy.types import APSStatus, Bool, Channels
+from zigpy.types import APSStatus, Bool, Channels, KeyData, Struct
 from zigpy.zdo.types import SimpleDescriptor
 
 from zigpy_deconz.exception import APIException, CommandError
@@ -31,8 +28,11 @@ PROBE_TIMEOUT = 2
 MIN_PROTO_VERSION = 0x010B
 REQUEST_RETRY_DELAYS = (0.5, 1.0, 1.5, None)
 
+FRAME_LENGTH = object()
+PAYLOAD_LENGTH = object()
 
-class Status(t.uint8_t, enum.Enum):
+
+class Status(t.enum8):
     SUCCESS = 0
     FAILURE = 1
     BUSY = 2
@@ -43,36 +43,33 @@ class Status(t.uint8_t, enum.Enum):
     INVALID_VALUE = 7
 
 
-class DeviceState(enum.IntFlag):
-    APSDE_DATA_CONFIRM = 0x04
-    APSDE_DATA_INDICATION = 0x08
-    CONF_CHANGED = 0x10
-    APSDE_DATA_REQUEST_SLOTS_AVAILABLE = 0x20
-
-    @classmethod
-    def deserialize(cls, data) -> tuple[DeviceState, bytes]:
-        """Deserialize DevceState."""
-        state, data = t.uint8_t.deserialize(data)
-        return cls(state), data
-
-    def serialize(self) -> bytes:
-        """Serialize data."""
-        return t.uint8_t(self).serialize()
-
-    @property
-    def network_state(self) -> NetworkState:
-        """Return network state."""
-        return NetworkState(self & 0x03)
-
-
-class NetworkState(t.uint8_t, enum.Enum):
+class NetworkState2(t.enum2):
     OFFLINE = 0
     JOINING = 1
     CONNECTED = 2
     LEAVING = 3
 
 
-class SecurityMode(t.uint8_t, enum.Enum):
+class DeviceStateFlags(t.bitmap6):
+    APSDE_DATA_CONFIRM = 0b00001
+    APSDE_DATA_INDICATION = 0b000010
+    CONF_CHANGED = 0b000100
+    APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE = 0b0001000
+
+
+class DeviceState(t.Struct):
+    network_state: NetworkState2
+    device_state: DeviceStateFlags
+
+
+class NetworkState(t.enum8):
+    OFFLINE = 0
+    JOINING = 1
+    CONNECTED = 2
+    LEAVING = 3
+
+
+class SecurityMode(t.enum8):
     NO_SECURITY = 0x00
     PRECONFIGURED_NETWORK_KEY = 0x01
     NETWORK_KEY_FROM_TC = 0x02
@@ -84,7 +81,7 @@ class ZDPResponseHandling(t.bitmap16):
     NodeDescRsp = 0x0001
 
 
-class Command(t.uint8_t, enum.Enum):
+class CommandId(t.enum8):
     aps_data_confirm = 0x04
     device_state = 0x07
     change_network_state = 0x08
@@ -97,10 +94,10 @@ class Command(t.uint8_t, enum.Enum):
     zigbee_green_power = 0x19
     mac_poll = 0x1C
     add_neighbour = 0x1D
-    simplified_beacon = 0x1F
+    mac_beacon_indication = 0x1F
 
 
-class TXStatus(t.uint8_t, enum.Enum):
+class TXStatus(t.enum8):
     SUCCESS = 0x00
 
     @classmethod
@@ -112,89 +109,7 @@ class TXStatus(t.uint8_t, enum.Enum):
         return status
 
 
-TX_COMMANDS = {
-    Command.add_neighbour: (t.uint16_t, t.uint8_t, t.NWK, t.EUI64, t.uint8_t),
-    Command.aps_data_confirm: (t.uint16_t,),
-    Command.aps_data_indication: (
-        t.uint16_t,
-        t.DataIndicationFlags,
-    ),
-    Command.aps_data_request: (
-        t.uint16_t,
-        t.uint8_t,
-        t.DeconzSendDataFlags,
-        t.DeconzAddressEndpoint,
-        t.uint16_t,
-        t.uint16_t,
-        t.uint8_t,
-        t.LVBytes,
-        t.uint8_t,
-        t.uint8_t,
-        t.NWKList,  # optional
-    ),
-    Command.change_network_state: (t.uint8_t,),
-    Command.device_state: (t.uint8_t, t.uint8_t, t.uint8_t),
-    Command.read_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
-    Command.version: (t.uint32_t,),
-    Command.write_parameter: (t.uint16_t, t.uint8_t, t.Bytes),
-}
-
-RX_COMMANDS = {
-    Command.add_neighbour: ((t.uint16_t, t.uint8_t, t.NWK, t.EUI64, t.uint8_t), True),
-    Command.aps_data_confirm: (
-        (
-            t.uint16_t,
-            DeviceState,
-            t.uint8_t,
-            t.DeconzAddressEndpoint,
-            t.uint8_t,
-            TXStatus,
-            t.uint8_t,
-            t.uint8_t,
-            t.uint8_t,
-            t.uint8_t,
-        ),
-        True,
-    ),
-    Command.aps_data_indication: (
-        (
-            t.uint16_t,
-            DeviceState,
-            t.DeconzAddress,
-            t.uint8_t,
-            t.DeconzAddress,
-            t.uint8_t,
-            t.uint16_t,
-            t.uint16_t,
-            t.LVBytes,
-            t.uint8_t,
-            t.uint8_t,
-            t.uint8_t,
-            t.uint8_t,
-            t.uint8_t,
-            t.uint8_t,
-            t.uint8_t,
-            t.int8s,
-        ),
-        True,
-    ),
-    Command.aps_data_request: ((t.uint16_t, DeviceState, t.uint8_t), True),
-    Command.change_network_state: ((t.uint8_t,), True),
-    Command.device_state: ((DeviceState, t.uint8_t, t.uint8_t), True),
-    Command.device_state_changed: ((DeviceState, t.uint8_t), False),
-    Command.mac_poll: ((t.uint16_t, t.DeconzAddress, t.uint8_t, t.int8s), False),
-    Command.read_parameter: ((t.uint16_t, t.uint8_t, t.Bytes), True),
-    Command.simplified_beacon: (
-        (t.uint16_t, t.uint16_t, t.uint16_t, t.uint8_t, t.uint8_t, t.uint8_t),
-        False,
-    ),
-    Command.version: ((t.uint32_t,), True),
-    Command.write_parameter: ((t.uint16_t, t.uint8_t), True),
-    Command.zigbee_green_power: ((t.LVBytes,), False),
-}
-
-
-class NetworkParameter(t.uint8_t, enum.Enum):
+class NetworkParameter(t.enum8):
     mac_address = 0x01
     nwk_panid = 0x05
     nwk_address = 0x07
@@ -217,27 +132,281 @@ class NetworkParameter(t.uint8_t, enum.Enum):
     app_zdp_response_handling = 0x28
 
 
-NETWORK_PARAMETER_SCHEMA = {
-    NetworkParameter.mac_address: (t.EUI64,),
-    NetworkParameter.nwk_panid: (t.PanId,),
-    NetworkParameter.nwk_address: (t.NWK,),
-    NetworkParameter.nwk_extended_panid: (t.ExtendedPanId,),
-    NetworkParameter.aps_designed_coordinator: (t.uint8_t,),
-    NetworkParameter.channel_mask: (Channels,),
-    NetworkParameter.aps_extended_panid: (t.ExtendedPanId,),
-    NetworkParameter.trust_center_address: (t.EUI64,),
-    NetworkParameter.security_mode: (t.uint8_t,),
-    NetworkParameter.use_predefined_nwk_panid: (Bool,),
-    NetworkParameter.network_key: (t.uint8_t, t.Key),
-    NetworkParameter.link_key: (t.EUI64, t.Key),
-    NetworkParameter.current_channel: (t.uint8_t,),
-    NetworkParameter.permit_join: (t.uint8_t,),
-    NetworkParameter.configure_endpoint: (t.uint8_t, SimpleDescriptor),
-    NetworkParameter.protocol_version: (t.uint16_t,),
-    NetworkParameter.nwk_update_id: (t.uint8_t,),
-    NetworkParameter.watchdog_ttl: (t.uint32_t,),
-    NetworkParameter.nwk_frame_counter: (t.uint32_t,),
-    NetworkParameter.app_zdp_response_handling: (ZDPResponseHandling,),
+class IndexedKey(Struct):
+    index: t.uint8_t
+    key: KeyData
+
+
+class LinkKey(Struct):
+    ieee: t.EUI64
+    key: KeyData
+
+
+class IndexedEndpoint(Struct):
+    ep_id: t.uint8_t
+    descriptor: SimpleDescriptor
+
+
+NETWORK_PARAMETER_TYPES = {
+    NetworkParameter.mac_address: (None, t.EUI64),
+    NetworkParameter.nwk_panid: (None, t.PanId),
+    NetworkParameter.nwk_address: (None, t.NWK),
+    NetworkParameter.nwk_extended_panid: (None, t.ExtendedPanId),
+    NetworkParameter.aps_designed_coordinator: (None, t.uint8_t),
+    NetworkParameter.channel_mask: (None, Channels),
+    NetworkParameter.aps_extended_panid: (None, t.ExtendedPanId),
+    NetworkParameter.trust_center_address: (None, t.EUI64),
+    NetworkParameter.security_mode: (None, t.uint8_t),
+    NetworkParameter.configure_endpoint: (t.uint8_t, IndexedEndpoint),
+    NetworkParameter.use_predefined_nwk_panid: (None, Bool),
+    NetworkParameter.network_key: (t.uint8_t, IndexedKey),
+    NetworkParameter.link_key: (t.EUI64, LinkKey),
+    NetworkParameter.current_channel: (None, t.uint8_t),
+    NetworkParameter.permit_join: (None, t.uint8_t),
+    NetworkParameter.protocol_version: (None, t.uint16_t),
+    NetworkParameter.nwk_update_id: (None, t.uint8_t),
+    NetworkParameter.watchdog_ttl: (None, t.uint32_t),
+    NetworkParameter.nwk_frame_counter: (None, t.uint32_t),
+    NetworkParameter.app_zdp_response_handling: (None, ZDPResponseHandling),
+}
+
+
+class Command(Struct):
+    command_id: CommandId
+    seq: t.uint8_t
+    payload: t.Bytes
+
+
+TX_COMMANDS = {
+    CommandId.add_neighbour: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        "payload_length": PAYLOAD_LENGTH,
+        "unknown": t.uint8_t,
+        "nwk": t.NWK,
+        "ieee": t.EUI64,
+        "mac_capability_flags": t.uint8_t,
+    },
+    CommandId.aps_data_confirm: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        "payload_length": PAYLOAD_LENGTH,
+    },
+    CommandId.aps_data_indication: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        "payload_length": PAYLOAD_LENGTH,
+        "flags": t.DataIndicationFlags,
+    },
+    CommandId.aps_data_request: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        "payload_length": PAYLOAD_LENGTH,
+        "request_id": t.uint8_t,
+        "flags": t.DeconzSendDataFlags,
+        "dst": t.DeconzAddressEndpoint,
+        "profile_id": t.uint16_t,
+        "cluster_id": t.uint16_t,
+        "src_ep": t.uint8_t,
+        "asdu": t.LongOctetString,
+        "tx_options": t.DeconzTransmitOptions,
+        "radius": t.uint8_t,
+        "relays": t.NWKList,  # optional
+    },
+    CommandId.change_network_state: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        # "payload_length": PAYLOAD_LENGTH,
+        "network_state": NetworkState,
+    },
+    CommandId.device_state: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        # "payload_length": PAYLOAD_LENGTH,
+        "reserved1": t.uint8_t(0),
+        "reserved2": t.uint8_t(0),
+        "reserved3": t.uint8_t(0),
+    },
+    CommandId.read_parameter: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        "payload_length": PAYLOAD_LENGTH,
+        "parameter_id": NetworkParameter,
+        "parameter": t.Bytes,
+    },
+    CommandId.version: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        # "payload_length": PAYLOAD_LENGTH,
+        "reserved": t.uint32_t(0),
+    },
+    CommandId.write_parameter: {
+        "status": Status.SUCCESS,
+        "frame_length": FRAME_LENGTH,
+        "payload_length": PAYLOAD_LENGTH,
+        "parameter_id": NetworkParameter,
+        "parameter": t.Bytes,
+    },
+}
+
+RX_COMMANDS = {
+    CommandId.add_neighbour: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "unknown": t.uint8_t,
+            "nwk": t.NWK,
+            "ieee": t.EUI64,
+            "mac_capability_flags": t.uint8_t,
+        },
+        True,
+    ),
+    CommandId.aps_data_confirm: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "device_state": DeviceState,
+            "request_id": t.uint8_t,
+            "dst_addr": t.DeconzAddressEndpoint,
+            "src_ep": t.uint8_t,
+            "confirm_status": TXStatus,
+            "reserved1": t.uint8_t,
+            "reserved2": t.uint8_t,
+            "reserved3": t.uint8_t,
+            "reserved4": t.uint8_t,
+        },
+        True,
+    ),
+    CommandId.aps_data_indication: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "device_state": DeviceState,
+            "dst_addr": t.DeconzAddress,
+            "dst_ep": t.uint8_t,
+            "src_addr": t.DeconzAddress,
+            "src_ep": t.uint8_t,
+            "profile_id": t.uint16_t,
+            "cluster_id": t.uint16_t,
+            "asdu": t.LongOctetString,
+            "reserved1": t.uint8_t,
+            "reserved2": t.uint8_t,
+            "lqi": t.uint8_t,
+            "reserved3": t.uint8_t,
+            "reserved4": t.uint8_t,
+            "reserved5": t.uint8_t,
+            "reserved6": t.uint8_t,
+            "rssi": t.int8s,
+        },
+        True,
+    ),
+    CommandId.aps_data_request: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "device_state": DeviceState,
+            "request_id": t.uint8_t,
+        },
+        True,
+    ),
+    CommandId.change_network_state: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            # "payload_length": t.uint16_t,
+            "network_state": NetworkState,
+        },
+        True,
+    ),
+    CommandId.device_state: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            # "payload_length": t.uint16_t,
+            "device_state": DeviceState,
+            "reserved1": t.uint8_t,
+            "reserved2": t.uint8_t,
+        },
+        True,
+    ),
+    CommandId.device_state_changed: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            # "payload_length": t.uint16_t,
+            "device_state": DeviceState,
+            "reserved": t.uint8_t,
+        },
+        False,
+    ),
+    CommandId.mac_poll: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "src_addr": t.DeconzAddress,
+            "lqi": t.uint8_t,
+            "rssi": t.int8s,
+            "life_time": t.uint32_t,  # Optional
+            "device_timeout": t.uint32_t,  # Optional
+        },
+        False,
+    ),
+    CommandId.read_parameter: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "parameter_id": NetworkParameter,
+            "parameter": t.Bytes,
+        },
+        True,
+    ),
+    CommandId.mac_beacon_indication: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "src_addr": t.uint16_t,
+            "pan_id": t.uint16_t,
+            "channel": t.uint8_t,
+            "flags": t.uint8_t,
+            "update_id": t.uint8_t,
+            "data": t.Bytes,
+        },
+        False,
+    ),
+    CommandId.version: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            # "payload_length": t.uint16_t,
+            "version": t.uint32_t,
+        },
+        True,
+    ),
+    CommandId.write_parameter: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "parameter_id": NetworkParameter,
+        },
+        True,
+    ),
+    CommandId.zigbee_green_power: (
+        {
+            "status": Status,
+            "frame_length": t.uint16_t,
+            "payload_length": t.uint16_t,
+            "reserved": t.LongOctetString,
+        },
+        False,
+    ),
 }
 
 
@@ -247,14 +416,13 @@ class Deconz:
     def __init__(self, app: Callable, device_config: dict[str, Any]):
         """Init instance."""
         self._app = app
-        self._aps_data_ind_flags: t.DataIndicationFlags = (
-            t.DataIndicationFlags.Always_Use_NWK_Source_Addr
-        )
         self._awaiting = {}
         self._command_lock = asyncio.Lock()
         self._config = device_config
-        self._data_indication: bool = False
-        self._data_confirm: bool = False
+        self._data_indication_task: asyncio.Task | None = None
+        self._data_confirm_task: asyncio.Task | None = None
+        self._free_slots_available_event = asyncio.Event()
+        self._free_slots_available_event.set()
         self._device_state = DeviceState(NetworkState.OFFLINE)
         self._seq = 1
         self._proto_ver: int | None = None
@@ -298,16 +466,76 @@ class Deconz:
             self._uart.close()
             self._uart = None
 
-    async def _command(self, cmd, *args):
+    async def _command(self, cmd, **kwargs):
+        payload = []
+        schema = TX_COMMANDS[cmd]
+        trailing_optional = False
+
+        for name, param_type in schema.items():
+            if isinstance(param_type, int):
+                if name not in kwargs:
+                    # Default value
+                    value = param_type.serialize()
+                else:
+                    value = type(param_type)(kwargs[name]).serialize()
+            elif name in ("frame_length", "payload_length"):
+                value = param_type
+            elif kwargs.get(name) is None:
+                trailing_optional = True
+                value = None
+            elif not isinstance(kwargs[name], param_type):
+                value = param_type(kwargs[name]).serialize()
+            else:
+                value = kwargs[name].serialize()
+
+            if value is None:
+                continue
+
+            if trailing_optional:
+                raise ValueError(
+                    f"Command {cmd} with kwargs {kwargs}"
+                    f" has non-trailing optional argument"
+                )
+
+            payload.append(value)
+
+        if PAYLOAD_LENGTH in payload:
+            payload = t.list_replace(
+                lst=payload,
+                old=PAYLOAD_LENGTH,
+                new=t.uint16_t(
+                    sum(len(p) for p in payload[payload.index(PAYLOAD_LENGTH) + 1 :])
+                ).serialize(),
+            )
+
+        if FRAME_LENGTH in payload:
+            payload = t.list_replace(
+                lst=payload,
+                old=FRAME_LENGTH,
+                new=t.uint16_t(
+                    2 + sum(len(p) if p is not FRAME_LENGTH else 2 for p in payload)
+                ).serialize(),
+            )
+
+        command = Command(
+            command_id=cmd,
+            seq=None,
+            payload=b"".join(payload),
+        )
+
         if self._uart is None:
             # connection was lost
             raise CommandError(Status.ERROR, "API is not running")
+
         async with self._command_lock:
-            LOGGER.debug("Command %s %s", cmd, args)
-            data, seq = self._api_frame(cmd, *args)
-            self._uart.send(data)
+            seq = self._seq = (self._seq % 255) + 1
+
+            LOGGER.debug("Sending %s%s (seq=%s)", cmd, kwargs, seq)
+            self._uart.send(command.replace(seq=seq).serialize())
+
             fut = asyncio.Future()
-            self._awaiting[seq] = fut
+            self._awaiting[seq] = (fut, cmd)
+
             try:
                 async with asyncio_timeout(COMMAND_TIMEOUT):
                     return await fut
@@ -318,79 +546,85 @@ class Deconz:
                 self._awaiting.pop(seq, None)
                 raise
 
-    def _api_frame(self, cmd, *args):
-        schema = TX_COMMANDS[cmd]
-        d = t.serialize(args, schema)
-        data = t.uint8_t(cmd).serialize()
-        self._seq = (self._seq % 255) + 1
-        data += t.uint8_t(self._seq).serialize()
-        data += t.uint8_t(0).serialize()
-        data += t.uint16_t(len(d) + 5).serialize()
-        data += d
-        return data, self._seq
+    def data_received(self, data: bytes) -> None:
+        command, _ = Command.deserialize(data)
 
-    def data_received(self, data):
-        try:
-            command = Command(data[0])
-            schema, solicited = RX_COMMANDS[command]
-        except ValueError:
-            LOGGER.debug("Unknown command received: 0x%02x", data[0])
+        if command.command_id not in RX_COMMANDS:
+            LOGGER.warning("Unknown command received: %s", command)
             return
-        seq = data[1]
-        try:
-            status = Status(data[2])
-        except ValueError:
-            status = data[2]
 
-        fut = None
-        if solicited and seq in self._awaiting:
-            fut = self._awaiting.pop(seq)
-            if status != Status.SUCCESS:
-                try:
-                    fut.set_exception(
-                        CommandError(status, f"{command}, status: {status}")
-                    )
-                except asyncio.InvalidStateError:
-                    LOGGER.warning(
-                        "Duplicate or delayed response for 0x:%02x sequence", seq
-                    )
-                return
+        schema, solicited = RX_COMMANDS[command.command_id]
+
+        if solicited and command.seq in self._awaiting:
+            fut, cmd = self._awaiting.pop(command.seq)
+        else:
+            fut, cmd = None, None
 
         try:
-            data, _ = t.deserialize(data[5:], schema)
+            params, rest = t.deserialize_dict(command.payload, schema)
+
+            if rest:
+                LOGGER.debug("Unparsed data remains after frame: %s, %s", command, rest)
         except Exception:
-            LOGGER.warning("Failed to deserialize frame: %s", binascii.hexlify(data))
+            LOGGER.warning("Failed to parse command %s", command, exc_info=True)
+
             if fut is not None and not fut.done():
                 fut.set_exception(
-                    APIException(
-                        f"Failed to deserialize frame: {binascii.hexlify(data)}"
-                    )
+                    APIException(f"Failed to deserialize command: {command}")
+                )
+
+            return
+
+        assert params["frame_length"] == len(data)
+
+        if "payload_length" in params:
+            running_length = itertools.accumulate(
+                len(v.serialize()) for v in params.values()
+            )
+            length_at_param = dict(zip(params.keys(), running_length))
+            assert (
+                len(data) - length_at_param["payload_length"] - 2
+                == params["payload_length"]
+            )
+
+        LOGGER.debug(
+            "Received command %s%s (seq %d)", command.command_id, params, command.seq
+        )
+        status = params["status"]
+
+        if status != Status.SUCCESS:
+            try:
+                fut.set_exception(
+                    CommandError(status, f"{command.command_id}, status: {status}")
+                )
+            except asyncio.InvalidStateError:
+                LOGGER.warning(
+                    "Duplicate or delayed response for 0x:%02x sequence",
+                    command.seq,
                 )
             return
 
         if fut is not None:
-            try:
-                fut.set_result(data)
-            except asyncio.InvalidStateError:
+            if cmd != command.command_id:
                 LOGGER.warning(
-                    "Duplicate or delayed response for 0x:%02x sequence", seq
+                    "UNEXPECTED RESPONSE TYPE???? %s != %s", cmd, command.command_id
                 )
 
-        LOGGER.debug("Received command %s%r", command.name, data)
-        getattr(self, f"_handle_{command.name}")(data)
+            try:
+                fut.set_result(params)
+            except asyncio.InvalidStateError:
+                LOGGER.warning(
+                    "Duplicate or delayed response for 0x:%02x sequence", command.seq
+                )
 
-    add_neighbour = functools.partialmethod(_command, Command.add_neighbour, 12)
-    device_state = functools.partialmethod(_command, Command.device_state, 0, 0, 0)
-    change_network_state = functools.partialmethod(
-        _command, Command.change_network_state
-    )
+        if handler := getattr(self, f"_handle_{command.command_id.name}", None):
+            handler_params = {
+                k: v
+                for k, v in params.items()
+                if k not in ("frame_length", "payload_length")
+            }
 
-    def _handle_device_state(self, data):
-        LOGGER.debug("Device state response: %s", data)
-        self._handle_device_state_value(data[0])
-
-    def _handle_change_network_state(self, data):
-        LOGGER.debug("Change network state response: %s", NetworkState(data[0]).name)
+            handler(**handler_params)
 
     @classmethod
     async def probe(cls, device_config: dict[str, Any]) -> bool:
@@ -412,114 +646,95 @@ class Deconz:
         return False
 
     async def _probe(self) -> None:
-        """Open port and try sending a command."""
+        """Open port and try sending a commandId."""
         await self.connect()
         await self.device_state()
         self.close()
 
-    async def read_parameter(self, id_, *args):
-        try:
-            if isinstance(id_, str):
-                param = NetworkParameter[id_]
-            else:
-                param = NetworkParameter(id_)
-        except (KeyError, ValueError):
-            raise KeyError(f"Unknown parameter id: {id_}")
+    async def read_parameter(
+        self, parameter_id: NetworkParameter, parameter: Any = None
+    ) -> Any:
+        read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
 
-        data = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
-        r = await self._command(Command.read_parameter, 1 + len(data), param, data)
-        data = t.deserialize(r[2], NETWORK_PARAMETER_SCHEMA[param])[0]
-        LOGGER.debug("Read parameter %s response: %s", param.name, data)
-        return data
+        if parameter is None:
+            value = t.Bytes(b"")
+        else:
+            value = read_param_type(parameter).serialize()
+
+        rsp = await self._command(
+            CommandId.read_parameter,
+            parameter_id=parameter_id,
+            parameter=value,
+        )
+
+        assert rsp["parameter_id"] == parameter_id
+
+        result, _ = write_param_type.deserialize(rsp["parameter"])
+        LOGGER.debug("Read parameter %s(%s)=%r", parameter_id.name, parameter, result)
+
+        return result
 
     def reconnect(self):
         """Reconnect using saved parameters."""
         LOGGER.debug("Reconnecting '%s' serial port", self._config[CONF_DEVICE_PATH])
         return self.connect()
 
-    def _handle_read_parameter(self, data):
-        pass
+    async def write_parameter(
+        self, parameter_id: NetworkParameter, parameter: Any
+    ) -> None:
+        read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
+        rsp = await self._command(
+            CommandId.write_parameter,
+            parameter_id=parameter_id,
+            parameter=write_param_type(parameter).serialize(),
+        )
 
-    def write_parameter(self, id_, *args):
-        try:
-            if isinstance(id_, str):
-                param = NetworkParameter[id_]
-            else:
-                param = NetworkParameter(id_)
-        except (KeyError, ValueError):
-            raise KeyError(f"Unknown parameter id: {id_} write request")
-
-        v = t.serialize(args, NETWORK_PARAMETER_SCHEMA[param])
-        length = len(v) + 1
-        return self._command(Command.write_parameter, length, param, v)
-
-    def _handle_write_parameter(self, data):
-        try:
-            param = NetworkParameter(data[1])
-        except ValueError:
-            LOGGER.error("Received unknown network param id '%s' response", data[1])
-            return
-        LOGGER.debug("Write parameter %s: SUCCESS", param.name)
+        assert rsp["status"] == Status.SUCCESS
 
     async def version(self):
-        (self._proto_ver,) = await self.read_parameter(
-            NetworkParameter.protocol_version
-        )
-        (self._firmware_version,) = await self._command(Command.version, 0)
-        if (
-            self.protocol_version >= MIN_PROTO_VERSION
-            and (self.firmware_version & 0x0000FF00) == 0x00000500
-        ):
-            self._aps_data_ind_flags = t.DataIndicationFlags.Include_Both_NWK_And_IEEE
+        self._proto_ver = await self.read_parameter(NetworkParameter.protocol_version)
+
+        version_rsp = await self._command(CommandId.version, reserved=0)
+        self._firmware_version = version_rsp["version"]
+
         return self.firmware_version
 
-    def _handle_version(self, data):
-        LOGGER.debug("Version response: %x", data[0])
-
-    def _handle_device_state_changed(self, data):
-        LOGGER.debug("Device state changed response: %s", data)
-        self._handle_device_state_value(data[0])
-
-    async def _aps_data_indication(self):
-        try:
-            r = await self._command(
-                Command.aps_data_indication, 1, self._aps_data_ind_flags
-            )
-            LOGGER.debug(
-                (
-                    "'aps_data_indication' response from %s, ep: %s, "
-                    "profile: 0x%04x, cluster_id: 0x%04x, data: %s"
-                ),
-                r[4],
-                r[5],
-                r[6],
-                r[7],
-                binascii.hexlify(r[8]),
-            )
-            return r
-        except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
-            pass
-        finally:
-            self._data_indication = False
-
-    def _handle_aps_data_indication(self, data):
-        LOGGER.debug("APS data indication response: %s", data)
+    def _handle_aps_data_indication(
+        self,
+        status: Status,
+        device_state: DeviceState,
+        dst_addr: t.DeconzAddress,
+        dst_ep: t.uint8_t,
+        src_addr: t.DeconzAddress,
+        src_ep: t.uint8_t,
+        profile_id: t.uint16_t,
+        cluster_id: t.uint16_t,
+        asdu: t.LongOctetString,
+        reserved1: t.uint8_t,
+        reserved2: t.uint8_t,
+        lqi: t.uint8_t,
+        reserved3: t.uint8_t,
+        reserved4: t.uint8_t,
+        reserved5: t.uint8_t,
+        reserved6: t.uint8_t,
+        rssi: t.int8s,
+    ) -> None:
         self._data_indication = False
-        self._handle_device_state_value(data[1])
+        self._handle_device_state_changed(status=status, device_state=device_state)
 
         if not self._app:
             return
 
         self._app.handle_rx(
-            src=data[4],
-            src_ep=data[5],
-            dst=data[2],
-            dst_ep=data[3],
-            profile_id=data[6],
-            cluster_id=data[7],
-            data=data[8],
-            lqi=data[11],
-            rssi=data[16],
+            src=src_addr,
+            src_ep=src_ep,
+            dst=dst_addr,
+            dst_ep=dst_ep,
+            profile_id=profile_id,
+            cluster_id=cluster_id,
+            data=asdu,
+            lqi=lqi,
+            rssi=rssi,
         )
 
     async def aps_data_request(
@@ -534,37 +749,33 @@ class Deconz:
         relays=None,
         tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
         radius=0,
-    ):
-        dst = dst_addr_ep.serialize()
-        length = len(dst) + len(aps_payload) + 11
-
+    ) -> None:
         flags = t.DeconzSendDataFlags.NONE
-        extras = []
 
         # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
         if relays:
             # There is a max of 9 relays
             assert len(relays) <= 9
             flags |= t.DeconzSendDataFlags.RELAYS
-            extras.append(t.NWKList(relays))
 
-        length += sum(len(e.serialize()) for e in extras)
+        if not self._free_slots_available_event.is_set():
+            LOGGER.debug("Waiting for free slots to become available")
+            await self._free_slots_available_event.wait()
 
         for delay in REQUEST_RETRY_DELAYS:
             try:
-                return await self._command(
-                    Command.aps_data_request,
-                    length,
-                    req_id,
-                    flags,
-                    dst_addr_ep,
-                    profile,
-                    cluster,
-                    src_ep,
-                    aps_payload,
-                    tx_options,
-                    radius,
-                    *extras,
+                rsp = await self._command(
+                    CommandId.aps_data_request,
+                    request_id=req_id,
+                    flags=flags,
+                    dst=dst_addr_ep,
+                    profile_id=profile,
+                    cluster_id=cluster,
+                    src_ep=src_ep,
+                    asdu=aps_payload,
+                    tx_options=tx_options,
+                    radius=radius,
+                    relays=relays,
                 )
             except CommandError as ex:
                 LOGGER.debug("'aps_data_request' failure: %s", ex)
@@ -573,75 +784,74 @@ class Deconz:
 
                 LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
                 await asyncio.sleep(delay)
-
-    def _handle_aps_data_request(self, data):
-        LOGGER.debug("APS data request response: %s", data)
-        self._handle_device_state_value(data[1])
+            else:
+                self._handle_device_state_changed(
+                    status=rsp["status"], device_state=rsp["device_state"]
+                )
+                return
 
     async def _aps_data_confirm(self):
-        try:
-            r = await self._command(Command.aps_data_confirm, 0)
-            LOGGER.debug(
-                "Request id: 0x%02x 'aps_data_confirm' for %s, status: 0x%02x",
-                r[2],
-                r[3],
-                r[5],
-            )
-            return r
-        except (asyncio.TimeoutError, zigpy.exceptions.ZigbeeException):
-            pass
-        finally:
-            self._data_confirm = False
+        await self._command(CommandId.aps_data_confirm)
 
-    def _handle_add_neighbour(self, data) -> None:
-        """Handle add_neighbour response."""
-        LOGGER.debug("add neighbour response: %s", data)
-
-    def _handle_aps_data_confirm(self, data):
-        LOGGER.debug(
-            "APS data confirm response for request with id %s: %02x", data[2], data[5]
-        )
+    def _handle_aps_data_confirm(
+        self,
+        status: Status,
+        device_state: DeviceState,
+        request_id: t.uint8_t,
+        dst_addr: t.DeconzAddressEndpoint,
+        src_ep: t.uint8_t,
+        confirm_status: TXStatus,
+        reserved1: t.uint8_t,
+        reserved2: t.uint8_t,
+        reserved3: t.uint8_t,
+        reserved4: t.uint8_t,
+    ):
         self._data_confirm = False
-        self._handle_device_state_value(data[1])
-        self._app.handle_tx_confirm(data[2], data[5])
+        self._handle_device_state_changed(status=status, device_state=device_state)
+        self._app.handle_tx_confirm(request_id, confirm_status)
 
-    def _handle_mac_poll(self, data):
-        pass
-
-    def _handle_zigbee_green_power(self, data):
-        pass
-
-    def _handle_simplified_beacon(self, data):
-        LOGGER.debug(
-            (
-                "Received simplified beacon frame: source=0x%04x, "
-                "pan_id=0x%04x, channel=%s, flags=0x%02x, "
-                "update_id=0x%02x"
-            ),
-            data[1],
-            data[2],
-            data[3],
-            data[4],
-            data[5],
-        )
-
-    def _handle_device_state_value(self, state: DeviceState) -> None:
-        if state.network_state != self.network_state:
+    def _handle_device_state_changed(
+        self,
+        status: t.Status,
+        device_state: DeviceState,
+        reserved: t.uint8_t = 0,
+    ) -> None:
+        if device_state.network_state != self.network_state:
             LOGGER.debug(
-                "Network state transition: %s -> %s",
+                "Network device_state transition: %s -> %s",
                 self.network_state.name,
-                state.network_state.name,
+                device_state.network_state.name,
             )
-        self._device_state = state
-        if DeviceState.APSDE_DATA_REQUEST_SLOTS_AVAILABLE not in state:
-            LOGGER.debug("Data request queue full.")
-        if DeviceState.APSDE_DATA_INDICATION in state and not self._data_indication:
-            self._data_indication = True
-            asyncio.create_task(self._aps_data_indication())
-        if DeviceState.APSDE_DATA_CONFIRM in state and not self._data_confirm:
-            self._data_confirm = True
-            asyncio.create_task(self._aps_data_confirm())
 
-    def __getitem__(self, key):
-        """Access parameters via getitem."""
-        return self.read_parameter(key)
+        self._device_state = device_state
+
+        if (
+            DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
+            not in device_state.device_state
+        ):
+            self._free_slots_available_event.clear()
+            LOGGER.debug("Data request queue full.")
+        else:
+            self._free_slots_available_event.set()
+
+        if DeviceStateFlags.APSDE_DATA_INDICATION in device_state.device_state and (
+            self._data_indication_task is None or self._data_indication_task.done()
+        ):
+            if (
+                self.protocol_version >= MIN_PROTO_VERSION
+                and (self.firmware_version & 0x0000FF00) == 0x00000500
+            ):
+                flags = t.DataIndicationFlags.Include_Both_NWK_And_IEEE
+            else:
+                flags = t.DataIndicationFlags.Always_Use_NWK_Source_Addr
+
+            self._data_indication_task = asyncio.create_task(
+                self._command(CommandId.aps_data_indication, flags=flags)
+            )
+
+        if DeviceStateFlags.APSDE_DATA_CONFIRM in device_state.device_state and (
+            self._data_confirm_task is None or self._data_confirm_task.done()
+        ):
+            self._data_confirm_task = asyncio.create_task(
+                self._command(CommandId.aps_data_confirm)
+            )

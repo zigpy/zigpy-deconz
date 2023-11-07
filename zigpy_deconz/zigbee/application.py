@@ -28,7 +28,10 @@ import zigpy.zdo.types as zdo_t
 import zigpy_deconz
 from zigpy_deconz import types as t
 from zigpy_deconz.api import (
+    CommandId,
     Deconz,
+    IndexedKey,
+    LinkKey,
     NetworkParameter,
     NetworkState,
     SecurityMode,
@@ -138,12 +141,18 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     ):
         async def change_loop():
             while True:
-                (state, _, _) = await self._api.device_state()
-                if state.network_state == target_state:
+                state_rsp = await self._api._command(CommandId.device_state)
+
+                if (
+                    NetworkState(state_rsp["device_state"].network_state)
+                    == target_state
+                ):
                     break
                 await asyncio.sleep(CHANGE_NETWORK_WAIT)
 
-        await self._api.change_network_state(target_state)
+        await self._api._command(
+            CommandId.change_network_state, network_state=target_state
+        )
 
         try:
             async with asyncio_timeout(timeout):
@@ -203,7 +212,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
             node_ieee = node_info.ieee
         else:
-            (ieee,) = await self._api[NetworkParameter.mac_address]
+            ieee = await self._api.read_parameter(NetworkParameter.mac_address)
             node_ieee = zigpy.types.EUI64(ieee)
 
         # There is no way to specify both a mask and the logical channel
@@ -232,7 +241,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
 
         await self._api.write_parameter(
-            NetworkParameter.network_key, 0, network_info.network_key.key
+            NetworkParameter.network_key,
+            IndexedKey(index=0, key=network_info.network_key.key),
         )
 
         if network_info.network_key.seq != 0:
@@ -252,8 +262,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
         await self._api.write_parameter(
             NetworkParameter.link_key,
-            tc_link_key_partner_ieee,
-            network_info.tc_link_key.key,
+            LinkKey(
+                ieee=tc_link_key_partner_ieee,
+                key=network_info.tc_link_key.key,
+            ),
         )
 
         if network_info.security_level == 0x00:
@@ -283,60 +295,68 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             }
         }
 
-        (ieee,) = await self._api[NetworkParameter.mac_address]
+        ieee = await self._api.read_parameter(NetworkParameter.mac_address)
         node_info.ieee = zigpy.types.EUI64(ieee)
-        (designed_coord,) = await self._api[NetworkParameter.aps_designed_coordinator]
+        designed_coord = await self._api.read_parameter(
+            NetworkParameter.aps_designed_coordinator
+        )
 
         if designed_coord == 0x01:
             node_info.logical_type = zdo_t.LogicalType.Coordinator
         else:
             node_info.logical_type = zdo_t.LogicalType.Router
 
-        (node_info.nwk,) = await self._api[NetworkParameter.nwk_address]
+        node_info.nwk = await self._api.read_parameter(NetworkParameter.nwk_address)
 
-        (network_info.pan_id,) = await self._api[NetworkParameter.nwk_panid]
-        (network_info.extended_pan_id,) = await self._api[
+        network_info.pan_id = await self._api.read_parameter(NetworkParameter.nwk_panid)
+        network_info.extended_pan_id = await self._api.read_parameter(
             NetworkParameter.aps_extended_panid
-        ]
+        )
 
         if network_info.extended_pan_id == zigpy.types.EUI64.convert(
             "00:00:00:00:00:00:00:00"
         ):
-            (network_info.extended_pan_id,) = await self._api[
+            network_info.extended_pan_id = await self._api.read_parameter(
                 NetworkParameter.nwk_extended_panid
-            ]
+            )
 
-        (network_info.channel,) = await self._api[NetworkParameter.current_channel]
-        (network_info.channel_mask,) = await self._api[NetworkParameter.channel_mask]
-        (network_info.nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
+        network_info.channel = await self._api.read_parameter(
+            NetworkParameter.current_channel
+        )
+        network_info.channel_mask = await self._api.read_parameter(
+            NetworkParameter.channel_mask
+        )
+        network_info.nwk_update_id = await self._api.read_parameter(
+            NetworkParameter.nwk_update_id
+        )
 
         if network_info.channel == 0:
             raise NetworkNotFormed("Network channel is zero")
 
+        indexed_key = await self._api.read_parameter(NetworkParameter.network_key, 0)
+
         network_info.network_key = zigpy.state.Key()
-        (
-            _,
-            network_info.network_key.key,
-        ) = await self._api.read_parameter(NetworkParameter.network_key, 0)
+        network_info.network_key.key = indexed_key.key
 
         try:
-            (network_info.network_key.tx_counter,) = await self._api[
+            network_info.network_key.tx_counter = await self._api.read_parameter(
                 NetworkParameter.nwk_frame_counter
-            ]
+            )
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
 
         network_info.tc_link_key = zigpy.state.Key()
-        (network_info.tc_link_key.partner_ieee,) = await self._api[
+        network_info.tc_link_key.partner_ieee = await self._api.read_parameter(
             NetworkParameter.trust_center_address
-        ]
+        )
 
-        (_, network_info.tc_link_key.key) = await self._api.read_parameter(
+        link_key = await self._api.read_parameter(
             NetworkParameter.link_key,
             network_info.tc_link_key.partner_ieee,
         )
+        network_info.tc_link_key.key = link_key.key
 
-        (security_mode,) = await self._api[NetworkParameter.security_mode]
+        security_mode = await self._api.read_parameter(NetworkParameter.security_mode)
 
         if security_mode == SecurityMode.NO_SECURITY:
             network_info.security_level = 0x00
@@ -380,14 +400,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         # Read and count the current endpoints. Some firmwares have three, others four.
         for index in range(255 + 1):
             try:
-                _, current_descriptor = await self._api.read_parameter(
+                current_descriptor = await self._api.read_parameter(
                     NetworkParameter.configure_endpoint, index
                 )
             except zigpy_deconz.exception.CommandError as ex:
                 assert ex.status == Status.UNSUPPORTED
                 break
             else:
-                endpoints[index] = current_descriptor
+                endpoints[index] = current_descriptor.descriptor
 
         LOGGER.debug("Got endpoint slots: %r", endpoints)
 
