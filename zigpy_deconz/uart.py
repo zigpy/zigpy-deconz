@@ -6,9 +6,11 @@ import logging
 from typing import Callable, Dict
 
 import zigpy.serial
+
 from zigpy_deconz.config import CONF_DEVICE_BAUDRATE, CONF_DEVICE_PATH
 
 LOGGER = logging.getLogger(__name__)
+
 
 class Gateway(asyncio.Protocol):
     END = b"\xC0"
