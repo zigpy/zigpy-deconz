@@ -186,80 +186,17 @@ class Command(Struct):
     payload: t.Bytes
 
 
-TX_COMMANDS = {
-    CommandId.add_neighbour: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        "payload_length": PAYLOAD_LENGTH,
-        "unknown": t.uint8_t,
-        "nwk": t.NWK,
-        "ieee": t.EUI64,
-        "mac_capability_flags": t.uint8_t,
-    },
-    CommandId.aps_data_confirm: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        "payload_length": PAYLOAD_LENGTH,
-    },
-    CommandId.aps_data_indication: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        "payload_length": PAYLOAD_LENGTH,
-        "flags": t.DataIndicationFlags,
-    },
-    CommandId.aps_data_request: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        "payload_length": PAYLOAD_LENGTH,
-        "request_id": t.uint8_t,
-        "flags": t.DeconzSendDataFlags,
-        "dst": t.DeconzAddressEndpoint,
-        "profile_id": t.uint16_t,
-        "cluster_id": t.uint16_t,
-        "src_ep": t.uint8_t,
-        "asdu": t.LongOctetString,
-        "tx_options": t.DeconzTransmitOptions,
-        "radius": t.uint8_t,
-        "relays": t.NWKList,  # optional
-    },
-    CommandId.change_network_state: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        # "payload_length": PAYLOAD_LENGTH,
-        "network_state": NetworkState,
-    },
-    CommandId.device_state: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        # "payload_length": PAYLOAD_LENGTH,
-        "reserved1": t.uint8_t(0),
-        "reserved2": t.uint8_t(0),
-        "reserved3": t.uint8_t(0),
-    },
-    CommandId.read_parameter: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        "payload_length": PAYLOAD_LENGTH,
-        "parameter_id": NetworkParameter,
-        "parameter": t.Bytes,
-    },
-    CommandId.version: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        # "payload_length": PAYLOAD_LENGTH,
-        "reserved": t.uint32_t(0),
-    },
-    CommandId.write_parameter: {
-        "status": Status.SUCCESS,
-        "frame_length": FRAME_LENGTH,
-        "payload_length": PAYLOAD_LENGTH,
-        "parameter_id": NetworkParameter,
-        "parameter": t.Bytes,
-    },
-}
-
-RX_COMMANDS = {
+COMMAND_SCHEMAS = {
     CommandId.add_neighbour: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            "payload_length": PAYLOAD_LENGTH,
+            "unknown": t.uint8_t,
+            "nwk": t.NWK,
+            "ieee": t.EUI64,
+            "mac_capability_flags": t.uint8_t,
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
@@ -269,9 +206,13 @@ RX_COMMANDS = {
             "ieee": t.EUI64,
             "mac_capability_flags": t.uint8_t,
         },
-        True,
     ),
     CommandId.aps_data_confirm: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            "payload_length": PAYLOAD_LENGTH,
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
@@ -286,9 +227,14 @@ RX_COMMANDS = {
             "reserved3": t.uint8_t,
             "reserved4": t.uint8_t,
         },
-        True,
     ),
     CommandId.aps_data_indication: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            "payload_length": PAYLOAD_LENGTH,
+            "flags": t.DataIndicationFlags,
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
@@ -310,9 +256,23 @@ RX_COMMANDS = {
             "reserved6": t.uint8_t,
             "rssi": t.int8s,
         },
-        True,
     ),
     CommandId.aps_data_request: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            "payload_length": PAYLOAD_LENGTH,
+            "request_id": t.uint8_t,
+            "flags": t.DeconzSendDataFlags,
+            "dst": t.DeconzAddressEndpoint,
+            "profile_id": t.uint16_t,
+            "cluster_id": t.uint16_t,
+            "src_ep": t.uint8_t,
+            "asdu": t.LongOctetString,
+            "tx_options": t.DeconzTransmitOptions,
+            "radius": t.uint8_t,
+            "relays": t.NWKList,  # optional
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
@@ -320,18 +280,30 @@ RX_COMMANDS = {
             "device_state": DeviceState,
             "request_id": t.uint8_t,
         },
-        True,
     ),
     CommandId.change_network_state: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            # "payload_length": PAYLOAD_LENGTH,
+            "network_state": NetworkState,
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
             # "payload_length": t.uint16_t,
             "network_state": NetworkState,
         },
-        True,
     ),
     CommandId.device_state: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            # "payload_length": PAYLOAD_LENGTH,
+            "reserved1": t.uint8_t(0),
+            "reserved2": t.uint8_t(0),
+            "reserved3": t.uint8_t(0),
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
@@ -340,9 +312,9 @@ RX_COMMANDS = {
             "reserved1": t.uint8_t,
             "reserved2": t.uint8_t,
         },
-        True,
     ),
     CommandId.device_state_changed: (
+        None,
         {
             "status": Status,
             "frame_length": t.uint16_t,
@@ -350,9 +322,9 @@ RX_COMMANDS = {
             "device_state": DeviceState,
             "reserved": t.uint8_t,
         },
-        False,
     ),
     CommandId.mac_poll: (
+        None,
         {
             "status": Status,
             "frame_length": t.uint16_t,
@@ -363,9 +335,15 @@ RX_COMMANDS = {
             "life_time": t.uint32_t,  # Optional
             "device_timeout": t.uint32_t,  # Optional
         },
-        False,
     ),
     CommandId.read_parameter: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            "payload_length": PAYLOAD_LENGTH,
+            "parameter_id": NetworkParameter,
+            "parameter": t.Bytes,
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
@@ -373,48 +351,44 @@ RX_COMMANDS = {
             "parameter_id": NetworkParameter,
             "parameter": t.Bytes,
         },
-        True,
-    ),
-    CommandId.mac_beacon_indication: (
-        {
-            "status": Status,
-            "frame_length": t.uint16_t,
-            "payload_length": t.uint16_t,
-            "src_addr": t.uint16_t,
-            "pan_id": t.uint16_t,
-            "channel": t.uint8_t,
-            "flags": t.uint8_t,
-            "update_id": t.uint8_t,
-            "data": t.Bytes,
-        },
-        False,
     ),
     CommandId.version: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            # "payload_length": PAYLOAD_LENGTH,
+            "reserved": t.uint32_t(0),
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
             # "payload_length": t.uint16_t,
             "version": t.uint32_t,
         },
-        True,
     ),
     CommandId.write_parameter: (
+        {
+            "status": Status.SUCCESS,
+            "frame_length": FRAME_LENGTH,
+            "payload_length": PAYLOAD_LENGTH,
+            "parameter_id": NetworkParameter,
+            "parameter": t.Bytes,
+        },
         {
             "status": Status,
             "frame_length": t.uint16_t,
             "payload_length": t.uint16_t,
             "parameter_id": NetworkParameter,
         },
-        True,
     ),
     CommandId.zigbee_green_power: (
+        None,
         {
             "status": Status,
             "frame_length": t.uint16_t,
             "payload_length": t.uint16_t,
             "reserved": t.LongOctetString,
         },
-        False,
     ),
 }
 
@@ -495,10 +469,10 @@ class Deconz:
 
     async def _command(self, cmd, **kwargs):
         payload = []
-        schema = TX_COMMANDS[cmd]
+        tx_schema, _ = COMMAND_SCHEMAS[cmd]
         trailing_optional = False
 
-        for name, param_type in schema.items():
+        for name, param_type in tx_schema.items():
             if isinstance(param_type, int):
                 if name not in kwargs:
                     # Default value
@@ -578,19 +552,16 @@ class Deconz:
     def data_received(self, data: bytes) -> None:
         command, _ = Command.deserialize(data)
 
-        if command.command_id not in RX_COMMANDS:
+        if command.command_id not in COMMAND_SCHEMAS:
             LOGGER.warning("Unknown command received: %s", command)
             return
 
-        schema, solicited = RX_COMMANDS[command.command_id]
+        _, rx_schema = COMMAND_SCHEMAS[command.command_id]
 
-        if solicited and command.seq in self._awaiting:
-            fut, cmd = self._awaiting.pop(command.seq)
-        else:
-            fut, cmd = None, None
+        fut, cmd = self._awaiting.pop(command.seq, (None, None))
 
         try:
-            params, rest = t.deserialize_dict(command.payload, schema)
+            params, rest = t.deserialize_dict(command.payload, rx_schema)
 
             if rest:
                 LOGGER.debug("Unparsed data remains after frame: %s, %s", command, rest)
@@ -622,30 +593,33 @@ class Deconz:
         )
         status = params["status"]
 
-        if status != Status.SUCCESS:
+        if cmd != command.command_id:
+            exc = CommandError(
+                status,
+                (
+                    f"Received invalid response {command.command_id}{params}"
+                    f" to request {cmd}"
+                ),
+            )
+        elif status != Status.SUCCESS:
+            exc = CommandError(status, f"{command.command_id}, status: {status}")
+        else:
+            exc = None
+
+        if fut is not None:
             try:
-                fut.set_exception(
-                    CommandError(status, f"{command.command_id}, status: {status}")
-                )
+                if exc is None:
+                    fut.set_result(params)
+                else:
+                    fut.set_exception(exc)
             except asyncio.InvalidStateError:
                 LOGGER.warning(
                     "Duplicate or delayed response for 0x:%02x sequence",
                     command.seq,
                 )
-            return
 
-        if fut is not None:
-            if cmd != command.command_id:
-                LOGGER.warning(
-                    "UNEXPECTED RESPONSE TYPE???? %s != %s", cmd, command.command_id
-                )
-
-            try:
-                fut.set_result(params)
-            except asyncio.InvalidStateError:
-                LOGGER.warning(
-                    "Duplicate or delayed response for 0x:%02x sequence", command.seq
-                )
+            if exc is not None:
+                return
 
         if handler := getattr(self, f"_handle_{command.command_id.name}", None):
             handler_params = {

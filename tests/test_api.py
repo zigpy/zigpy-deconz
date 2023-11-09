@@ -67,10 +67,10 @@ async def mock_command_rsp(gateway):
 
             def receiver(data):
                 command, _ = deconz_api.Command.deserialize(data)
-                schema_with_defaults = deconz_api.TX_COMMANDS[command.command_id]
+                tx_schema, _ = deconz_api.COMMAND_SCHEMAS[command.command_id]
                 schema = {}
 
-                for k, v in schema_with_defaults.items():
+                for k, v in tx_schema.items():
                     if v in (deconz_api.FRAME_LENGTH, deconz_api.PAYLOAD_LENGTH):
                         v = t.uint16_t
                     elif not inspect.isclass(v):
@@ -82,15 +82,14 @@ async def mock_command_rsp(gateway):
 
                 for params, ret in receiver._handlers[command.command_id]:
                     if all(kwargs[k] == v for k, v in params.items()):
+                        _, rx_schema = deconz_api.COMMAND_SCHEMAS[command.command_id]
+
                         asyncio.get_running_loop().call_soon(
                             gateway._api.data_received,
                             deconz_api.Command(
                                 command_id=command.command_id,
                                 seq=command.seq,
-                                payload=t.serialize_dict(
-                                    ret,
-                                    deconz_api.RX_COMMANDS[command.command_id][0],
-                                ),
+                                payload=t.serialize_dict(ret, rx_schema),
                             ).serialize(),
                         )
 
@@ -118,14 +117,10 @@ async def test_close(api):
 
 
 def test_commands():
-    for cmd, (schema, solicited) in deconz_api.RX_COMMANDS.items():
-        assert isinstance(schema, dict)
+    for cmd, (tx_schema, rx_schema) in deconz_api.COMMAND_SCHEMAS.items():
         assert isinstance(cmd, deconz_api.CommandId)
-        assert isinstance(solicited, bool)
-
-    for cmd, schema in deconz_api.TX_COMMANDS.items():
-        assert isinstance(cmd, deconz_api.CommandId) is True
-        assert isinstance(schema, dict) is True
+        assert isinstance(tx_schema, dict) or tx_schema is None
+        assert isinstance(rx_schema, dict)
 
 
 async def test_command(api):
@@ -170,7 +165,7 @@ async def test_command(api):
         seq=api._seq,
         payload=t.serialize_dict(
             params,
-            deconz_api.RX_COMMANDS[deconz_api.CommandId.aps_data_indication][0],
+            deconz_api.COMMAND_SCHEMAS[deconz_api.CommandId.aps_data_indication][1],
         ),
     ).serialize()
 
