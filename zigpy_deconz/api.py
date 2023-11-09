@@ -537,7 +537,7 @@ class Deconz:
             self._seq = (self._seq % 255) + 1
 
             fut = asyncio.Future()
-            self._awaiting[seq] = (fut, cmd)
+            self._awaiting[seq, cmd] = fut
 
             try:
                 async with asyncio_timeout(COMMAND_TIMEOUT):
@@ -546,7 +546,7 @@ class Deconz:
                 LOGGER.warning(
                     "No response to '%s' command with seq id '0x%02x'", cmd, seq
                 )
-                self._awaiting.pop(seq, None)
+                self._awaiting.pop((seq, cmd), None)
                 raise
 
     def data_received(self, data: bytes) -> None:
@@ -558,13 +558,10 @@ class Deconz:
 
         _, rx_schema = COMMAND_SCHEMAS[command.command_id]
 
-        fut, cmd = self._awaiting.pop(command.seq, (None, None))
+        fut = self._awaiting.pop((command.seq, command.command_id), None)
 
         try:
             params, rest = t.deserialize_dict(command.payload, rx_schema)
-
-            if rest:
-                LOGGER.debug("Unparsed data remains after frame: %s, %s", command, rest)
         except Exception:
             LOGGER.warning("Failed to parse command %s", command, exc_info=True)
 
@@ -574,6 +571,9 @@ class Deconz:
                 )
 
             return
+
+        if rest:
+            LOGGER.debug("Unparsed data remains after frame: %s, %s", command, rest)
 
         assert params["frame_length"] == len(data)
 
@@ -593,18 +593,10 @@ class Deconz:
         )
         status = params["status"]
 
-        if cmd != command.command_id:
-            exc = CommandError(
-                status,
-                (
-                    f"Received invalid response {command.command_id}{params}"
-                    f" to request {cmd}"
-                ),
-            )
-        elif status != Status.SUCCESS:
+        exc = None
+
+        if status != Status.SUCCESS:
             exc = CommandError(status, f"{command.command_id}, status: {status}")
-        else:
-            exc = None
 
         if fut is not None:
             try:
@@ -784,11 +776,11 @@ class Deconz:
             assert len(relays) <= 9
             flags |= t.DeconzSendDataFlags.RELAYS
 
-        if not self._free_slots_available_event.is_set():
-            LOGGER.debug("Waiting for free slots to become available")
-            await self._free_slots_available_event.wait()
-
         for delay in REQUEST_RETRY_DELAYS:
+            if not self._free_slots_available_event.is_set():
+                LOGGER.debug("Waiting for free slots to become available")
+                await self._free_slots_available_event.wait()
+
             try:
                 rsp = await self._command(
                     CommandId.aps_data_request,
