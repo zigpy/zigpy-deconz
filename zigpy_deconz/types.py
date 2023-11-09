@@ -27,31 +27,34 @@ from zigpy.types import (  # noqa: F401
 )
 
 
-def deserialize(data, schema):
-    result = []
-    for type_ in schema:
-        value, data = type_.deserialize(data)
-        result.append(value)
-    return result, data
+def serialize_dict(data, schema):
+    chunks = []
+
+    for key in schema:
+        value = data[key]
+        if value is None:
+            break
+        chunks.append(value.serialize())
+
+    return b"".join(chunks)
 
 
 def deserialize_dict(data, schema):
     result = {}
     for name, type_ in schema.items():
-        if not data:
-            result[name] = None
-        else:
+        try:
             result[name], data = type_.deserialize(data)
+        except ValueError:
+            if data:
+                raise
+
+            result[name] = None
     return result, data
 
 
 def list_replace(lst: list, old: object, new: object) -> list:
     """Replace all occurrences of `old` with `new` in `lst`."""
     return [new if x == old else x for x in lst]
-
-
-def serialize(data, schema):
-    return b"".join(t(v).serialize() for t, v in zip(schema, data))
 
 
 class Bytes(bytes):
@@ -88,7 +91,7 @@ class DeconzTransmitOptions(bitmap8):
 
 class NWKList(LVList):
     _length_type = uint8_t
-    _itemtype = NWK
+    _item_type = NWK
 
 
 ZIGPY_ADDR_MODE_MAPPING = {

@@ -485,24 +485,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                         f"Failed to deliver packet: {status!r}", status
                     )
 
-    def handle_rx(
-        self, src, src_ep, dst, dst_ep, profile_id, cluster_id, data, lqi, rssi
-    ):
-        self.packet_received(
-            zigpy.types.ZigbeePacket(
-                src=src.as_zigpy_type(),
-                src_ep=src_ep,
-                dst=dst.as_zigpy_type(),
-                dst_ep=dst_ep,
-                tsn=None,
-                profile_id=profile_id,
-                cluster_id=cluster_id,
-                data=zigpy.types.SerializableBytes(data),
-                lqi=lqi,
-                rssi=rssi,
-            )
-        )
-
     async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
         await self._api.write_parameter(NetworkParameter.permit_join, time_s)

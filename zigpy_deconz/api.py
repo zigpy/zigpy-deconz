@@ -14,7 +14,15 @@ else:
     from asyncio import timeout as asyncio_timeout  # pragma: no cover
 
 from zigpy.config import CONF_DEVICE_PATH
-from zigpy.types import APSStatus, Bool, Channels, KeyData, Struct
+from zigpy.types import (
+    APSStatus,
+    Bool,
+    Channels,
+    KeyData,
+    SerializableBytes,
+    Struct,
+    ZigbeePacket,
+)
 from zigpy.zdo.types import SimpleDescriptor
 
 from zigpy_deconz.exception import APIException, CommandError
@@ -458,8 +466,9 @@ class Deconz:
     async def connect(self) -> None:
         assert self._uart is None
         self._uart = await zigpy_deconz.uart.connect(self._config, self)
-        await self._command(CommandId.device_state)
 
+        device_state_rsp = await self._command(CommandId.device_state)
+        self._device_state = device_state_rsp["device_state"]
         self._data_poller_task = asyncio.create_task(self._data_poller())
 
     def connection_lost(self, exc: Exception) -> None:
@@ -546,10 +555,12 @@ class Deconz:
             raise CommandError(Status.ERROR, "API is not running")
 
         async with self._command_lock:
-            seq = self._seq = (self._seq % 255) + 1
+            seq = self._seq
 
             LOGGER.debug("Sending %s%s (seq=%s)", cmd, kwargs, seq)
             self._uart.send(command.replace(seq=seq).serialize())
+
+            self._seq = (self._seq % 255) + 1
 
             fut = asyncio.Future()
             self._awaiting[seq] = (fut, cmd)
@@ -684,7 +695,14 @@ class Deconz:
             parameter=write_param_type(parameter).serialize(),
         )
 
-        assert rsp["status"] == Status.SUCCESS
+        if rsp["status"] != Status.SUCCESS:
+            raise CommandError(
+                status=rsp["status"],
+                message=(
+                    f"Failed to write parameter {parameter_id}={parameter}: "
+                    f"{rsp['status']}"
+                ),
+            )
 
     async def version(self):
         self._proto_ver = await self.read_parameter(NetworkParameter.protocol_version)
@@ -710,7 +728,7 @@ class Deconz:
         flags = t.DeconzSendDataFlags.NONE
 
         # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
-        if relays:
+        if relays is not None:
             # There is a max of 9 relays
             assert len(relays) <= 9
             flags |= t.DeconzSendDataFlags.RELAYS
@@ -774,16 +792,19 @@ class Deconz:
                     status=rsp["status"], device_state=rsp["device_state"]
                 )
 
-                self._app.handle_rx(
-                    src=rsp["src_addr"],
-                    src_ep=rsp["src_ep"],
-                    dst=rsp["dst_addr"],
-                    dst_ep=rsp["dst_ep"],
-                    profile_id=rsp["profile_id"],
-                    cluster_id=rsp["cluster_id"],
-                    data=rsp["asdu"],
-                    lqi=rsp["lqi"],
-                    rssi=rsp["rssi"],
+                self._app.packet_received(
+                    ZigbeePacket(
+                        src=rsp["src_addr"].as_zigpy_type(),
+                        src_ep=rsp["src_ep"],
+                        dst=rsp["dst_addr"].as_zigpy_type(),
+                        dst_ep=rsp["dst_ep"],
+                        tsn=None,
+                        profile_id=rsp["profile_id"],
+                        cluster_id=rsp["cluster_id"],
+                        data=SerializableBytes(rsp["asdu"]),
+                        lqi=rsp["lqi"],
+                        rssi=rsp["rssi"],
+                    )
                 )
 
             # Poll data confirm
