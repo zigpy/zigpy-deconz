@@ -71,6 +71,18 @@ class DeviceState(t.Struct):
     device_state: DeviceStateFlags
 
 
+class FirmwarePlatform(t.enum8):
+    Conbee = 0x05
+    Conbee_II = 0x07
+
+
+class FirmwareVersion(t.Struct, t.uint32_t):
+    reserved: t.uint8_t
+    platform: FirmwarePlatform
+    minor: t.uint8_t
+    major: t.uint8_t
+
+
 class NetworkState(t.enum8):
     OFFLINE = 0
     JOINING = 1
@@ -363,7 +375,7 @@ COMMAND_SCHEMAS = {
             "status": Status,
             "frame_length": t.uint16_t,
             # "payload_length": t.uint16_t,
-            "version": t.uint32_t,
+            "version": FirmwareVersion,
         },
     ),
     CommandId.write_parameter: (
@@ -418,12 +430,12 @@ class Deconz:
         self._data_poller_task: asyncio.Task | None = None
 
         self._seq = 1
-        self._protocol_version: int | None = None
-        self._firmware_version: int | None = None
+        self._protocol_version = 0
+        self._firmware_version = 0
         self._uart: zigpy_deconz.uart.Gateway | None = None
 
     @property
-    def firmware_version(self) -> int | None:
+    def firmware_version(self) -> FirmwareVersion:
         """Return ConBee firmware version."""
         return self._firmware_version
 
@@ -433,7 +445,7 @@ class Deconz:
         return self._device_state.network_state
 
     @property
-    def protocol_version(self) -> int | None:
+    def protocol_version(self) -> int:
         """Protocol Version."""
         return self._protocol_version
 
@@ -441,8 +453,11 @@ class Deconz:
         assert self._uart is None
         self._uart = await zigpy_deconz.uart.connect(self._config, self)
 
+        await self.version()
+
         device_state_rsp = await self._command(CommandId.device_state)
         self._device_state = device_state_rsp["device_state"]
+
         self._data_poller_task = asyncio.create_task(self._data_poller())
 
     def connection_lost(self, exc: Exception) -> None:
@@ -629,17 +644,18 @@ class Deconz:
             await self._data_poller_event.wait()
             self._data_poller_event.clear()
 
+            if self._device_state.network_state == NetworkState2.OFFLINE:
+                continue
+
             # Poll data indication
             if (
-                self._device_state.network_state != NetworkState2.OFFLINE
-                and DeviceStateFlags.APSDE_DATA_INDICATION
+                DeviceStateFlags.APSDE_DATA_INDICATION
                 in self._device_state.device_state
             ):
+                # Old Conbee I firmware has an addressing bug for incoming multicasts
                 if (
-                    self.protocol_version is not None
-                    and self.firmware_version is not None
-                    and self.protocol_version >= MIN_PROTO_VERSION
-                    and (self.firmware_version & 0x0000FF00) == 0x00000500
+                    self.protocol_version >= MIN_PROTO_VERSION
+                    and self.firmware_version.platform == FirmwarePlatform.Conbee
                 ):
                     flags = t.DataIndicationFlags.Include_Both_NWK_And_IEEE
                 else:
@@ -666,11 +682,7 @@ class Deconz:
                 )
 
             # Poll data confirm
-            if (
-                self._device_state.network_state != NetworkState2.OFFLINE
-                and DeviceStateFlags.APSDE_DATA_CONFIRM
-                in self._device_state.device_state
-            ):
+            if DeviceStateFlags.APSDE_DATA_CONFIRM in self._device_state.device_state:
                 rsp = await self._command(CommandId.aps_data_confirm)
 
                 self._app.handle_tx_confirm(rsp["request_id"], rsp["confirm_status"])

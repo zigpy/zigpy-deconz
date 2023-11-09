@@ -29,6 +29,8 @@ import zigpy_deconz
 from zigpy_deconz import types as t
 from zigpy_deconz.api import (
     Deconz,
+    FirmwarePlatform,
+    FirmwareVersion,
     IndexedEndpoint,
     IndexedKey,
     LinkKey,
@@ -595,13 +597,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
-    def __init__(self, version: int, device_path: str, *args):
+    def __init__(self, version: FirmwareVersion, device_path: str, *args):
         """Initialize instance."""
 
         super().__init__(*args)
         is_gpio_device = re.match(r"/dev/tty(S|AMA|ACM)\d+", device_path)
         self._model = "RaspBee" if is_gpio_device else "ConBee"
-        self._model += " II" if ((version & 0x0000FF00) == 0x00000700) else ""
+        self._model += " II" if version.platform == FirmwarePlatform.Conbee_II else ""
 
     async def add_to_group(self, grp_id: int, name: str = None) -> None:
         group = self.application.groups.add_group(grp_id, name)
