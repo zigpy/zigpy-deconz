@@ -3,6 +3,7 @@
 import asyncio
 import collections
 import inspect
+import logging
 
 import pytest
 import zigpy.config
@@ -12,7 +13,7 @@ from zigpy_deconz import api as deconz_api, types as t, uart
 import zigpy_deconz.exception
 import zigpy_deconz.zigbee.application
 
-from .async_mock import AsyncMock, MagicMock, patch
+from .async_mock import MagicMock, patch
 
 DEVICE_CONFIG = {zigpy.config.CONF_DEVICE_PATH: "/dev/null"}
 
@@ -428,8 +429,25 @@ def test_tx_status(value, name):
 
 
 @pytest.mark.parametrize("relays", (None, [], [0x1234, 0x5678]))
-async def test_aps_data_request_relays(relays, api):
-    mock_cmd = api._command = AsyncMock()
+async def test_aps_data_request_relays(relays, api, mock_command_rsp):
+    await api.connect()
+
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.aps_data_request,
+        params={},
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(9),
+            "payload_length": t.uint16_t(2),
+            "device_state": deconz_api.DeviceState(
+                network_state=deconz_api.NetworkState2.CONNECTED,
+                device_state=(
+                    deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
+                ),
+            ),
+            "request_id": t.uint8_t(0x00),
+        },
+    )
 
     await api.aps_data_request(
         req_id=0x00,
@@ -440,15 +458,93 @@ async def test_aps_data_request_relays(relays, api):
         aps_payload=b"aps payload",
         relays=relays,
     )
-    assert mock_cmd.call_count == 1
 
-    assert mock_cmd.mock_calls[0].kwargs["relays"] == relays
+    with pytest.raises(ValueError) as exc:
+        await api.aps_data_request(
+            req_id=0x00,
+            dst_addr_ep=t.DeconzAddressEndpoint.deserialize(b"\x02\xaa\x55\x01")[0],
+            profile=0x0104,
+            cluster=0x0007,
+            src_ep=None,  # This is not possible
+            aps_payload=b"aps payload",
+        )
+
+        assert "has non-trailing optional argument" in str(exc.value)
 
 
 async def test_connection_lost(api):
+    await api.connect()
+
     app = api._app = MagicMock()
 
     err = RuntimeError()
     api.connection_lost(err)
 
     app.connection_lost.assert_called_once_with(err)
+
+
+async def test_unknown_command(api, caplog):
+    await api.connect()
+
+    assert 0xFF not in deconz_api.COMMAND_SCHEMAS
+
+    with caplog.at_level(logging.WARNING):
+        api.data_received(b"\xFF\xAA\xBB")
+
+    assert (
+        "Unknown command received: Command(command_id=<CommandId.undefined_0xff: 255>,"
+        " seq=170, payload=b'\\xbb')"
+    ) in caplog.text
+
+
+async def test_bad_command_parsing(api, caplog):
+    await api.connect()
+
+    assert 0xFF not in deconz_api.COMMAND_SCHEMAS
+
+    with caplog.at_level(logging.WARNING):
+        api.data_received(
+            bytes.fromhex(
+                "172c002f0028002e02000000020000000000"
+                "028011000300000010400f3511472b004000"
+                # "2b000000af45838600001b"  # truncated
+            )
+        )
+
+    assert (
+        "Failed to parse command Command(command_id="
+        "<CommandId.aps_data_indication: 23>"
+    ) in caplog.text
+
+    caplog.clear()
+
+    with caplog.at_level(logging.DEBUG):
+        api.data_received(bytes.fromhex("0d03000d0000077826") + b"TEST")
+
+    assert (
+        "Unparsed data remains after frame" in caplog.text and "b'TEST'" in caplog.text
+    )
+
+
+async def test_bad_response_status(api, mock_command_rsp):
+    await api.connect()
+
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.write_parameter,
+        params={
+            "parameter_id": deconz_api.NetworkParameter.nwk_update_id,
+            "parameter": t.uint8_t(123).serialize(),
+        },
+        rsp={
+            "status": deconz_api.Status.FAILURE,
+            "frame_length": t.uint16_t(8),
+            "payload_length": t.uint16_t(1),
+            "parameter_id": deconz_api.NetworkParameter.nwk_update_id,
+        },
+    )
+
+    with pytest.raises(deconz_api.CommandError) as exc:
+        await api.write_parameter(deconz_api.NetworkParameter.nwk_update_id, 123)
+
+    assert isinstance(exc.value, deconz_api.CommandError)
+    assert exc.value.status == deconz_api.Status.FAILURE
