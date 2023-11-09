@@ -152,7 +152,7 @@ class LinkKey(Struct):
 
 
 class IndexedEndpoint(Struct):
-    ep_id: t.uint8_t
+    index: t.uint8_t
     descriptor: SimpleDescriptor
 
 
@@ -444,7 +444,7 @@ class Deconz:
         self._data_poller_task: asyncio.Task | None = None
 
         self._seq = 1
-        self._proto_ver: int | None = None
+        self._protocol_version: int | None = None
         self._firmware_version: int | None = None
         self._uart: zigpy_deconz.uart.Gateway | None = None
 
@@ -461,7 +461,7 @@ class Deconz:
     @property
     def protocol_version(self) -> int | None:
         """Protocol Version."""
-        return self._proto_ver
+        return self._protocol_version
 
     async def connect(self) -> None:
         assert self._uart is None
@@ -657,114 +657,6 @@ class Deconz:
             # Queue up the callback within the event loop
             asyncio.get_running_loop().call_soon(lambda: handler(**handler_params))
 
-    async def read_parameter(
-        self, parameter_id: NetworkParameter, parameter: Any = None
-    ) -> Any:
-        read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
-
-        if parameter is None:
-            value = t.Bytes(b"")
-        else:
-            value = read_param_type(parameter).serialize()
-
-        rsp = await self._command(
-            CommandId.read_parameter,
-            parameter_id=parameter_id,
-            parameter=value,
-        )
-
-        assert rsp["parameter_id"] == parameter_id
-
-        result, _ = write_param_type.deserialize(rsp["parameter"])
-        LOGGER.debug("Read parameter %s(%s)=%r", parameter_id.name, parameter, result)
-
-        return result
-
-    def reconnect(self):
-        """Reconnect using saved parameters."""
-        LOGGER.debug("Reconnecting '%s' serial port", self._config[CONF_DEVICE_PATH])
-        return self.connect()
-
-    async def write_parameter(
-        self, parameter_id: NetworkParameter, parameter: Any
-    ) -> None:
-        read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
-        rsp = await self._command(
-            CommandId.write_parameter,
-            parameter_id=parameter_id,
-            parameter=write_param_type(parameter).serialize(),
-        )
-
-        if rsp["status"] != Status.SUCCESS:
-            raise CommandError(
-                status=rsp["status"],
-                message=(
-                    f"Failed to write parameter {parameter_id}={parameter}: "
-                    f"{rsp['status']}"
-                ),
-            )
-
-    async def version(self):
-        self._proto_ver = await self.read_parameter(NetworkParameter.protocol_version)
-
-        version_rsp = await self._command(CommandId.version, reserved=0)
-        self._firmware_version = version_rsp["version"]
-
-        return self.firmware_version
-
-    async def aps_data_request(
-        self,
-        req_id,
-        dst_addr_ep,
-        profile,
-        cluster,
-        src_ep,
-        aps_payload,
-        *,
-        relays=None,
-        tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
-        radius=0,
-    ) -> None:
-        flags = t.DeconzSendDataFlags.NONE
-
-        # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
-        if relays is not None:
-            # There is a max of 9 relays
-            assert len(relays) <= 9
-            flags |= t.DeconzSendDataFlags.RELAYS
-
-        if not self._free_slots_available_event.is_set():
-            LOGGER.debug("Waiting for free slots to become available")
-            await self._free_slots_available_event.wait()
-
-        for delay in REQUEST_RETRY_DELAYS:
-            try:
-                rsp = await self._command(
-                    CommandId.aps_data_request,
-                    request_id=req_id,
-                    flags=flags,
-                    dst=dst_addr_ep,
-                    profile_id=profile,
-                    cluster_id=cluster,
-                    src_ep=src_ep,
-                    asdu=aps_payload,
-                    tx_options=tx_options,
-                    radius=radius,
-                    relays=relays,
-                )
-            except CommandError as ex:
-                LOGGER.debug("'aps_data_request' failure: %s", ex)
-                if delay is None or ex.status != Status.BUSY:
-                    raise
-
-                LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
-                await asyncio.sleep(delay)
-            else:
-                self._handle_device_state_changed(
-                    status=rsp["status"], device_state=rsp["device_state"]
-                )
-                return
-
     @restart_forever
     async def _data_poller(self):
         while True:
@@ -844,3 +736,127 @@ class Deconz:
         else:
             LOGGER.debug("Data request queue full.")
             self._free_slots_available_event.clear()
+
+    async def version(self):
+        self._protocol_version = await self.read_parameter(
+            NetworkParameter.protocol_version
+        )
+
+        version_rsp = await self._command(CommandId.version, reserved=0)
+        self._firmware_version = version_rsp["version"]
+
+        return self.firmware_version
+
+    async def read_parameter(
+        self, parameter_id: NetworkParameter, parameter: Any = None
+    ) -> Any:
+        read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
+
+        if parameter is None:
+            value = t.Bytes(b"")
+        else:
+            value = read_param_type(parameter).serialize()
+
+        rsp = await self._command(
+            CommandId.read_parameter,
+            parameter_id=parameter_id,
+            parameter=value,
+        )
+
+        assert rsp["parameter_id"] == parameter_id
+
+        result, _ = write_param_type.deserialize(rsp["parameter"])
+        LOGGER.debug("Read parameter %s(%s)=%r", parameter_id.name, parameter, result)
+
+        return result
+
+    async def write_parameter(
+        self, parameter_id: NetworkParameter, parameter: Any
+    ) -> None:
+        read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
+        rsp = await self._command(
+            CommandId.write_parameter,
+            parameter_id=parameter_id,
+            parameter=write_param_type(parameter).serialize(),
+        )
+
+        if rsp["status"] != Status.SUCCESS:
+            raise CommandError(
+                status=rsp["status"],
+                message=(
+                    f"Failed to write parameter {parameter_id}={parameter}: "
+                    f"{rsp['status']}"
+                ),
+            )
+
+    async def aps_data_request(
+        self,
+        req_id,
+        dst_addr_ep,
+        profile,
+        cluster,
+        src_ep,
+        aps_payload,
+        *,
+        relays=None,
+        tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
+        radius=0,
+    ) -> None:
+        flags = t.DeconzSendDataFlags.NONE
+
+        # https://github.com/zigpy/zigpy-deconz/issues/180#issuecomment-1017932865
+        if relays is not None:
+            # There is a max of 9 relays
+            assert len(relays) <= 9
+            flags |= t.DeconzSendDataFlags.RELAYS
+
+        if not self._free_slots_available_event.is_set():
+            LOGGER.debug("Waiting for free slots to become available")
+            await self._free_slots_available_event.wait()
+
+        for delay in REQUEST_RETRY_DELAYS:
+            try:
+                rsp = await self._command(
+                    CommandId.aps_data_request,
+                    request_id=req_id,
+                    flags=flags,
+                    dst=dst_addr_ep,
+                    profile_id=profile,
+                    cluster_id=cluster,
+                    src_ep=src_ep,
+                    asdu=aps_payload,
+                    tx_options=tx_options,
+                    radius=radius,
+                    relays=relays,
+                )
+            except CommandError as ex:
+                LOGGER.debug("'aps_data_request' failure: %s", ex)
+                if delay is None or ex.status != Status.BUSY:
+                    raise
+
+                LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
+                await asyncio.sleep(delay)
+            else:
+                self._handle_device_state_changed(
+                    status=rsp["status"], device_state=rsp["device_state"]
+                )
+                return
+
+    async def get_device_state(self) -> DeviceState:
+        rsp = await self._command(CommandId.device_state)
+
+        return rsp["device_state"]
+
+    async def change_network_state(self, new_state: NetworkState) -> None:
+        await self._command(CommandId.change_network_state, network_state=new_state)
+
+    async def add_neighbour(
+        self, nwk: t.NWK, ieee: t.EUI64, mac_capability_flags: t.uint8_t
+    ) -> None:
+        await self._command(
+            CommandId.add_neighbour,
+            unknown=0x01,
+            nwk=nwk,
+            ieee=ieee,
+            mac_capability_flags=mac_capability_flags,
+        )

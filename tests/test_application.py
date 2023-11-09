@@ -37,14 +37,14 @@ def device_path():
 def api():
     """Return API fixture."""
     api = MagicMock(spec_set=zigpy_deconz.api.Deconz(None, None))
-    api.device_state = AsyncMock(
-        return_value=(deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED), 0, 0)
+    api.get_device_state = AsyncMock(
+        return_value=deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED)
     )
     api.write_parameter = AsyncMock()
 
     # So the protocol version is effectively infinite
-    api._proto_ver.__ge__.return_value = True
-    api._proto_ver.__lt__.return_value = False
+    api._protocol_version.__ge__.return_value = True
+    api._protocol_version.__lt__.return_value = False
 
     api.protocol_version.__ge__.return_value = True
     api.protocol_version.__lt__.return_value = False
@@ -67,7 +67,7 @@ def app(device_path, api):
 
     device_state = MagicMock()
     device_state.network_state.__eq__.return_value = True
-    api.device_state = AsyncMock(return_value=(device_state, 0, 0))
+    api.get_device_state = AsyncMock(return_value=device_state)
 
     p1 = patch.object(app, "_api", api)
     p2 = patch.object(app, "_delayed_neighbour_scan")
@@ -127,11 +127,14 @@ async def test_start_network(app, proto_ver, target_state, returned_state):
     app.restore_neighbours = AsyncMock()
     app.add_endpoint = AsyncMock()
 
-    app._api.device_state = AsyncMock(
-        return_value=(deconz_api.DeviceState(returned_state), 0, 0)
+    app._api.get_device_state = AsyncMock(
+        return_value=deconz_api.DeviceState(
+            device_state=deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE,
+            network_state=returned_state,
+        )
     )
 
-    app._api._proto_ver = proto_ver
+    app._api._protocol_version = proto_ver
     app._api.protocol_version = proto_ver
 
     if (
@@ -424,19 +427,19 @@ async def test_delayed_scan():
 async def test_change_network_state(app, support_watchdog):
     app._reset_watchdog_task = MagicMock()
 
-    app._api.device_state = AsyncMock(
+    app._api.get_device_state = AsyncMock(
         side_effect=[
-            (deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE), 0, 0),
-            (deconz_api.DeviceState(deconz_api.NetworkState.JOINING), 0, 0),
-            (deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED), 0, 0),
+            deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE),
+            deconz_api.DeviceState(deconz_api.NetworkState.JOINING),
+            deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED),
         ]
     )
 
     if support_watchdog:
-        app._api._proto_ver = application.PROTO_VER_WATCHDOG
+        app._api._protocol_version = application.PROTO_VER_WATCHDOG
         app._api.protocol_version = application.PROTO_VER_WATCHDOG
     else:
-        app._api._proto_ver = application.PROTO_VER_WATCHDOG - 1
+        app._api._protocol_version = application.PROTO_VER_WATCHDOG - 1
         app._api.protocol_version = application.PROTO_VER_WATCHDOG - 1
 
     old_watchdog_task = app._reset_watchdog_task
@@ -486,14 +489,15 @@ async def test_add_endpoint(app, descriptor, slots, target_slot):
                 deconz_api.Status.UNSUPPORTED, "Unsupported"
             )
         else:
-            return index, slots[index]
+            return deconz_api.IndexedEndpoint(index=index, descriptor=slots[index])
 
     app._api.read_parameter = AsyncMock(side_effect=read_param)
     app._api.write_parameter = AsyncMock()
 
     await app.add_endpoint(descriptor)
     app._api.write_parameter.assert_called_once_with(
-        deconz_api.NetworkParameter.configure_endpoint, target_slot, descriptor
+        deconz_api.NetworkParameter.configure_endpoint,
+        deconz_api.IndexedEndpoint(index=target_slot, descriptor=descriptor),
     )
 
 
@@ -526,7 +530,9 @@ async def test_add_endpoint_no_unnecessary_writes(app):
                 deconz_api.Status.UNSUPPORTED, "Unsupported"
             )
 
-        return index, ENDPOINT.replace(endpoint=1)
+        return deconz_api.IndexedEndpoint(
+            index=index, descriptor=ENDPOINT.replace(endpoint=1)
+        )
 
     app._api.read_parameter = AsyncMock(side_effect=read_param)
     app._api.write_parameter = AsyncMock()
@@ -537,7 +543,8 @@ async def test_add_endpoint_no_unnecessary_writes(app):
     # Writing another endpoint will cause a write
     await app.add_endpoint(ENDPOINT.replace(endpoint=2))
     app._api.write_parameter.assert_called_once_with(
-        deconz_api.NetworkParameter.configure_endpoint, 1, ENDPOINT.replace(endpoint=2)
+        deconz_api.NetworkParameter.configure_endpoint,
+        deconz_api.IndexedEndpoint(index=1, descriptor=ENDPOINT.replace(endpoint=2)),
     )
 
 

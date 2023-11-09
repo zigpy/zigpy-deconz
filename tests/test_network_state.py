@@ -128,6 +128,7 @@ async def test_write_network_info(
 
         params[param.name] = args
 
+    app._change_network_state = AsyncMock()
     app._api.write_parameter = AsyncMock(side_effect=write_parameter)
 
     network_info = network_info.replace(
@@ -171,9 +172,13 @@ async def test_write_network_info(
     assert params["nwk_panid"] == (network_info.pan_id,)
     assert params["aps_extended_panid"] == (network_info.extended_pan_id,)
     assert params["nwk_update_id"] == (network_info.nwk_update_id,)
-    assert params["network_key"] == (0, network_info.network_key.key)
+    assert params["network_key"] == (
+        zigpy_deconz.api.IndexedKey(index=0, key=network_info.network_key.key),
+    )
     assert params["trust_center_address"] == (node_info.ieee,)
-    assert params["link_key"] == (node_info.ieee, network_info.tc_link_key.key)
+    assert params["link_key"] == (
+        zigpy_deconz.api.LinkKey(ieee=node_info.ieee, key=network_info.tc_link_key.key),
+    )
 
     if security_level == 0:
         assert params["security_mode"] == (zigpy_deconz.api.SecurityMode.NO_SECURITY,)
@@ -188,20 +193,20 @@ async def test_write_network_info(
         (None, {}, {}, {}),
         (
             None,
-            {("aps_designed_coordinator",): [0x00]},
+            {("aps_designed_coordinator",): 0x00},
             {},
             {"logical_type": zdo_t.LogicalType.Router},
         ),
         (
             None,
             {
-                ("aps_extended_panid",): [t.EUI64.convert("00:00:00:00:00:00:00:00")],
-                ("nwk_extended_panid",): [t.EUI64.convert("0D:49:91:99:AE:CD:3C:35")],
+                ("aps_extended_panid",): t.EUI64.convert("00:00:00:00:00:00:00:00"),
+                ("nwk_extended_panid",): t.EUI64.convert("0D:49:91:99:AE:CD:3C:35"),
             },
             {},
             {},
         ),
-        (NetworkNotFormed, {("current_channel",): [0]}, {}, {}),
+        (NetworkNotFormed, {("current_channel",): 0}, {}, {}),
         (
             None,
             {
@@ -214,16 +219,16 @@ async def test_write_network_info(
         ),
         (
             None,
-            {("security_mode",): [zigpy_deconz.api.SecurityMode.NO_SECURITY]},
+            {("security_mode",): zigpy_deconz.api.SecurityMode.NO_SECURITY},
             {"security_level": 0},
             {},
         ),
         (
             None,
             {
-                ("security_mode",): [
-                    zigpy_deconz.api.SecurityMode.PRECONFIGURED_NETWORK_KEY
-                ]
+                (
+                    "security_mode",
+                ): zigpy_deconz.api.SecurityMode.PRECONFIGURED_NETWORK_KEY
             },
             {"security_level": 5},
             {},
@@ -242,20 +247,24 @@ async def test_load_network_info(
     """Test that network info is correctly read."""
 
     params = {
-        ("nwk_frame_counter",): [network_info.network_key.tx_counter],
-        ("aps_designed_coordinator",): [1],
-        ("nwk_address",): [node_info.nwk],
-        ("mac_address",): [node_info.ieee],
-        ("current_channel",): [network_info.channel],
-        ("channel_mask",): [t.Channels.from_channel_list([network_info.channel])],
-        ("use_predefined_nwk_panid",): [True],
-        ("nwk_panid",): [network_info.pan_id],
-        ("aps_extended_panid",): [network_info.extended_pan_id],
-        ("nwk_update_id",): [network_info.nwk_update_id],
-        ("network_key", 0): [0, network_info.network_key.key],
-        ("trust_center_address",): [node_info.ieee],
-        ("link_key", node_info.ieee): [node_info.ieee, network_info.tc_link_key.key],
-        ("security_mode",): [zigpy_deconz.api.SecurityMode.ONLY_TCLK],
+        ("nwk_frame_counter",): network_info.network_key.tx_counter,
+        ("aps_designed_coordinator",): 1,
+        ("nwk_address",): node_info.nwk,
+        ("mac_address",): node_info.ieee,
+        ("current_channel",): network_info.channel,
+        ("channel_mask",): t.Channels.from_channel_list([network_info.channel]),
+        ("use_predefined_nwk_panid",): True,
+        ("nwk_panid",): network_info.pan_id,
+        ("aps_extended_panid",): network_info.extended_pan_id,
+        ("nwk_update_id",): network_info.nwk_update_id,
+        ("network_key", 0): zigpy_deconz.api.IndexedKey(
+            index=0, key=network_info.network_key.key
+        ),
+        ("trust_center_address",): node_info.ieee,
+        ("link_key", node_info.ieee): zigpy_deconz.api.LinkKey(
+            ieee=node_info.ieee, key=network_info.tc_link_key.key
+        ),
+        ("security_mode",): zigpy_deconz.api.SecurityMode.ONLY_TCLK,
     }
 
     params.update(param_overrides)
@@ -273,7 +282,7 @@ async def test_load_network_info(
 
         return value
 
-    app._api.__getitem__ = app._api.read_parameter = AsyncMock(side_effect=read_param)
+    app._api.read_parameter = AsyncMock(side_effect=read_param)
 
     if error is not None:
         with pytest.raises(error):

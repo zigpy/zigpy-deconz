@@ -28,8 +28,8 @@ import zigpy.zdo.types as zdo_t
 import zigpy_deconz
 from zigpy_deconz import types as t
 from zigpy_deconz.api import (
-    CommandId,
     Deconz,
+    IndexedEndpoint,
     IndexedKey,
     LinkKey,
     NetworkParameter,
@@ -66,6 +66,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self.version = 0
         self._reset_watchdog_task = None
+        self._delayed_neighbor_scan_task = None
         self._reconnect_task = None
 
         self._written_endpoints = set()
@@ -97,6 +98,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._written_endpoints.clear()
 
     def close(self):
+        if self._delayed_neighbor_scan_task is not None:
+            self._delayed_neighbor_scan_task.cancel()
+            self._delayed_neighbor_scan_task = None
+
         if self._reset_watchdog_task is not None:
             self._reset_watchdog_task.cancel()
             self._reset_watchdog_task = None
@@ -134,25 +139,23 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self.devices[self.state.node_info.ieee] = coordinator
         if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
             await self.restore_neighbours()
-        asyncio.create_task(self._delayed_neighbour_scan())
+
+        self._delayed_neighbor_scan_task = asyncio.create_task(
+            self._delayed_neighbour_scan()
+        )
 
     async def _change_network_state(
         self, target_state: NetworkState, *, timeout: int = 10 * CHANGE_NETWORK_WAIT
     ):
         async def change_loop():
             while True:
-                state_rsp = await self._api._command(CommandId.device_state)
+                device_state = await self._api.get_device_state()
 
-                if (
-                    NetworkState(state_rsp["device_state"].network_state)
-                    == target_state
-                ):
+                if NetworkState(device_state.network_state) == target_state:
                     break
                 await asyncio.sleep(CHANGE_NETWORK_WAIT)
 
-        await self._api._command(
-            CommandId.change_network_state, network_state=target_state
-        )
+        await self._api.change_network_state(target_state)
 
         try:
             async with asyncio_timeout(timeout):
@@ -439,7 +442,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         LOGGER.debug("Writing %s to slot %r", descriptor, target_index)
 
         await self._api.write_parameter(
-            NetworkParameter.configure_endpoint, target_index, descriptor
+            NetworkParameter.configure_endpoint,
+            IndexedEndpoint(index=target_index, descriptor=descriptor),
         )
 
     async def send_packet(self, packet):
@@ -535,7 +539,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 device.nwk,
             )
             await self._api.add_neighbour(
-                0x01, device.nwk, device.ieee, descr.mac_capability_flags
+                nwk=device.nwk,
+                ieee=device.ieee,
+                mac_capability_flags=descr.mac_capability_flags,
             )
 
     async def _delayed_neighbour_scan(self) -> None:
