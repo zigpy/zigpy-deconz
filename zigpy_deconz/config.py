@@ -26,8 +26,15 @@ CONF_MAX_CONCURRENT_REQUESTS_DEFAULT = 8
 CONF_WATCHDOG_TTL = "watchdog_ttl"
 CONF_WATCHDOG_TTL_DEFAULT = 600
 
+CONF_DEVICE_BAUDRATE = "baudrate"
+
+SCHEMA_DEVICE = SCHEMA_DEVICE.extend(
+    {vol.Optional(CONF_DEVICE_BAUDRATE, default=38400): int}
+)
+
 CONFIG_SCHEMA = CONFIG_SCHEMA.extend(
     {
+        vol.Required(CONF_DEVICE): SCHEMA_DEVICE,
         vol.Optional(CONF_WATCHDOG_TTL, default=CONF_WATCHDOG_TTL_DEFAULT): vol.All(
             int, vol.Range(min=180)
         ),
