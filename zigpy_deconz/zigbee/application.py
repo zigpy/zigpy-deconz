@@ -278,14 +278,15 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             ),
         )
 
-        if network_info.security_level == 0x00:
-            await self._api.write_parameter(
-                NetworkParameter.security_mode, SecurityMode.NO_SECURITY
-            )
-        else:
-            await self._api.write_parameter(
-                NetworkParameter.security_mode, SecurityMode.ONLY_TCLK
-            )
+        if self._api.firmware_version.platform != FirmwarePlatform.Conbee_III:
+            if network_info.security_level == 0x00:
+                await self._api.write_parameter(
+                    NetworkParameter.security_mode, SecurityMode.NO_SECURITY
+                )
+            else:
+                await self._api.write_parameter(
+                    NetworkParameter.security_mode, SecurityMode.ONLY_TCLK
+                )
 
         # Note: Changed network configuration parameters become only affective after
         # sending a Leave Network Request followed by a Create or Join Network Request
