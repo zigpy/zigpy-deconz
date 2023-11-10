@@ -171,7 +171,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 " 2.4GHz routers, motherboards, etc."
             )
 
-        if self._api.protocol_version < PROTO_VER_WATCHDOG:
+        if self._api.protocol_version < PROTO_VER_WATCHDOG or (
+            self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
+            and self._api.firmware_version == 0x26450900
+        ):
             return
 
         if self._reset_watchdog_task is not None:
@@ -286,6 +289,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._change_network_state(NetworkState.CONNECTED)
 
     async def load_network_info(self, *, load_devices=False):
+        if self._api.firmware_version.platform == FirmwarePlatform.Conbee_III:
+            await self._change_network_state(NetworkState.CONNECTED)
+
         network_info = self.state.network_info
         node_info = self.state.node_info
 
@@ -601,7 +607,11 @@ class DeconzDevice(zigpy.device.Device):
         super().__init__(*args)
         is_gpio_device = re.match(r"/dev/tty(S|AMA|ACM)\d+", device_path)
         self._model = "RaspBee" if is_gpio_device else "ConBee"
-        self._model += " II" if version.platform == FirmwarePlatform.Conbee_II else ""
+        self._model += {
+            FirmwarePlatform.Conbee: "",
+            FirmwarePlatform.Conbee_II: " II",
+            FirmwarePlatform.Conbee_III: " III",
+        }[version.platform]
 
     async def add_to_group(self, grp_id: int, name: str = None) -> None:
         group = self.application.groups.add_group(grp_id, name)
