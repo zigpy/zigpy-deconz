@@ -4,6 +4,7 @@ import asyncio
 import collections
 import inspect
 import logging
+import sys
 
 import pytest
 import zigpy.config
@@ -761,7 +762,9 @@ async def test_data_poller(api, mock_command_rsp):
     task = api._data_poller_task
     api.close()
     assert api._data_poller_task is None
-    assert task.cancelling()
+
+    if sys.version_info >= (3, 11):
+        assert task.cancelling()
 
 
 async def test_get_device_state(api, mock_command_rsp):
