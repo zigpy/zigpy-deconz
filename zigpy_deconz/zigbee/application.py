@@ -45,7 +45,8 @@ import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
 
-CHANGE_NETWORK_WAIT = 1
+CHANGE_NETWORK_POLL_TIME = 1
+CHANGE_NETWORK_STATE_DELAY = 2
 DELAY_NEIGHBOUR_SCAN_S = 1500
 SEND_CONFIRM_TIMEOUT = 60
 
@@ -145,7 +146,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
 
     async def _change_network_state(
-        self, target_state: NetworkState, *, timeout: int = 10 * CHANGE_NETWORK_WAIT
+        self,
+        target_state: NetworkState,
+        *,
+        timeout: int = 10 * CHANGE_NETWORK_POLL_TIME,
     ):
         async def change_loop():
             while True:
@@ -153,7 +157,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
                 if NetworkState(device_state.network_state) == target_state:
                     break
-                await asyncio.sleep(CHANGE_NETWORK_WAIT)
+                await asyncio.sleep(CHANGE_NETWORK_POLL_TIME)
 
         await self._api.change_network_state(target_state)
 
@@ -286,6 +290,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         # Note: Changed network configuration parameters become only affective after
         # sending a Leave Network Request followed by a Create or Join Network Request
         await self._change_network_state(NetworkState.OFFLINE)
+        await asyncio.sleep(CHANGE_NETWORK_STATE_DELAY)
         await self._change_network_state(NetworkState.CONNECTED)
 
     async def load_network_info(self, *, load_devices=False):
@@ -399,6 +404,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
 
         await self._change_network_state(NetworkState.OFFLINE)
+        await asyncio.sleep(CHANGE_NETWORK_STATE_DELAY)
         await self._change_network_state(NetworkState.CONNECTED)
 
     async def add_endpoint(self, descriptor: zdo_t.SimpleDescriptor) -> None:
