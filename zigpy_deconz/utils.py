@@ -19,6 +19,7 @@ def restart_forever(func, *, restart_delay=1.0):
                 LOGGER.debug(
                     "Endless task %s failed, restarting...", func, exc_info=True
                 )
-                await asyncio.sleep(restart_delay)
+
+            await asyncio.sleep(restart_delay)
 
     return replacement
