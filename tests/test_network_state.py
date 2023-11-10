@@ -60,11 +60,7 @@ def network_info(node_info):
         nwk_addresses={},
         stack_specific={},
         source=f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}",
-        metadata={
-            "deconz": {
-                "version": 0,
-            }
-        },
+        metadata={"deconz": {"version": "0x00000001"}},
     )
 
 

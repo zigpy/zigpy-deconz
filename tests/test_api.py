@@ -13,7 +13,7 @@ from zigpy_deconz import api as deconz_api, types as t, uart
 import zigpy_deconz.exception
 import zigpy_deconz.zigbee.application
 
-from .async_mock import MagicMock, patch
+from .async_mock import AsyncMock, MagicMock, call, patch
 
 DEVICE_CONFIG = {zigpy.config.CONF_DEVICE_PATH: "/dev/null"}
 
@@ -55,12 +55,37 @@ def api(gateway, mock_command_rsp):
             },
         )
 
+        mock_command_rsp(
+            command_id=deconz_api.CommandId.read_parameter,
+            params={
+                "parameter_id": deconz_api.NetworkParameter.protocol_version,
+                "parameter": t.Bytes(b""),
+            },
+            rsp={
+                "status": deconz_api.Status.SUCCESS,
+                "frame_length": t.uint16_t(10),
+                "payload_length": t.uint16_t(3),
+                "parameter_id": deconz_api.NetworkParameter.protocol_version,
+                "parameter": t.Bytes(t.uint16_t(270).serialize()),
+            },
+        )
+
+        mock_command_rsp(
+            command_id=deconz_api.CommandId.version,
+            params={"reserved": t.uint8_t(0)},
+            rsp={
+                "status": deconz_api.Status.SUCCESS,
+                "frame_length": t.uint16_t(9),
+                "version": deconz_api.FirmwareVersion(645400320),
+            },
+        )
+
         yield api
 
 
 @pytest.fixture
 async def mock_command_rsp(gateway):
-    def inner(command_id, params, rsp):
+    def inner(command_id, params, rsp, *, replace=False):
         if (
             getattr(getattr(gateway.send, "side_effect", None), "_handlers", None)
             is None
@@ -96,6 +121,9 @@ async def mock_command_rsp(gateway):
 
             receiver._handlers = collections.defaultdict(list)
             gateway.send = MagicMock(side_effect=receiver)
+
+        if replace:
+            gateway.send.side_effect._handlers[command_id].clear()
 
         gateway.send.side_effect._handlers[command_id].append((params, rsp))
 
@@ -189,8 +217,9 @@ async def test_command_lock(api, mock_command_rsp):
             rsp={
                 "status": deconz_api.Status.SUCCESS,
                 "frame_length": t.uint16_t(9),
-                "version": t.uint32_t(i),
+                "version": deconz_api.FirmwareVersion(i),
             },
+            replace=(i == 0),
         )
 
     async with api._command_lock:
@@ -223,7 +252,10 @@ async def test_command_timeout(api):
 
     with patch.object(deconz_api, "COMMAND_TIMEOUT", 0.1):
         with pytest.raises(asyncio.TimeoutError):
-            await api._command(cmd=deconz_api.CommandId.version, reserved=0)
+            await api._command(
+                cmd=deconz_api.CommandId.change_network_state,
+                network_state=deconz_api.NetworkState.OFFLINE,
+            )
 
 
 async def test_command_not_connected(api):
@@ -236,19 +268,50 @@ async def test_command_not_connected(api):
 async def test_data_received(api, mock_command_rsp):
     await api.connect()
 
-    # Unsolicited device_state_changed
-    api.data_received(bytes.fromhex("0e02000700ae00"))
+    src_addr = t.DeconzAddress()
+    src_addr.address_mode = t.AddressMode.NWK
+    src_addr.address = t.NWK(0xE695)
 
-    await asyncio.sleep(0.1)
+    dst_addr = t.DeconzAddress()
+    dst_addr.address_mode = t.AddressMode.NWK
+    dst_addr.address = t.NWK(0x0000)
 
-    # Reply to aps_data_confirm
-    api.data_received(
-        bytes.fromhex(
-            """1702005000490022020000010295e601040100003200181b0104
-            0000420e494b4541206f662053776564656e0500004217545241
-            4446524920776972656c6573732064696d6d657200afff8e620000cf"""
-        )
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.aps_data_indication,
+        params={},
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(80),
+            "payload_length": t.uint16_t(73),
+            "device_state": deconz_api.DeviceState(
+                network_state=deconz_api.NetworkState2.CONNECTED,
+                device_state=(
+                    deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
+                ),
+            ),
+            "dst_addr": dst_addr,
+            "dst_ep": t.uint8_t(1),
+            "src_addr": src_addr,
+            "src_ep": t.uint8_t(1),
+            "profile_id": t.uint16_t(260),
+            "cluster_id": t.uint16_t(0x0000),
+            "asdu": t.LongOctetString(
+                b"\x18\x1b\x01\x04\x00\x00B\x0eIKEA of Sweden"
+                b"\x05\x00\x00B\x17TRADFRI wireless dimmer"
+            ),
+            "reserved1": t.uint8_t(0),
+            "reserved2": t.uint8_t(175),
+            "lqi": t.uint8_t(255),
+            "reserved3": t.uint8_t(142),
+            "reserved4": t.uint8_t(98),
+            "reserved5": t.uint8_t(0),
+            "reserved6": t.uint8_t(0),
+            "rssi": t.int8s(-49),
+        },
     )
+
+    # Unsolicited device_state_changed
+    api.data_received(bytes.fromhex("0e2f000700ae00"))
 
     await asyncio.sleep(0.1)
 
@@ -341,6 +404,27 @@ async def test_write_parameter(api, mock_command_rsp):
     await api.write_parameter(deconz_api.NetworkParameter.watchdog_ttl, 600)
 
 
+async def test_write_parameter_failure(api, mock_command_rsp):
+    await api.connect()
+
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.write_parameter,
+        params={
+            "parameter_id": deconz_api.NetworkParameter.watchdog_ttl,
+            "parameter": t.uint32_t(600).serialize(),
+        },
+        rsp={
+            "status": deconz_api.Status.INVALID_VALUE,
+            "frame_length": t.uint16_t(8),
+            "payload_length": t.uint16_t(1),
+            "parameter_id": deconz_api.NetworkParameter.watchdog_ttl,
+        },
+    )
+
+    with pytest.raises(deconz_api.CommandError):
+        await api.write_parameter(deconz_api.NetworkParameter.watchdog_ttl, 600)
+
+
 @pytest.mark.parametrize(
     "protocol_ver, firmware_ver",
     [
@@ -366,6 +450,7 @@ async def test_version(protocol_ver, firmware_ver, api, mock_command_rsp):
             "parameter_id": deconz_api.NetworkParameter.protocol_version,
             "parameter": t.Bytes(t.uint16_t(protocol_ver).serialize()),
         },
+        replace=True,
     )
 
     mock_command_rsp(
@@ -374,8 +459,9 @@ async def test_version(protocol_ver, firmware_ver, api, mock_command_rsp):
         rsp={
             "status": deconz_api.Status.SUCCESS,
             "frame_length": t.uint16_t(9),
-            "version": t.uint32_t(firmware_ver),
+            "version": deconz_api.FirmwareVersion(firmware_ver),
         },
+        replace=True,
     )
 
     r = await api.version()
@@ -548,3 +634,187 @@ async def test_bad_response_status(api, mock_command_rsp):
 
     assert isinstance(exc.value, deconz_api.CommandError)
     assert exc.value.status == deconz_api.Status.FAILURE
+
+
+async def test_data_poller(api, mock_command_rsp):
+    await api.connect()
+
+    dst_addr_ep = t.DeconzAddressEndpoint()
+    dst_addr_ep.address_mode = t.AddressMode.NWK
+    dst_addr_ep.address = t.NWK(0x0000)
+    dst_addr_ep.endpoint = t.uint8_t(0)
+
+    src_addr = t.DeconzAddress()
+    src_addr.address_mode = t.AddressMode.NWK
+    src_addr.address = t.NWK(0xE695)
+
+    dst_addr = t.DeconzAddress()
+    dst_addr.address_mode = t.AddressMode.NWK
+    dst_addr.address = t.NWK(0x0000)
+
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.aps_data_confirm,
+        params={},
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(19),
+            "payload_length": t.uint16_t(12),
+            "device_state": deconz_api.DeviceState(
+                network_state=deconz_api.NetworkState2.CONNECTED,
+                device_state=(
+                    # Include a data indication flag to trigger a poll
+                    deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
+                    | deconz_api.DeviceStateFlags.APSDE_DATA_INDICATION
+                ),
+            ),
+            "request_id": t.uint8_t(16),
+            "dst_addr": dst_addr_ep,
+            "src_ep": t.uint8_t(0),
+            "confirm_status": deconz_api.TXStatus.SUCCESS,
+            "reserved1": t.uint8_t(0),
+            "reserved2": t.uint8_t(0),
+            "reserved3": t.uint8_t(0),
+            "reserved4": t.uint8_t(0),
+        },
+    )
+
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.aps_data_indication,
+        params={},
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(80),
+            "payload_length": t.uint16_t(73),
+            "device_state": deconz_api.DeviceState(
+                network_state=deconz_api.NetworkState2.CONNECTED,
+                device_state=(
+                    deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
+                ),
+            ),
+            "dst_addr": dst_addr,
+            "dst_ep": t.uint8_t(1),
+            "src_addr": src_addr,
+            "src_ep": t.uint8_t(1),
+            "profile_id": t.uint16_t(260),
+            "cluster_id": t.uint16_t(0x0000),
+            "asdu": t.LongOctetString(
+                b"\x18\x1b\x01\x04\x00\x00B\x0eIKEA of Sweden"
+                b"\x05\x00\x00B\x17TRADFRI wireless dimmer"
+            ),
+            "reserved1": t.uint8_t(0),
+            "reserved2": t.uint8_t(175),
+            "lqi": t.uint8_t(255),
+            "reserved3": t.uint8_t(142),
+            "reserved4": t.uint8_t(98),
+            "reserved5": t.uint8_t(0),
+            "reserved6": t.uint8_t(0),
+            "rssi": t.int8s(-49),
+        },
+    )
+
+    def send_network_state(
+        network_state: deconz_api.NetworkState2 = deconz_api.NetworkState2.CONNECTED,
+        device_state: deconz_api.DeviceStateFlags = (
+            deconz_api.DeviceStateFlags.APSDE_DATA_CONFIRM
+        ),
+    ):
+        _, rx_schema = deconz_api.COMMAND_SCHEMAS[
+            deconz_api.CommandId.device_state_changed
+        ]
+
+        data = deconz_api.Command(
+            command_id=deconz_api.CommandId.device_state_changed,
+            seq=api._seq,
+            payload=t.serialize_dict(
+                {
+                    "status": deconz_api.Status.SUCCESS,
+                    "frame_length": t.uint16_t(7),
+                    "device_state": deconz_api.DeviceState(
+                        network_state=network_state,
+                        device_state=device_state,
+                    ),
+                    "reserved": t.uint8_t(0),
+                },
+                rx_schema,
+            ),
+        ).serialize()
+
+        asyncio.get_running_loop().call_later(0.01, api.data_received, data)
+
+    # Take us offline for a moment
+    send_network_state(network_state=deconz_api.NetworkState2.OFFLINE)
+    await asyncio.sleep(0.1)
+
+    # Bring us back online with just a data confirmation to kick things off
+    send_network_state(
+        network_state=deconz_api.NetworkState2.CONNECTED,
+        device_state=deconz_api.DeviceStateFlags.APSDE_DATA_CONFIRM,
+    )
+
+    await asyncio.sleep(0.1)
+
+    # Both callbacks have been called
+    api._app.handle_tx_confirm.assert_called_once_with(16, deconz_api.TXStatus.SUCCESS)
+    assert len(api._app.packet_received.mock_calls) == 1
+
+    # The task is cancelled on close
+    task = api._data_poller_task
+    api.close()
+    assert api._data_poller_task is None
+    assert task.cancelling()
+
+
+async def test_get_device_state(api, mock_command_rsp):
+    await api.connect()
+
+    device_state = deconz_api.DeviceState(
+        network_state=deconz_api.NetworkState2.CONNECTED,
+        device_state=(
+            deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
+        ),
+    )
+
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.device_state,
+        params={},
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(8),
+            "device_state": device_state,
+            "reserved1": t.uint8_t(0),
+            "reserved2": t.uint8_t(0),
+        },
+    )
+
+    assert (await api.get_device_state()) == device_state
+
+
+async def test_change_network_state(api, mock_command_rsp):
+    api._command = AsyncMock()
+    await api.change_network_state(new_state=deconz_api.NetworkState.OFFLINE)
+
+    assert api._command.mock_calls == [
+        call(
+            deconz_api.CommandId.change_network_state,
+            network_state=deconz_api.NetworkState.OFFLINE,
+        )
+    ]
+
+
+async def test_add_neighbour(api, mock_command_rsp):
+    api._command = AsyncMock()
+    await api.add_neighbour(
+        nwk=0x1234,
+        ieee=t.EUI64.convert("aa:bb:cc:dd:11:22:33:44"),
+        mac_capability_flags=0x12,
+    )
+
+    assert api._command.mock_calls == [
+        call(
+            deconz_api.CommandId.add_neighbour,
+            unknown=0x01,
+            nwk=0x1234,
+            ieee=t.EUI64.convert("aa:bb:cc:dd:11:22:33:44"),
+            mac_capability_flags=0x12,
+        )
+    ]

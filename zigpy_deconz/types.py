@@ -34,6 +34,10 @@ def serialize_dict(data, schema):
         value = data[key]
         if value is None:
             break
+
+        if not isinstance(value, schema[key]):
+            value = schema[key](value)
+
         chunks.append(value.serialize())
 
     return b"".join(chunks)

@@ -34,7 +34,6 @@ LOGGER = logging.getLogger(__name__)
 
 COMMAND_TIMEOUT = 1.8
 PROBE_TIMEOUT = 2
-MIN_PROTO_VERSION = 0x010B
 REQUEST_RETRY_DELAYS = (0.5, 1.0, 1.5, None)
 
 FRAME_LENGTH = object()
@@ -431,7 +430,7 @@ class Deconz:
 
         self._seq = 1
         self._protocol_version = 0
-        self._firmware_version = 0
+        self._firmware_version = FirmwareVersion(0)
         self._uart: zigpy_deconz.uart.Gateway | None = None
 
     @property
@@ -654,7 +653,7 @@ class Deconz:
             ):
                 # Old Conbee I firmware has an addressing bug for incoming multicasts
                 if (
-                    self.protocol_version >= MIN_PROTO_VERSION
+                    self.protocol_version >= 0x010B
                     and self.firmware_version.platform == FirmwarePlatform.Conbee
                 ):
                     flags = t.DataIndicationFlags.Include_Both_NWK_And_IEEE
@@ -752,20 +751,11 @@ class Deconz:
         self, parameter_id: NetworkParameter, parameter: Any
     ) -> None:
         read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
-        rsp = await self._command(
+        await self._command(
             CommandId.write_parameter,
             parameter_id=parameter_id,
             parameter=write_param_type(parameter).serialize(),
         )
-
-        if rsp["status"] != Status.SUCCESS:
-            raise CommandError(
-                status=rsp["status"],
-                message=(
-                    f"Failed to write parameter {parameter_id}={parameter}: "
-                    f"{rsp['status']}"
-                ),
-            )
 
     async def aps_data_request(
         self,

@@ -66,7 +66,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self._pending = zigpy.util.Requests()
 
-        self.version = 0
         self._reset_watchdog_task = None
         self._delayed_neighbor_scan_task = None
         self._reconnect_task = None
@@ -91,7 +90,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         try:
             await api.connect()
-            self.version = await api.version()
         except Exception:
             api.close()
             raise
@@ -134,7 +132,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self,
             self.state.node_info.ieee,
             self.state.node_info.nwk,
-            self.version,
+            self._api.firmware_version,
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
         )
 
@@ -296,7 +294,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
         network_info.metadata = {
             "deconz": {
-                "version": self.version,
+                "version": f"{int(self._api.firmware_version):#010x}",
             }
         }
 

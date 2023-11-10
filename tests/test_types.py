@@ -216,3 +216,13 @@ def test_nwklist():
         t.NWKList([0x1234, 0x5678]),
         b"abc",
     )
+
+
+def test_serialize_dict():
+    assert (
+        t.serialize_dict(
+            {"foo": 1, "bar": 2, "baz": None},
+            {"foo": t.uint8_t, "bar": t.uint16_t, "baz": t.uint8_t},
+        )
+        == b"\x01\x02\x00"
+    )
