@@ -8,6 +8,7 @@ from zigpy.config import CONF_DEVICE_PATH
 import zigpy.serial
 
 from zigpy_deconz import uart
+from zigpy_deconz.config import CONF_DEVICE_BAUDRATE
 
 
 @pytest.fixture
@@ -27,7 +28,9 @@ async def test_connect(monkeypatch):
 
     monkeypatch.setattr(zigpy.serial, "create_serial_connection", mock_conn)
 
-    await uart.connect({CONF_DEVICE_PATH: "/dev/null"}, api)
+    await uart.connect(
+        {CONF_DEVICE_PATH: "/dev/null", CONF_DEVICE_BAUDRATE: 115200}, api
+    )
 
 
 def test_send(gw):
