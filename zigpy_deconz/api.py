@@ -702,17 +702,16 @@ class Deconz:
                 device_state.network_state.name,
             )
 
-        self._device_state = device_state
-        self._data_poller_event.set()
-
         if (
             DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
             in device_state.device_state
         ):
             self._free_slots_available_event.set()
         else:
-            LOGGER.debug("Data request queue full.")
             self._free_slots_available_event.clear()
+
+        self._device_state = device_state
+        self._data_poller_event.set()
 
     async def version(self):
         self._protocol_version = await self.read_parameter(

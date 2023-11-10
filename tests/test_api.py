@@ -135,6 +135,35 @@ async def mock_command_rsp(gateway):
     return inner
 
 
+def send_network_state(
+    api,
+    network_state: deconz_api.NetworkState2 = deconz_api.NetworkState2.CONNECTED,
+    device_state: deconz_api.DeviceStateFlags = (
+        deconz_api.DeviceStateFlags.APSDE_DATA_CONFIRM
+    ),
+):
+    _, rx_schema = deconz_api.COMMAND_SCHEMAS[deconz_api.CommandId.device_state_changed]
+
+    data = deconz_api.Command(
+        command_id=deconz_api.CommandId.device_state_changed,
+        seq=api._seq,
+        payload=t.serialize_dict(
+            {
+                "status": deconz_api.Status.SUCCESS,
+                "frame_length": t.uint16_t(7),
+                "device_state": deconz_api.DeviceState(
+                    network_state=network_state,
+                    device_state=device_state,
+                ),
+                "reserved": t.uint8_t(0),
+            },
+            rx_schema,
+        ),
+    ).serialize()
+
+    asyncio.get_running_loop().call_later(0.01, api.data_received, data)
+
+
 async def test_connect(api, mock_command_rsp):
     await api.connect()
 
@@ -633,6 +662,59 @@ async def test_aps_data_request_retries_failure(api, mock_command_rsp):
     assert len(mock_rsp.mock_calls) == 1
 
 
+async def test_aps_data_request_locking(caplog, api, mock_command_rsp):
+    await api.connect()
+
+    # No free slots
+    send_network_state(api, device_state=deconz_api.DeviceStateFlags.APSDE_DATA_CONFIRM)
+
+    await asyncio.sleep(0.1)
+
+    mock_rsp = mock_command_rsp(
+        command_id=deconz_api.CommandId.aps_data_request,
+        params={},
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(9),
+            "payload_length": t.uint16_t(2),
+            "device_state": deconz_api.DeviceState(
+                network_state=deconz_api.NetworkState2.CONNECTED,
+                device_state=(
+                    deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
+                ),
+            ),
+            "request_id": t.uint8_t(0x00),
+        },
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        send = asyncio.create_task(
+            api.aps_data_request(
+                req_id=0x00,
+                dst_addr_ep=t.DeconzAddressEndpoint.deserialize(b"\x02\xaa\x55\x01")[0],
+                profile=0x0104,
+                cluster=0x0007,
+                src_ep=1,
+                aps_payload=b"aps payload",
+            )
+        )
+
+        await asyncio.sleep(0.1)
+
+    assert "Waiting for free slots to become available" in caplog.text
+
+    assert len(mock_rsp.mock_calls) == 0
+
+    send_network_state(
+        api,
+        device_state=deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE,
+    )
+
+    await send
+
+    assert len(mock_rsp.mock_calls) == 1
+
+
 async def test_connection_lost(api):
     await api.connect()
 
@@ -787,41 +869,13 @@ async def test_data_poller(api, mock_command_rsp):
         },
     )
 
-    def send_network_state(
-        network_state: deconz_api.NetworkState2 = deconz_api.NetworkState2.CONNECTED,
-        device_state: deconz_api.DeviceStateFlags = (
-            deconz_api.DeviceStateFlags.APSDE_DATA_CONFIRM
-        ),
-    ):
-        _, rx_schema = deconz_api.COMMAND_SCHEMAS[
-            deconz_api.CommandId.device_state_changed
-        ]
-
-        data = deconz_api.Command(
-            command_id=deconz_api.CommandId.device_state_changed,
-            seq=api._seq,
-            payload=t.serialize_dict(
-                {
-                    "status": deconz_api.Status.SUCCESS,
-                    "frame_length": t.uint16_t(7),
-                    "device_state": deconz_api.DeviceState(
-                        network_state=network_state,
-                        device_state=device_state,
-                    ),
-                    "reserved": t.uint8_t(0),
-                },
-                rx_schema,
-            ),
-        ).serialize()
-
-        asyncio.get_running_loop().call_later(0.01, api.data_received, data)
-
     # Take us offline for a moment
-    send_network_state(network_state=deconz_api.NetworkState2.OFFLINE)
+    send_network_state(api, network_state=deconz_api.NetworkState2.OFFLINE)
     await asyncio.sleep(0.1)
 
     # Bring us back online with just a data confirmation to kick things off
     send_network_state(
+        api,
         network_state=deconz_api.NetworkState2.CONNECTED,
         device_state=deconz_api.DeviceStateFlags.APSDE_DATA_CONFIRM,
     )
