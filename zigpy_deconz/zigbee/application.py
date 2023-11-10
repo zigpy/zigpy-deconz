@@ -29,6 +29,11 @@ import zigpy_deconz
 from zigpy_deconz import types as t
 from zigpy_deconz.api import (
     Deconz,
+    FirmwarePlatform,
+    FirmwareVersion,
+    IndexedEndpoint,
+    IndexedKey,
+    LinkKey,
     NetworkParameter,
     NetworkState,
     SecurityMode,
@@ -61,8 +66,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self._pending = zigpy.util.Requests()
 
-        self.version = 0
         self._reset_watchdog_task = None
+        self._delayed_neighbor_scan_task = None
         self._reconnect_task = None
 
         self._written_endpoints = set()
@@ -85,7 +90,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         try:
             await api.connect()
-            self.version = await api.version()
         except Exception:
             api.close()
             raise
@@ -94,6 +98,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._written_endpoints.clear()
 
     def close(self):
+        if self._delayed_neighbor_scan_task is not None:
+            self._delayed_neighbor_scan_task.cancel()
+            self._delayed_neighbor_scan_task = None
+
         if self._reset_watchdog_task is not None:
             self._reset_watchdog_task.cancel()
             self._reset_watchdog_task = None
@@ -124,22 +132,26 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self,
             self.state.node_info.ieee,
             self.state.node_info.nwk,
-            self.version,
+            self._api.firmware_version,
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
         )
 
         self.devices[self.state.node_info.ieee] = coordinator
         if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
             await self.restore_neighbours()
-        asyncio.create_task(self._delayed_neighbour_scan())
+
+        self._delayed_neighbor_scan_task = asyncio.create_task(
+            self._delayed_neighbour_scan()
+        )
 
     async def _change_network_state(
         self, target_state: NetworkState, *, timeout: int = 10 * CHANGE_NETWORK_WAIT
     ):
         async def change_loop():
             while True:
-                (state, _, _) = await self._api.device_state()
-                if state.network_state == target_state:
+                device_state = await self._api.get_device_state()
+
+                if NetworkState(device_state.network_state) == target_state:
                     break
                 await asyncio.sleep(CHANGE_NETWORK_WAIT)
 
@@ -203,7 +215,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
             node_ieee = node_info.ieee
         else:
-            (ieee,) = await self._api[NetworkParameter.mac_address]
+            ieee = await self._api.read_parameter(NetworkParameter.mac_address)
             node_ieee = zigpy.types.EUI64(ieee)
 
         # There is no way to specify both a mask and the logical channel
@@ -232,7 +244,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
 
         await self._api.write_parameter(
-            NetworkParameter.network_key, 0, network_info.network_key.key
+            NetworkParameter.network_key,
+            IndexedKey(index=0, key=network_info.network_key.key),
         )
 
         if network_info.network_key.seq != 0:
@@ -252,8 +265,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
         await self._api.write_parameter(
             NetworkParameter.link_key,
-            tc_link_key_partner_ieee,
-            network_info.tc_link_key.key,
+            LinkKey(
+                ieee=tc_link_key_partner_ieee,
+                key=network_info.tc_link_key.key,
+            ),
         )
 
         if network_info.security_level == 0x00:
@@ -279,64 +294,72 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
         network_info.metadata = {
             "deconz": {
-                "version": self.version,
+                "version": f"{int(self._api.firmware_version):#010x}",
             }
         }
 
-        (ieee,) = await self._api[NetworkParameter.mac_address]
+        ieee = await self._api.read_parameter(NetworkParameter.mac_address)
         node_info.ieee = zigpy.types.EUI64(ieee)
-        (designed_coord,) = await self._api[NetworkParameter.aps_designed_coordinator]
+        designed_coord = await self._api.read_parameter(
+            NetworkParameter.aps_designed_coordinator
+        )
 
         if designed_coord == 0x01:
             node_info.logical_type = zdo_t.LogicalType.Coordinator
         else:
             node_info.logical_type = zdo_t.LogicalType.Router
 
-        (node_info.nwk,) = await self._api[NetworkParameter.nwk_address]
+        node_info.nwk = await self._api.read_parameter(NetworkParameter.nwk_address)
 
-        (network_info.pan_id,) = await self._api[NetworkParameter.nwk_panid]
-        (network_info.extended_pan_id,) = await self._api[
+        network_info.pan_id = await self._api.read_parameter(NetworkParameter.nwk_panid)
+        network_info.extended_pan_id = await self._api.read_parameter(
             NetworkParameter.aps_extended_panid
-        ]
+        )
 
         if network_info.extended_pan_id == zigpy.types.EUI64.convert(
             "00:00:00:00:00:00:00:00"
         ):
-            (network_info.extended_pan_id,) = await self._api[
+            network_info.extended_pan_id = await self._api.read_parameter(
                 NetworkParameter.nwk_extended_panid
-            ]
+            )
 
-        (network_info.channel,) = await self._api[NetworkParameter.current_channel]
-        (network_info.channel_mask,) = await self._api[NetworkParameter.channel_mask]
-        (network_info.nwk_update_id,) = await self._api[NetworkParameter.nwk_update_id]
+        network_info.channel = await self._api.read_parameter(
+            NetworkParameter.current_channel
+        )
+        network_info.channel_mask = await self._api.read_parameter(
+            NetworkParameter.channel_mask
+        )
+        network_info.nwk_update_id = await self._api.read_parameter(
+            NetworkParameter.nwk_update_id
+        )
 
         if network_info.channel == 0:
             raise NetworkNotFormed("Network channel is zero")
 
+        indexed_key = await self._api.read_parameter(NetworkParameter.network_key, 0)
+
         network_info.network_key = zigpy.state.Key()
-        (
-            _,
-            network_info.network_key.key,
-        ) = await self._api.read_parameter(NetworkParameter.network_key, 0)
+        network_info.network_key.key = indexed_key.key
 
         try:
-            (network_info.network_key.tx_counter,) = await self._api[
+            network_info.network_key.tx_counter = await self._api.read_parameter(
                 NetworkParameter.nwk_frame_counter
-            ]
+            )
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
 
         network_info.tc_link_key = zigpy.state.Key()
-        (network_info.tc_link_key.partner_ieee,) = await self._api[
+        network_info.tc_link_key.partner_ieee = await self._api.read_parameter(
             NetworkParameter.trust_center_address
-        ]
+        )
 
-        (_, network_info.tc_link_key.key) = await self._api.read_parameter(
+        link_key = await self._api.read_parameter(
             NetworkParameter.link_key,
             network_info.tc_link_key.partner_ieee,
         )
+        network_info.tc_link_key.key = link_key.key
 
-        (security_mode,) = await self._api[NetworkParameter.security_mode]
+        security_mode = await self._api.read_parameter(NetworkParameter.security_mode)
 
         if security_mode == SecurityMode.NO_SECURITY:
             network_info.security_level = 0x00
@@ -380,14 +403,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         # Read and count the current endpoints. Some firmwares have three, others four.
         for index in range(255 + 1):
             try:
-                _, current_descriptor = await self._api.read_parameter(
+                current_descriptor = await self._api.read_parameter(
                     NetworkParameter.configure_endpoint, index
                 )
             except zigpy_deconz.exception.CommandError as ex:
                 assert ex.status == Status.UNSUPPORTED
                 break
             else:
-                endpoints[index] = current_descriptor
+                endpoints[index] = current_descriptor.descriptor
 
         LOGGER.debug("Got endpoint slots: %r", endpoints)
 
@@ -419,7 +442,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         LOGGER.debug("Writing %s to slot %r", descriptor, target_index)
 
         await self._api.write_parameter(
-            NetworkParameter.configure_endpoint, target_index, descriptor
+            NetworkParameter.configure_endpoint,
+            IndexedEndpoint(index=target_index, descriptor=descriptor),
         )
 
     async def send_packet(self, packet):
@@ -464,24 +488,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                     raise zigpy.exceptions.DeliveryError(
                         f"Failed to deliver packet: {status!r}", status
                     )
-
-    def handle_rx(
-        self, src, src_ep, dst, dst_ep, profile_id, cluster_id, data, lqi, rssi
-    ):
-        self.packet_received(
-            zigpy.types.ZigbeePacket(
-                src=src.as_zigpy_type(),
-                src_ep=src_ep,
-                dst=dst.as_zigpy_type(),
-                dst_ep=dst_ep,
-                tsn=None,
-                profile_id=profile_id,
-                cluster_id=cluster_id,
-                data=zigpy.types.SerializableBytes(data),
-                lqi=lqi,
-                rssi=rssi,
-            )
-        )
 
     async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
@@ -533,7 +539,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 device.nwk,
             )
             await self._api.add_neighbour(
-                0x01, device.nwk, device.ieee, descr.mac_capability_flags
+                nwk=device.nwk,
+                ieee=device.ieee,
+                mac_capability_flags=descr.mac_capability_flags,
             )
 
     async def _delayed_neighbour_scan(self) -> None:
@@ -587,13 +595,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
-    def __init__(self, version: int, device_path: str, *args):
+    def __init__(self, version: FirmwareVersion, device_path: str, *args):
         """Initialize instance."""
 
         super().__init__(*args)
         is_gpio_device = re.match(r"/dev/tty(S|AMA|ACM)\d+", device_path)
         self._model = "RaspBee" if is_gpio_device else "ConBee"
-        self._model += " II" if ((version & 0x0000FF00) == 0x00000700) else ""
+        self._model += " II" if version.platform == FirmwarePlatform.Conbee_II else ""
 
     async def add_to_group(self, grp_id: int, name: str = None) -> None:
         group = self.application.groups.add_group(grp_id, name)

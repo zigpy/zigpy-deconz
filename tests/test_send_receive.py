@@ -2,7 +2,7 @@
 
 import asyncio
 import contextlib
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 import zigpy.exceptions
@@ -204,37 +204,3 @@ async def test_send_packet_deliver_failure(app, tx_packet):  # noqa: F811
             await app.send_packet(tx_packet)
 
     assert "Failed to deliver" in str(e)
-
-
-@pytest.fixture
-def rx_packet():
-    return zigpy_t.ZigbeePacket(
-        src=zigpy_t.AddrModeAddress(addr_mode=zigpy_t.AddrMode.NWK, address=0x1234),
-        src_ep=0x12,
-        dst=zigpy_t.AddrModeAddress(addr_mode=zigpy_t.AddrMode.NWK, address=0x0000),
-        dst_ep=0x34,
-        tsn=0x56,
-        profile_id=0x7890,
-        cluster_id=0xABCD,
-        data=zigpy_t.SerializableBytes(b"some data"),
-        tx_options=zigpy_t.TransmitOptions.NONE,
-        radius=0,
-    )
-
-
-async def test_receive_packet_nwk(app, rx_packet):  # noqa: F811
-    app.packet_received = Mock(spec_set=app.packet_received)
-
-    app.handle_rx(
-        src=t.DeconzAddress.from_zigpy_type(rx_packet.src),
-        src_ep=rx_packet.src_ep,
-        dst=t.DeconzAddress.from_zigpy_type(rx_packet.dst),
-        dst_ep=rx_packet.dst_ep,
-        profile_id=rx_packet.profile_id,
-        cluster_id=rx_packet.cluster_id,
-        data=rx_packet.data.serialize(),
-        lqi=rx_packet.lqi,
-        rssi=rx_packet.rssi,
-    )
-
-    app.packet_received.assert_called_once_with(rx_packet.replace(tsn=None))
