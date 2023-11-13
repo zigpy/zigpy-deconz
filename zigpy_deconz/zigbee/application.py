@@ -300,9 +300,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await self._change_network_state(NetworkState.CONNECTED)
 
     async def load_network_info(self, *, load_devices=False):
-        if self._api.firmware_version.platform == FirmwarePlatform.Conbee_III:
-            await self._change_network_state(NetworkState.CONNECTED)
-
         network_info = self.state.network_info
         node_info = self.state.node_info
 
