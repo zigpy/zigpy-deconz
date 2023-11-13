@@ -138,7 +138,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
 
         self.devices[self.state.node_info.ieee] = coordinator
-        if self._api.protocol_version >= PROTO_VER_NEIGBOURS:
+        if self._api.protocol_version >= PROTO_VER_NEIGBOURS and (
+            self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
+            and self._api.firmware_version >= 0x264D0900
+        ):
             await self.restore_neighbours()
 
         self._delayed_neighbor_scan_task = asyncio.create_task(
