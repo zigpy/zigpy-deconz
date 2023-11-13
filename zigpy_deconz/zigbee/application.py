@@ -54,6 +54,8 @@ PROTO_VER_MANUAL_SOURCE_ROUTE = 0x010C
 PROTO_VER_WATCHDOG = 0x0108
 PROTO_VER_NEIGBOURS = 0x0107
 
+CONBEE_III_ENERGY_SCAN_ATTEMPTS = 5
+
 
 class ControllerApplication(zigpy.application.ControllerApplication):
     SCHEMA = CONFIG_SCHEMA
@@ -390,12 +392,35 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def energy_scan(
         self, channels: t.Channels.ALL_CHANNELS, duration_exp: int, count: int
     ) -> dict[int, float]:
-        results = await super().energy_scan(
-            channels=channels, duration_exp=duration_exp, count=count
-        )
+        if self._api.firmware_version.platform in (
+            FirmwarePlatform.Conbee,
+            FirmwarePlatform.Conbee_II,
+        ):
+            results = await super().energy_scan(
+                channels=channels, duration_exp=duration_exp, count=count
+            )
 
-        # The Conbee seems to max out at an LQI of 85, which is exactly 255/3
-        return {c: v * 3 for c, v in results.items()}
+            # The Conbee I/II seems to max out at an LQI of 85, which is exactly 255/3
+            return {c: v * 3 for c, v in results.items()}
+
+        for i in range(CONBEE_III_ENERGY_SCAN_ATTEMPTS):
+            # The Conbee III energy scan inherits the EmberZNet ZDO bug
+            try:
+                rsp = await self._device.zdo.Mgmt_NWK_Update_req(
+                    zigpy.zdo.types.NwkUpdate(
+                        ScanChannels=channels,
+                        ScanDuration=duration_exp,
+                        ScanCount=count,
+                    )
+                )
+                break
+            except (asyncio.TimeoutError, zigpy.exceptions.DeliveryError):
+                continue
+        else:
+            raise
+
+        _, scanned_channels, _, _, energy_values = rsp
+        return dict(zip(scanned_channels, energy_values))
 
     async def _move_network_to_channel(
         self, new_channel: int, new_nwk_update_id: int
