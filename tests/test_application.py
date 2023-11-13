@@ -602,6 +602,40 @@ async def test_energy_scan_conbee_2(app):
     assert results == {c: c * 3 for c in Channels.ALL_CHANNELS}
 
 
+async def test_energy_scan_conbee_3(app):
+    app._api.firmware_version = deconz_api.FirmwareVersion(0x26580900)
+
+    type(app)._device = AsyncMock()
+
+    app._device.zdo.Mgmt_NWK_Update_req = AsyncMock(
+        side_effect=zigpy.exceptions.DeliveryError()
+    )
+
+    with pytest.raises(zigpy.exceptions.DeliveryError):
+        await app.energy_scan(channels=Channels.ALL_CHANNELS, duration_exp=0, count=1)
+
+    app._device.zdo.Mgmt_NWK_Update_req = AsyncMock(
+        side_effect=[
+            asyncio.TimeoutError(),
+            list(
+                {
+                    "Status": zdo_t.Status.SUCCESS,
+                    "ScannedChannels": Channels.ALL_CHANNELS,
+                    "TotalTransmissions": 0,
+                    "TransmissionFailures": 0,
+                    "EnergyValues": [i for i in range(11, 26 + 1)],
+                }.values()
+            ),
+        ]
+    )
+
+    results = await app.energy_scan(
+        channels=Channels.ALL_CHANNELS, duration_exp=0, count=1
+    )
+
+    assert results == {c: c for c in Channels.ALL_CHANNELS}
+
+
 async def test_channel_migration(app):
     app._api.write_parameter = AsyncMock()
     app._change_network_state = AsyncMock()
