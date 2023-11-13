@@ -608,7 +608,7 @@ async def test_energy_scan_conbee_3(app):
     type(app)._device = AsyncMock()
 
     app._device.zdo.Mgmt_NWK_Update_req = AsyncMock(
-        side_effect=zigpy.exceptions.DeliveryError()
+        side_effect=zigpy.exceptions.DeliveryError("error")
     )
 
     with pytest.raises(zigpy.exceptions.DeliveryError):

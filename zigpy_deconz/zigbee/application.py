@@ -415,9 +415,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 )
                 break
             except (asyncio.TimeoutError, zigpy.exceptions.DeliveryError):
+                if i == CONBEE_III_ENERGY_SCAN_ATTEMPTS - 1:
+                    raise
+
                 continue
-        else:
-            raise
 
         _, scanned_channels, _, _, energy_values = rsp
         return dict(zip(scanned_channels, energy_values))
