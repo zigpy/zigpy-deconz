@@ -140,9 +140,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
 
         self.devices[self.state.node_info.ieee] = coordinator
-        if self._api.protocol_version >= PROTO_VER_NEIGBOURS and (
+        if self._api.protocol_version >= PROTO_VER_NEIGBOURS and not (
             self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
-            and self._api.firmware_version >= 0x264D0900
+            and self._api.firmware_version < 0x264D0900
         ):
             await self.restore_neighbours()
 
