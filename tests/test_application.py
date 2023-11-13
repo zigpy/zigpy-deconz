@@ -41,6 +41,7 @@ def api():
         return_value=deconz_api.DeviceState(deconz_api.NetworkState.CONNECTED)
     )
     api.write_parameter = AsyncMock()
+    api.firmware_version = deconz_api.FirmwareVersion(0x26580700)
 
     # So the protocol version is effectively infinite
     api._protocol_version.__ge__.return_value = True
@@ -112,7 +113,7 @@ def addr_nwk_and_ieee(nwk, ieee):
     return addr
 
 
-@patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_WAIT", 0.001)
+@patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_POLL_TIME", 0.001)
 @pytest.mark.parametrize(
     "proto_ver, target_state, returned_state",
     [
@@ -235,7 +236,7 @@ async def test_deconz_dev_add_to_group(app, nwk, device_path):
     app._groups.add_group.return_value = group
 
     deconz = application.DeconzDevice(
-        deconz_api.FirmwareVersion(0), device_path, app, sentinel.ieee, nwk
+        deconz_api.FirmwareVersion(0x26580700), device_path, app, sentinel.ieee, nwk
     )
     deconz.endpoints = {
         0: sentinel.zdo,
@@ -255,7 +256,7 @@ async def test_deconz_dev_remove_from_group(app, nwk, device_path):
     group = MagicMock()
     app.groups[sentinel.grp_id] = group
     deconz = application.DeconzDevice(
-        deconz_api.FirmwareVersion(0), device_path, app, sentinel.ieee, nwk
+        deconz_api.FirmwareVersion(0x26580700), device_path, app, sentinel.ieee, nwk
     )
     deconz.endpoints = {
         0: sentinel.zdo,
@@ -269,7 +270,7 @@ async def test_deconz_dev_remove_from_group(app, nwk, device_path):
 
 def test_deconz_props(nwk, device_path):
     deconz = application.DeconzDevice(
-        deconz_api.FirmwareVersion(0), device_path, app, sentinel.ieee, nwk
+        deconz_api.FirmwareVersion(0x26580700), device_path, app, sentinel.ieee, nwk
     )
     assert deconz.manufacturer is not None
     assert deconz.model is not None
@@ -298,7 +299,7 @@ async def test_deconz_new(app, nwk, device_path, monkeypatch):
     monkeypatch.setattr(zigpy.device.Device, "_initialize", mock_init)
 
     deconz = await application.DeconzDevice.new(
-        app, sentinel.ieee, nwk, deconz_api.FirmwareVersion(0), device_path
+        app, sentinel.ieee, nwk, deconz_api.FirmwareVersion(0x26580700), device_path
     )
     assert isinstance(deconz, application.DeconzDevice)
     assert mock_init.call_count == 1
@@ -312,7 +313,7 @@ async def test_deconz_new(app, nwk, device_path, monkeypatch):
     }
     app.devices[sentinel.ieee] = mock_dev
     deconz = await application.DeconzDevice.new(
-        app, sentinel.ieee, nwk, deconz_api.FirmwareVersion(0), device_path
+        app, sentinel.ieee, nwk, deconz_api.FirmwareVersion(0x26580700), device_path
     )
     assert isinstance(deconz, application.DeconzDevice)
     assert mock_init.call_count == 0
@@ -426,7 +427,7 @@ async def test_delayed_scan():
             app.topology.scan.assert_called_once_with(devices=[coord])
 
 
-@patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_WAIT", 0.001)
+@patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_POLL_TIME", 0.001)
 @pytest.mark.parametrize("support_watchdog", [False, True])
 async def test_change_network_state(app, support_watchdog):
     app._reset_watchdog_task = MagicMock()
@@ -588,7 +589,7 @@ async def test_reset_network_info(app):
     app.form_network.assert_called_once()
 
 
-async def test_energy_scan(app):
+async def test_energy_scan_conbee_2(app):
     with mock.patch.object(
         zigpy.application.ControllerApplication,
         "energy_scan",

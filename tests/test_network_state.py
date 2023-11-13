@@ -60,11 +60,12 @@ def network_info(node_info):
         nwk_addresses={},
         stack_specific={},
         source=f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}",
-        metadata={"deconz": {"version": "0x00000001"}},
+        metadata={"deconz": {"version": "0x26580700"}},
     )
 
 
-@patch.object(application, "CHANGE_NETWORK_WAIT", 0.001)
+@patch.object(application, "CHANGE_NETWORK_POLL_TIME", 0.001)
+@patch.object(application, "CHANGE_NETWORK_STATE_DELAY", 0.001)
 @pytest.mark.parametrize(
     "channel_mask, channel, security_level, fw_supports_fc, logical_type",
     [
@@ -182,7 +183,8 @@ async def test_write_network_info(
         assert params["security_mode"] == (zigpy_deconz.api.SecurityMode.ONLY_TCLK,)
 
 
-@patch.object(application, "CHANGE_NETWORK_WAIT", 0.001)
+@patch.object(application, "CHANGE_NETWORK_POLL_TIME", 0.001)
+@patch.object(application, "CHANGE_NETWORK_STATE_DELAY", 0.001)
 @pytest.mark.parametrize(
     "error, param_overrides, nwk_state_changes, node_state_changes",
     [
