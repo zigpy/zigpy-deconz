@@ -949,3 +949,47 @@ async def test_add_neighbour(api, mock_command_rsp):
             mac_capability_flags=0x12,
         )
     ]
+
+
+async def test_cb3_device_state_callback_bug(api, mock_command_rsp):
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.version,
+        params={"reserved": t.uint8_t(0)},
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(9),
+            "version": deconz_api.FirmwareVersion(0x26450900),
+        },
+        replace=True,
+    )
+
+    await api.connect()
+
+    device_state = deconz_api.DeviceState(
+        network_state=deconz_api.NetworkState2.CONNECTED,
+        device_state=deconz_api.DeviceStateFlags.APSDE_DATA_CONFIRM,
+    )
+
+    assert api._device_state != device_state
+
+    _, rx_schema = deconz_api.COMMAND_SCHEMAS[deconz_api.CommandId.device_state]
+    api.data_received(
+        deconz_api.Command(
+            command_id=deconz_api.CommandId.device_state,
+            seq=api._seq,
+            payload=t.serialize_dict(
+                {
+                    "status": deconz_api.Status.SUCCESS,
+                    "frame_length": t.uint16_t(8),
+                    "device_state": device_state,
+                    "reserved1": t.uint8_t(0),
+                    "reserved2": t.uint8_t(0),
+                },
+                rx_schema,
+            ),
+        ).serialize()
+    )
+
+    await asyncio.sleep(0.01)
+
+    assert api._device_state == device_state
