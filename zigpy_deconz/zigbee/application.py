@@ -196,10 +196,16 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     ):
         async def change_loop():
             while True:
-                device_state = await self._api.get_device_state()
+                try:
+                    device_state = await self._api.get_device_state()
+                except asyncio.TimeoutError:
+                    # 0x264B0900 and earlier can reset during device state changes
+                    # requiring a firmware reset, causing state polling to fail
+                    LOGGER.debug("Failed to poll device state")
+                else:
+                    if NetworkState(device_state.network_state) == target_state:
+                        break
 
-                if NetworkState(device_state.network_state) == target_state:
-                    break
                 await asyncio.sleep(CHANGE_NETWORK_POLL_TIME)
 
         await self._api.change_network_state(target_state)
