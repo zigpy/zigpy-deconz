@@ -40,7 +40,12 @@ from zigpy_deconz.api import (
     Status,
     TXStatus,
 )
-from zigpy_deconz.config import CONF_WATCHDOG_TTL, CONFIG_SCHEMA, SCHEMA_DEVICE
+from zigpy_deconz.config import (
+    CONF_DEVICE_BAUDRATE,
+    CONF_WATCHDOG_TTL,
+    CONFIG_SCHEMA,
+    SCHEMA_DEVICE,
+)
 import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
@@ -95,14 +100,12 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         If the device is not supported, `False`.
         """
 
-        device_config = zigpy.config.SCHEMA_DEVICE(device_config)
+        device_config = cls.SCHEMA_DEVICE(device_config)
         probe_configs = [device_config]
 
         # Probe the Conbee III with 115200 if we aren't already doing so
-        if device_config[zigpy.config.CONF_DEVICE_BAUDRATE] != 115200:
-            probe_configs.append(
-                {**device_config, zigpy.config.CONF_DEVICE_BAUDRATE: 115200}
-            )
+        if device_config[CONF_DEVICE_BAUDRATE] != 115200:
+            probe_configs.append({**device_config, CONF_DEVICE_BAUDRATE: 115200})
 
         for device_config in probe_configs:
             config = cls.SCHEMA(
