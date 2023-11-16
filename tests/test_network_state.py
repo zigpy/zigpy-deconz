@@ -32,6 +32,9 @@ def node_info():
         nwk=t.NWK(0x0000),
         ieee=t.EUI64.convert("93:2C:A9:34:D9:D0:5D:12"),
         logical_type=zdo_t.LogicalType.Coordinator,
+        manufacturer="dresden elektronik",
+        model="Conbee II",
+        version="0x26580700",
     )
 
 
@@ -60,11 +63,12 @@ def network_info(node_info):
         nwk_addresses={},
         stack_specific={},
         source=f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}",
-        metadata={"deconz": {"version": "0x00000001"}},
+        metadata={"deconz": {"version": "0x26580700"}},
     )
 
 
-@patch.object(application, "CHANGE_NETWORK_WAIT", 0.001)
+@patch.object(application, "CHANGE_NETWORK_POLL_TIME", 0.001)
+@patch.object(application, "CHANGE_NETWORK_STATE_DELAY", 0.001)
 @pytest.mark.parametrize(
     "channel_mask, channel, security_level, fw_supports_fc, logical_type",
     [
@@ -182,7 +186,8 @@ async def test_write_network_info(
         assert params["security_mode"] == (zigpy_deconz.api.SecurityMode.ONLY_TCLK,)
 
 
-@patch.object(application, "CHANGE_NETWORK_WAIT", 0.001)
+@patch.object(application, "CHANGE_NETWORK_POLL_TIME", 0.001)
+@patch.object(application, "CHANGE_NETWORK_STATE_DELAY", 0.001)
 @pytest.mark.parametrize(
     "error, param_overrides, nwk_state_changes, node_state_changes",
     [
@@ -261,6 +266,7 @@ async def test_load_network_info(
             ieee=node_info.ieee, key=network_info.tc_link_key.key
         ),
         ("security_mode",): zigpy_deconz.api.SecurityMode.ONLY_TCLK,
+        ("protocol_version",): 0x010E,
     }
 
     params.update(param_overrides)
@@ -278,6 +284,7 @@ async def test_load_network_info(
 
         return value
 
+    app._api.firmware_version = zigpy_deconz.api.FirmwareVersion(0x26580700)
     app._api.read_parameter = AsyncMock(side_effect=read_param)
 
     if error is not None:

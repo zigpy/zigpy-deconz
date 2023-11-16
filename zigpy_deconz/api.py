@@ -73,6 +73,7 @@ class DeviceState(t.Struct):
 class FirmwarePlatform(t.enum8):
     Conbee = 0x05
     Conbee_II = 0x07
+    Conbee_III = 0x09
 
 
 class FirmwareVersion(t.Struct, t.uint32_t):
@@ -712,6 +713,21 @@ class Deconz:
 
         self._device_state = device_state
         self._data_poller_event.set()
+
+    def _handle_device_state(
+        self,
+        status: t.Status,
+        device_state: DeviceState,
+        reserved1: t.uint8_t,
+        reserved2: t.uint8_t,
+    ) -> None:
+        if (
+            self.firmware_version.platform == FirmwarePlatform.Conbee_III
+            and self.firmware_version == 0x26450900
+        ):
+            # Initial Conbee III firmware used the wrong command to notify of network
+            # state changes
+            self._handle_device_state_changed(status=status, device_state=device_state)
 
     async def version(self):
         self._protocol_version = await self.read_parameter(

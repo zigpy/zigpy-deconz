@@ -4,11 +4,10 @@ import logging
 from unittest import mock
 
 import pytest
-from zigpy.config import CONF_DEVICE_PATH
+from zigpy.config import CONF_DEVICE_BAUDRATE, CONF_DEVICE_PATH
 import zigpy.serial
 
 from zigpy_deconz import uart
-from zigpy_deconz.config import CONF_DEVICE_BAUDRATE
 
 
 @pytest.fixture
