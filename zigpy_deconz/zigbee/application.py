@@ -40,12 +40,7 @@ from zigpy_deconz.api import (
     Status,
     TXStatus,
 )
-from zigpy_deconz.config import (
-    CONF_DEVICE_BAUDRATE,
-    CONF_WATCHDOG_TTL,
-    CONFIG_SCHEMA,
-    SCHEMA_DEVICE,
-)
+from zigpy_deconz.config import CONFIG_SCHEMA
 import zigpy_deconz.exception
 
 LOGGER = logging.getLogger(__name__)
@@ -64,11 +59,10 @@ CONBEE_III_ENERGY_SCAN_ATTEMPTS = 5
 
 class ControllerApplication(zigpy.application.ControllerApplication):
     SCHEMA = CONFIG_SCHEMA
-    SCHEMA_DEVICE = SCHEMA_DEVICE
 
     _probe_config_variants = [
-        {CONF_DEVICE_BAUDRATE: 57600},
-        {CONF_DEVICE_BAUDRATE: 115200},
+        {zigpy.config.CONF_DEVICE_BAUDRATE: 57600},
+        {zigpy.config.CONF_DEVICE_BAUDRATE: 115200},
     ]
 
     def __init__(self, config: dict[str, Any]):
@@ -79,24 +73,22 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self._pending = zigpy.util.Requests()
 
-        self._reset_watchdog_task = None
         self._delayed_neighbor_scan_task = None
         self._reconnect_task = None
 
         self._written_endpoints = set()
 
-    async def _reset_watchdog(self):
-        while True:
-            try:
-                await self._api.write_parameter(
-                    NetworkParameter.watchdog_ttl, self._config[CONF_WATCHDOG_TTL]
-                )
-            except Exception as e:
-                LOGGER.warning("Failed to reset watchdog", exc_info=e)
-                self.connection_lost(e)
-                return
+    async def _watchdog_feed(self):
+        await self._api.get_device_state()
 
-            await asyncio.sleep(self._config[CONF_WATCHDOG_TTL] * 0.75)
+        if (
+            self._api.protocol_version >= PROTO_VER_WATCHDOG
+            and self._api.firmware_version.platform != FirmwarePlatform.Conbee_III
+            and self._api.firmware_version > 0x26450900
+        ):
+            await self._api.write_parameter(
+                NetworkParameter.watchdog_ttl, int(2 * self._watchdog_period)
+            )
 
     async def connect(self):
         api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
@@ -114,14 +106,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if self._delayed_neighbor_scan_task is not None:
             self._delayed_neighbor_scan_task.cancel()
             self._delayed_neighbor_scan_task = None
-
-        if self._reset_watchdog_task is not None:
-            self._reset_watchdog_task.cancel()
-            self._reset_watchdog_task = None
-
-        if self._reconnect_task is not None:
-            self._reconnect_task.cancel()
-            self._reconnect_task = None
 
         if self._api is not None:
             self._api.close()
@@ -195,18 +179,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 " away from any sources of interference, like USB 3.0 ports, SSDs,"
                 " 2.4GHz routers, motherboards, etc."
             )
-
-        if self._api.protocol_version < PROTO_VER_WATCHDOG or (
-            self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
-            and self._api.firmware_version == 0x26450900
-        ):
-            return
-
-        if self._reset_watchdog_task is not None:
-            self._reset_watchdog_task.cancel()
-
-        if target_state == NetworkState.CONNECTED:
-            self._reset_watchdog_task = asyncio.create_task(self._reset_watchdog())
 
     async def reset_network_info(self):
         # TODO: There does not appear to be a way to factory reset a Conbee
