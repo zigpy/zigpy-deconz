@@ -14,10 +14,12 @@ else:
     from asyncio import timeout as asyncio_timeout  # pragma: no cover
 
 from zigpy.config import CONF_DEVICE_PATH
+import zigpy.greenpower
 from zigpy.types import (
     APSStatus,
     Bool,
     Channels,
+    GPDataFrame,
     KeyData,
     SerializableBytes,
     Struct,
@@ -399,7 +401,7 @@ COMMAND_SCHEMAS = {
             "status": Status,
             "frame_length": t.uint16_t,
             "payload_length": t.uint16_t,
-            "reserved": t.LongOctetString,
+            "gp_data_frame": GPDataFrame
         },
     ),
 }
@@ -689,6 +691,18 @@ class Deconz:
                 self._handle_device_state_changed(
                     status=rsp["status"], device_state=rsp["device_state"]
                 )
+
+    def _handle_zigbee_green_power(
+        self,
+        status: Status,
+        gp_data_frame: GPDataFrame
+    ) -> None:
+        if status == Status.SUCCESS:
+            asyncio.ensure_future(
+                self._app._greenpower.handle_received_green_power_frame(gp_data_frame),
+                loop=asyncio.get_running_loop()
+            )
+
 
     def _handle_device_state_changed(
         self,
