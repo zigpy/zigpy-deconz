@@ -117,8 +117,11 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if self._api is not None:
             self._api.close()
 
-    async def permit_with_key(self, node: t.EUI64, code: bytes, time_s=60):
-        raise NotImplementedError()
+    async def permit_with_link_key(self, node: t.EUI64, link_key: t.KeyData, time_s=60):
+        await self._api.write_parameter(
+            NetworkParameter.link_key,
+            LinkKey(ieee=node, key=link_key),
+        )
 
     async def start_network(self):
         await self.register_endpoints()
