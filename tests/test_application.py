@@ -248,9 +248,7 @@ async def test_deconz_dev_add_to_group(app, nwk, device_path):
     app._groups = MagicMock()
     app._groups.add_group.return_value = group
 
-    deconz = application.DeconzDevice(
-        deconz_api.FirmwareVersion(0x26580700), device_path, app, sentinel.ieee, nwk
-    )
+    deconz = application.DeconzDevice("Conbee II", app, sentinel.ieee, nwk)
     deconz.endpoints = {
         0: sentinel.zdo,
         1: sentinel.ep1,
@@ -268,9 +266,7 @@ async def test_deconz_dev_add_to_group(app, nwk, device_path):
 async def test_deconz_dev_remove_from_group(app, nwk, device_path):
     group = MagicMock()
     app.groups[sentinel.grp_id] = group
-    deconz = application.DeconzDevice(
-        deconz_api.FirmwareVersion(0x26580700), device_path, app, sentinel.ieee, nwk
-    )
+    deconz = application.DeconzDevice("Conbee II", app, sentinel.ieee, nwk)
     deconz.endpoints = {
         0: sentinel.zdo,
         1: sentinel.ep1,
@@ -282,38 +278,16 @@ async def test_deconz_dev_remove_from_group(app, nwk, device_path):
 
 
 def test_deconz_props(nwk, device_path):
-    deconz = application.DeconzDevice(
-        deconz_api.FirmwareVersion(0x26580700), device_path, app, sentinel.ieee, nwk
-    )
+    deconz = application.DeconzDevice("Conbee II", app, sentinel.ieee, nwk)
     assert deconz.manufacturer is not None
     assert deconz.model is not None
-
-
-@pytest.mark.parametrize(
-    "name, firmware_version, device_path",
-    [
-        ("ConBee", deconz_api.FirmwareVersion(0x00000500), "/dev/ttyUSB0"),
-        ("ConBee II", deconz_api.FirmwareVersion(0x00000700), "/dev/ttyUSB0"),
-        ("RaspBee", deconz_api.FirmwareVersion(0x00000500), "/dev/ttyS0"),
-        ("RaspBee II", deconz_api.FirmwareVersion(0x00000700), "/dev/ttyS0"),
-        ("RaspBee", deconz_api.FirmwareVersion(0x00000500), "/dev/ttyAMA0"),
-        ("RaspBee II", deconz_api.FirmwareVersion(0x00000700), "/dev/ttyAMA0"),
-    ],
-)
-def test_deconz_name(nwk, name, firmware_version, device_path):
-    deconz = application.DeconzDevice(
-        firmware_version, device_path, app, sentinel.ieee, nwk
-    )
-    assert deconz.model == name
 
 
 async def test_deconz_new(app, nwk, device_path, monkeypatch):
     mock_init = AsyncMock()
     monkeypatch.setattr(zigpy.device.Device, "_initialize", mock_init)
 
-    deconz = await application.DeconzDevice.new(
-        app, sentinel.ieee, nwk, deconz_api.FirmwareVersion(0x26580700), device_path
-    )
+    deconz = await application.DeconzDevice.new(app, sentinel.ieee, nwk, "Conbee II")
     assert isinstance(deconz, application.DeconzDevice)
     assert mock_init.call_count == 1
     mock_init.reset_mock()
@@ -325,9 +299,7 @@ async def test_deconz_new(app, nwk, device_path, monkeypatch):
         22: MagicMock(),
     }
     app.devices[sentinel.ieee] = mock_dev
-    deconz = await application.DeconzDevice.new(
-        app, sentinel.ieee, nwk, deconz_api.FirmwareVersion(0x26580700), device_path
-    )
+    deconz = await application.DeconzDevice.new(app, sentinel.ieee, nwk, "Conbee II")
     assert isinstance(deconz, application.DeconzDevice)
     assert mock_init.call_count == 0
 

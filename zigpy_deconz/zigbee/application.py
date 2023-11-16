@@ -30,7 +30,6 @@ from zigpy_deconz import types as t
 from zigpy_deconz.api import (
     Deconz,
     FirmwarePlatform,
-    FirmwareVersion,
     IndexedEndpoint,
     IndexedKey,
     LinkKey,
@@ -126,8 +125,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self,
             self.state.node_info.ieee,
             self.state.node_info.nwk,
-            self._api.firmware_version,
-            self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
+            self.state.node_info.model,
         )
 
         self.devices[self.state.node_info.ieee] = coordinator
@@ -288,15 +286,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         network_info = self.state.network_info
         node_info = self.state.node_info
 
-        network_info.source = (
-            f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}"
-        )
-        network_info.metadata = {
-            "deconz": {
-                "version": f"{int(self._api.firmware_version):#010x}",
-            }
-        }
-
         ieee = await self._api.read_parameter(NetworkParameter.mac_address)
         node_info.ieee = zigpy.types.EUI64(ieee)
         designed_coord = await self._api.read_parameter(
@@ -309,6 +298,33 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             node_info.logical_type = zdo_t.LogicalType.Router
 
         node_info.nwk = await self._api.read_parameter(NetworkParameter.nwk_address)
+
+        node_info.manufacturer = "dresden elektronik"
+
+        if re.match(
+            r"/dev/tty(S|AMA|ACM)\d+",
+            self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
+        ):
+            node_info.model = "Raspbee"
+        else:
+            node_info.model = "Conbee"
+
+        node_info.model += {
+            FirmwarePlatform.Conbee: "",
+            FirmwarePlatform.Conbee_II: " II",
+            FirmwarePlatform.Conbee_III: " III",
+        }[self._api.firmware_version.platform]
+
+        node_info.version = f"{int(self._api.firmware_version):#010x}"
+
+        network_info.source = (
+            f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}"
+        )
+        network_info.metadata = {
+            "deconz": {
+                "version": node_info.version,
+            }
+        }
 
         network_info.pan_id = await self._api.read_parameter(NetworkParameter.nwk_panid)
         network_info.extended_pan_id = await self._api.read_parameter(
@@ -578,17 +594,11 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
-    def __init__(self, version: FirmwareVersion, device_path: str, *args):
+    def __init__(self, model: str, *args):
         """Initialize instance."""
 
         super().__init__(*args)
-        is_gpio_device = re.match(r"/dev/tty(S|AMA|ACM)\d+", device_path)
-        self._model = "RaspBee" if is_gpio_device else "ConBee"
-        self._model += {
-            FirmwarePlatform.Conbee: "",
-            FirmwarePlatform.Conbee_II: " II",
-            FirmwarePlatform.Conbee_III: " III",
-        }[version.platform]
+        self._model = model
 
     async def add_to_group(self, grp_id: int, name: str = None) -> None:
         group = self.application.groups.add_group(grp_id, name)
@@ -615,9 +625,9 @@ class DeconzDevice(zigpy.device.Device):
         return self._model
 
     @classmethod
-    async def new(cls, application, ieee, nwk, version: int, device_path: str):
+    async def new(cls, application, ieee, nwk, model: str):
         """Create or replace zigpy device."""
-        dev = cls(version, device_path, application, ieee, nwk)
+        dev = cls(model, application, ieee, nwk)
 
         if ieee in application.devices:
             from_dev = application.get_device(ieee=ieee)
