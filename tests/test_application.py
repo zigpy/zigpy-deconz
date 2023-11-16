@@ -201,16 +201,12 @@ async def test_connect_failure(app):
 
 
 async def test_disconnect(app):
-    reset_watchdog_task = app._reset_watchdog_task = MagicMock()
     api_close = app._api.close = MagicMock()
 
     await app.disconnect()
 
     assert app._api is None
-    assert app._reset_watchdog_task is None
-
     assert api_close.call_count == 1
-    assert reset_watchdog_task.cancel.call_count == 1
 
 
 async def test_disconnect_no_api(app):
@@ -225,9 +221,26 @@ async def test_disconnect_close_error(app):
     await app.disconnect()
 
 
-async def test_permit_with_key_not_implemented(app):
-    with pytest.raises(NotImplementedError):
-        await app.permit_with_key(node=MagicMock(), code=b"abcdef")
+async def test_permit_with_link_key(app):
+    with patch.object(app._api, "write_parameter"):
+        await app.permit_with_link_key(
+            node=t.EUI64.convert("00:11:22:33:44:55:66:77"),
+            install_code=t.KeyData.convert(
+                "aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd"
+            ),
+        )
+
+    assert app._api.write_parameter.mock_calls == [
+        mock.call(
+            deconz_api.NetworkParameter.link_key,
+            deconz_api.LinkKey(
+                ieee=t.EUI64.convert("00:11:22:33:44:55:66:77"),
+                key=t.KeyData.convert(
+                    "aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd"
+                ),
+            ),
+        )
+    ]
 
 
 async def test_deconz_dev_add_to_group(app, nwk, device_path):
@@ -347,18 +360,21 @@ def test_tx_confirm_unexpcted(app, caplog):
 
 async def test_reset_watchdog(app):
     """Test watchdog."""
-    with patch.object(app._api, "write_parameter") as mock_api:
-        dog = asyncio.create_task(app._reset_watchdog())
-        await asyncio.sleep(0.3)
-        dog.cancel()
-        assert mock_api.call_count == 1
+    app._api.protocol_version = application.PROTO_VER_WATCHDOG
+    app._api.get_device_state = AsyncMock()
+    app._api.write_parameter = AsyncMock()
 
-    with patch.object(app._api, "write_parameter") as mock_api:
-        mock_api.side_effect = zigpy_deconz.exception.CommandError
-        dog = asyncio.create_task(app._reset_watchdog())
-        await asyncio.sleep(0.3)
-        dog.cancel()
-        assert mock_api.call_count == 1
+    await app._watchdog_feed()
+    assert len(app._api.get_device_state.mock_calls) == 1
+    assert len(app._api.write_parameter.mock_calls) == 1
+
+    app._api.protocol_version = application.PROTO_VER_WATCHDOG - 1
+    app._api.get_device_state.reset_mock()
+    app._api.write_parameter.reset_mock()
+
+    await app._watchdog_feed()
+    assert len(app._api.get_device_state.mock_calls) == 1
+    assert len(app._api.write_parameter.mock_calls) == 0
 
 
 async def test_force_remove(app):
@@ -428,10 +444,7 @@ async def test_delayed_scan():
 
 
 @patch("zigpy_deconz.zigbee.application.CHANGE_NETWORK_POLL_TIME", 0.001)
-@pytest.mark.parametrize("support_watchdog", [False, True])
-async def test_change_network_state(app, support_watchdog):
-    app._reset_watchdog_task = MagicMock()
-
+async def test_change_network_state(app):
     app._api.get_device_state = AsyncMock(
         side_effect=[
             deconz_api.DeviceState(deconz_api.NetworkState.OFFLINE),
@@ -440,24 +453,10 @@ async def test_change_network_state(app, support_watchdog):
         ]
     )
 
-    if support_watchdog:
-        app._api._protocol_version = application.PROTO_VER_WATCHDOG
-        app._api.protocol_version = application.PROTO_VER_WATCHDOG
-    else:
-        app._api._protocol_version = application.PROTO_VER_WATCHDOG - 1
-        app._api.protocol_version = application.PROTO_VER_WATCHDOG - 1
-
-    old_watchdog_task = app._reset_watchdog_task
-    cancel_mock = app._reset_watchdog_task.cancel = MagicMock()
+    app._api._protocol_version = application.PROTO_VER_WATCHDOG
+    app._api.protocol_version = application.PROTO_VER_WATCHDOG
 
     await app._change_network_state(deconz_api.NetworkState.CONNECTED, timeout=0.01)
-
-    if support_watchdog:
-        assert cancel_mock.call_count == 1
-        assert app._reset_watchdog_task is not old_watchdog_task
-    else:
-        assert cancel_mock.call_count == 0
-        assert app._reset_watchdog_task is old_watchdog_task
 
 
 ENDPOINT = zdo_t.SimpleDescriptor(

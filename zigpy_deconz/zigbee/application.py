@@ -81,10 +81,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def _watchdog_feed(self):
         await self._api.get_device_state()
 
-        if (
-            self._api.protocol_version >= PROTO_VER_WATCHDOG
-            and self._api.firmware_version.platform != FirmwarePlatform.Conbee_III
-            and self._api.firmware_version > 0x26450900
+        if self._api.protocol_version >= PROTO_VER_WATCHDOG and not (
+            self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
+            and self._api.firmware_version <= 0x26450900
         ):
             await self._api.write_parameter(
                 NetworkParameter.watchdog_ttl, int(2 * self._watchdog_period)
@@ -102,7 +101,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._api = api
         self._written_endpoints.clear()
 
-    def close(self):
+    async def disconnect(self):
         if self._delayed_neighbor_scan_task is not None:
             self._delayed_neighbor_scan_task.cancel()
             self._delayed_neighbor_scan_task = None
@@ -110,12 +109,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         if self._api is not None:
             self._api.close()
             self._api = None
-
-    async def disconnect(self):
-        self.close()
-
-        if self._api is not None:
-            self._api.close()
 
     async def permit_with_link_key(self, node: t.EUI64, link_key: t.KeyData, time_s=60):
         await self._api.write_parameter(
@@ -579,47 +572,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await asyncio.sleep(DELAY_NEIGHBOUR_SCAN_S)
         coord = self.get_device(ieee=self.state.node_info.ieee)
         await self.topology.scan(devices=[coord])
-
-    def connection_lost(self, exc: Exception) -> None:
-        """Lost connection."""
-
-        if exc is not None:
-            LOGGER.warning("Lost connection: %r", exc)
-
-        self.close()
-        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
-
-    async def _reconnect_loop(self) -> None:
-        attempt = 1
-
-        while True:
-            LOGGER.debug("Reconnecting, attempt %s", attempt)
-
-            try:
-                async with asyncio_timeout(10):
-                    await self.connect()
-                async with asyncio_timeout(10):
-                    await self.initialize()
-                break
-            except Exception as exc:
-                wait = 2 ** min(attempt, 5)
-                attempt += 1
-                LOGGER.debug(
-                    "Couldn't re-open '%s' serial port, retrying in %ss: %s",
-                    self._config[zigpy.config.CONF_DEVICE][
-                        zigpy.config.CONF_DEVICE_PATH
-                    ],
-                    wait,
-                    str(exc),
-                    exc_info=exc,
-                )
-                await asyncio.sleep(wait)
-
-        LOGGER.debug(
-            "Reconnected '%s' serial port after %s attempts",
-            self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
-            attempt,
-        )
 
 
 class DeconzDevice(zigpy.device.Device):
