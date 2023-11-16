@@ -66,6 +66,11 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     SCHEMA = CONFIG_SCHEMA
     SCHEMA_DEVICE = SCHEMA_DEVICE
 
+    _probe_config_variants = [
+        {CONF_DEVICE_BAUDRATE: 57600},
+        {CONF_DEVICE_BAUDRATE: 115200},
+    ]
+
     def __init__(self, config: dict[str, Any]):
         """Initialize instance."""
 
@@ -92,39 +97,6 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 return
 
             await asyncio.sleep(self._config[CONF_WATCHDOG_TTL] * 0.75)
-
-    @classmethod
-    async def probe(cls, device_config: dict[str, Any]) -> bool | dict[str, Any]:
-        """Probes the device specified by `device_config` and returns valid settings.
-
-        If the device is not supported, `False`.
-        """
-
-        device_config = cls.SCHEMA_DEVICE(device_config)
-        probe_configs = [device_config]
-
-        # Probe the Conbee III with 115200 if we aren't already doing so
-        if device_config[CONF_DEVICE_BAUDRATE] != 115200:
-            probe_configs.append({**device_config, CONF_DEVICE_BAUDRATE: 115200})
-
-        for device_config in probe_configs:
-            config = cls.SCHEMA(
-                {zigpy.config.CONF_DEVICE: cls.SCHEMA_DEVICE(device_config)}
-            )
-            app = cls(config)
-
-            try:
-                await app.connect()
-            except Exception:
-                LOGGER.debug(
-                    "Failed to probe with config %s", device_config, exc_info=True
-                )
-            else:
-                return device_config
-            finally:
-                await app.disconnect()
-
-        return False
 
     async def connect(self):
         api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
