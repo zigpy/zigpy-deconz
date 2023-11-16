@@ -115,6 +115,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             NetworkParameter.link_key,
             LinkKey(ieee=node, key=link_key),
         )
+        await self.permit(time_s)
 
     async def start_network(self):
         await self.register_endpoints()

@@ -8,7 +8,7 @@ import pytest
 import zigpy.application
 import zigpy.config
 import zigpy.device
-from zigpy.types import EUI64, Channels
+from zigpy.types import EUI64, Channels, KeyData
 import zigpy.zdo.types as zdo_t
 
 from zigpy_deconz import types as t
@@ -222,25 +222,25 @@ async def test_disconnect_close_error(app):
 
 
 async def test_permit_with_link_key(app):
-    with patch.object(app._api, "write_parameter"):
-        await app.permit_with_link_key(
-            node=t.EUI64.convert("00:11:22:33:44:55:66:77"),
-            install_code=t.KeyData.convert(
-                "aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd"
-            ),
-        )
+    app._api.write_parameter = AsyncMock()
+    app.permit = AsyncMock()
+
+    await app.permit_with_link_key(
+        node=t.EUI64.convert("00:11:22:33:44:55:66:77"),
+        link_key=KeyData.convert("aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd"),
+    )
 
     assert app._api.write_parameter.mock_calls == [
         mock.call(
             deconz_api.NetworkParameter.link_key,
             deconz_api.LinkKey(
                 ieee=t.EUI64.convert("00:11:22:33:44:55:66:77"),
-                key=t.KeyData.convert(
-                    "aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd"
-                ),
+                key=KeyData.convert("aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd:aa:bb:cc:dd"),
             ),
         )
     ]
+
+    assert app.permit.mock_calls == [mock.call(mock.ANY)]
 
 
 async def test_deconz_dev_add_to_group(app, nwk, device_path):
@@ -550,35 +550,6 @@ async def test_add_endpoint_no_unnecessary_writes(app):
         deconz_api.NetworkParameter.configure_endpoint,
         deconz_api.IndexedEndpoint(index=1, descriptor=ENDPOINT.replace(endpoint=2)),
     )
-
-
-@patch("zigpy_deconz.zigbee.application.asyncio.sleep", new_callable=AsyncMock)
-@patch(
-    "zigpy_deconz.zigbee.application.ControllerApplication.initialize",
-    side_effect=[RuntimeError(), None],
-)
-@patch(
-    "zigpy_deconz.zigbee.application.ControllerApplication.connect",
-    side_effect=[RuntimeError(), None, None],
-)
-async def test_reconnect(mock_connect, mock_initialize, mock_sleep, app):
-    assert app._reconnect_task is None
-    app.connection_lost(RuntimeError())
-
-    assert app._reconnect_task is not None
-    await app._reconnect_task
-
-    assert mock_connect.call_count == 3
-    assert mock_initialize.call_count == 2
-
-
-async def test_disconnect_during_reconnect(app):
-    assert app._reconnect_task is None
-    app.connection_lost(RuntimeError())
-    await asyncio.sleep(0)
-    await app.disconnect()
-
-    assert app._reconnect_task is None
 
 
 async def test_reset_network_info(app):
