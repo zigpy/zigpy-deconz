@@ -14,16 +14,17 @@ else:
     from asyncio import timeout as asyncio_timeout  # pragma: no cover
 
 from zigpy.config import CONF_DEVICE_PATH
-import zigpy.greenpower
 from zigpy.types import (
     APSStatus,
     Bool,
     Channels,
-    GPDataFrame,
     KeyData,
     SerializableBytes,
     Struct,
     ZigbeePacket,
+)
+from zigpy.zgp.types import (
+    GPDataFrame,
 )
 from zigpy.zdo.types import SimpleDescriptor
 
