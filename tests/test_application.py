@@ -354,7 +354,7 @@ async def test_force_remove(app):
     await app.force_remove(sentinel.device)
 
 
-async def test_restore_neighbours(app):
+async def test_restore_neighbours(app, caplog):
     """Test neighbour restoration."""
 
     # FFD, Rx on when idle
@@ -372,6 +372,10 @@ async def test_restore_neighbours(app):
     device_5 = app.add_device(nwk=0x0005, ieee=EUI64.convert("00:00:00:00:00:00:00:05"))
     device_5.node_desc = zdo_t.NodeDescriptor(2, 64, 128, 0xBEEF, 82, 82, 0, 82, 0)
 
+    # RFD, Rx off when idle (duplicate)
+    device_6 = app.add_device(nwk=0x0005, ieee=EUI64.convert("00:00:00:00:00:00:00:06"))
+    device_6.node_desc = zdo_t.NodeDescriptor(2, 64, 128, 0xBEEF, 82, 82, 0, 82, 0)
+
     coord = MagicMock()
     coord.ieee = EUI64.convert("aa:aa:aa:aa:aa:aa:aa:aa")
 
@@ -384,16 +388,33 @@ async def test_restore_neighbours(app):
         zdo_t.Neighbor(ieee=device_3.ieee),
         zdo_t.Neighbor(ieee=EUI64.convert("00:00:00:00:00:00:00:04")),
         zdo_t.Neighbor(ieee=device_5.ieee),
+        zdo_t.Neighbor(ieee=device_6.ieee),
     ]
+
+    max_neighbors = 1
+
+    def mock_add_neighbour(nwk, ieee, mac_capability_flags):
+        nonlocal max_neighbors
+        max_neighbors -= 1
+
+        if max_neighbors < 0:
+            raise zigpy_deconz.exception.CommandError(
+                deconz_api.Status.FAILURE, "Failure"
+            )
 
     p = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz(None, None))
 
     with p as api_mock:
-        api_mock.add_neighbour = AsyncMock()
-        await app.restore_neighbours()
+        err = zigpy_deconz.exception.CommandError(deconz_api.Status.FAILURE, "Failure")
+        api_mock.add_neighbour = AsyncMock(side_effect=[None, err, err, err])
 
-    assert api_mock.add_neighbour.call_count == 1
-    assert api_mock.add_neighbour.await_count == 1
+        with caplog.at_level(logging.DEBUG):
+            await app.restore_neighbours()
+
+        assert caplog.text.count("Failed to add device to neighbor table") == 1
+
+    assert api_mock.add_neighbour.call_count == 2
+    assert api_mock.add_neighbour.await_count == 2
 
 
 @patch("zigpy_deconz.zigbee.application.DELAY_NEIGHBOUR_SCAN_S", 0)
