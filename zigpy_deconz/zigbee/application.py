@@ -573,16 +573,18 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 or descr.is_receiver_on_when_idle
             ):
                 continue
-            LOGGER.debug(
-                "Restoring %s/0x%04x device as direct child",
-                device.ieee,
-                device.nwk,
-            )
-            await self._api.add_neighbour(
-                nwk=device.nwk,
-                ieee=device.ieee,
-                mac_capability_flags=descr.mac_capability_flags,
-            )
+
+            LOGGER.debug("Restoring %s as direct child", device)
+
+            try:
+                await self._api.add_neighbour(
+                    nwk=device.nwk,
+                    ieee=device.ieee,
+                    mac_capability_flags=descr.mac_capability_flags,
+                )
+            except zigpy_deconz.exception.CommandError as ex:
+                assert ex.status == Status.FAILURE
+                LOGGER.debug("Failed to add device to neighbor table: %s", ex)
 
     async def _delayed_neighbour_scan(self) -> None:
         """Scan coordinator's neighbours."""
