@@ -942,8 +942,8 @@ async def test_add_neighbour(api, mock_command_rsp):
 
     assert api._command.mock_calls == [
         call(
-            deconz_api.CommandId.add_neighbour,
-            unknown=0x01,
+            deconz_api.CommandId.update_neighbor,
+            action=deconz_api.UpdateNeighborAction.ADD,
             nwk=0x1234,
             ieee=t.EUI64.convert("aa:bb:cc:dd:11:22:33:44"),
             mac_capability_flags=0x12,

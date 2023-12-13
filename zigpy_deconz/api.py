@@ -114,7 +114,7 @@ class CommandId(t.enum8):
     aps_data_indication = 0x17
     zigbee_green_power = 0x19
     mac_poll = 0x1C
-    add_neighbour = 0x1D
+    update_neighbor = 0x1D
     mac_beacon_indication = 0x1F
 
 
@@ -168,6 +168,10 @@ class IndexedEndpoint(Struct):
     descriptor: SimpleDescriptor
 
 
+class UpdateNeighborAction(t.enum8):
+    ADD = 0x01
+
+
 NETWORK_PARAMETER_TYPES = {
     NetworkParameter.mac_address: (None, t.EUI64),
     NetworkParameter.nwk_panid: (None, t.PanId),
@@ -199,12 +203,12 @@ class Command(Struct):
 
 
 COMMAND_SCHEMAS = {
-    CommandId.add_neighbour: (
+    CommandId.update_neighbor: (
         {
             "status": Status.SUCCESS,
             "frame_length": FRAME_LENGTH,
             "payload_length": PAYLOAD_LENGTH,
-            "unknown": t.uint8_t,
+            "action": UpdateNeighborAction,
             "nwk": t.NWK,
             "ieee": t.EUI64,
             "mac_capability_flags": t.uint8_t,
@@ -213,7 +217,7 @@ COMMAND_SCHEMAS = {
             "status": Status,
             "frame_length": t.uint16_t,
             "payload_length": t.uint16_t,
-            "unknown": t.uint8_t,
+            "action": UpdateNeighborAction,
             "nwk": t.NWK,
             "ieee": t.EUI64,
             "mac_capability_flags": t.uint8_t,
@@ -837,8 +841,8 @@ class Deconz:
         self, nwk: t.NWK, ieee: t.EUI64, mac_capability_flags: t.uint8_t
     ) -> None:
         await self._command(
-            CommandId.add_neighbour,
-            unknown=0x01,
+            CommandId.update_neighbor,
+            action=UpdateNeighborAction.ADD,
             nwk=nwk,
             ieee=ieee,
             mac_capability_flags=mac_capability_flags,
