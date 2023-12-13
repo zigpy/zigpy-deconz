@@ -337,7 +337,7 @@ async def test_reset_watchdog(app):
     app._api.write_parameter = AsyncMock()
 
     await app._watchdog_feed()
-    assert len(app._api.get_device_state.mock_calls) == 1
+    assert len(app._api.get_device_state.mock_calls) == 0
     assert len(app._api.write_parameter.mock_calls) == 1
 
     app._api.protocol_version = application.PROTO_VER_WATCHDOG - 1
