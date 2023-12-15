@@ -64,7 +64,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         {zigpy.config.CONF_DEVICE_BAUDRATE: 115200},
     ]
 
-    _watchdog_period = 600 * 0.75
+    _watchdog_period = 30
 
     def __init__(self, config: dict[str, Any]):
         """Initialize instance."""
@@ -85,7 +85,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             and self._api.firmware_version <= 0x26450900
         ):
             await self._api.write_parameter(
-                NetworkParameter.watchdog_ttl, int(self._watchdog_period / 0.75)
+                NetworkParameter.watchdog_ttl, int(2 * self._watchdog_period)
             )
         else:
             await self._api.get_device_state()
