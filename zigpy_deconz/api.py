@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import itertools
 import logging
 import sys
@@ -25,7 +26,7 @@ from zigpy.types import (
 )
 from zigpy.zdo.types import SimpleDescriptor
 
-from zigpy_deconz.exception import APIException, CommandError
+from zigpy_deconz.exception import APIException, CommandError, MismatchedResponseError
 import zigpy_deconz.types as t
 import zigpy_deconz.uart
 from zigpy_deconz.utils import restart_forever
@@ -415,7 +416,11 @@ class Deconz:
     def __init__(self, app: Callable, device_config: dict[str, Any]):
         """Init instance."""
         self._app = app
-        self._awaiting = {}
+
+        # [seq][cmd_id] = [fut1, fut2, ...]
+        self._awaiting = collections.defaultdict(
+            lambda: collections.defaultdict(lambda: collections.deque([]))
+        )
         self._command_lock = asyncio.Lock()
         self._config = device_config
         self._device_state = DeviceState(
@@ -556,7 +561,7 @@ class Deconz:
             self._seq = (self._seq % 255) + 1
 
             fut = asyncio.Future()
-            self._awaiting[seq, cmd] = fut
+            self._awaiting[seq][cmd].append(fut)
 
             try:
                 async with asyncio_timeout(COMMAND_TIMEOUT):
@@ -565,7 +570,7 @@ class Deconz:
                 LOGGER.warning(
                     "No response to '%s' command with seq id '0x%02x'", cmd, seq
                 )
-                self._awaiting.pop((seq, cmd), None)
+                self._awaiting[seq][cmd].remove(fut)
                 raise
 
     def data_received(self, data: bytes) -> None:
@@ -577,7 +582,19 @@ class Deconz:
 
         _, rx_schema = COMMAND_SCHEMAS[command.command_id]
 
-        fut = self._awaiting.pop((command.seq, command.command_id), None)
+        fut = None
+        wrong_fut_cmd_id = None
+
+        try:
+            fut = self._awaiting[command.seq][command.command_id].popleft()
+        except IndexError:
+            # XXX: The firmware can sometimes respond with the wrong response. Find the
+            # future associated with it so we can throw an appropriate error.
+            for cmd_id, futs in self._awaiting[command.seq].items():
+                if futs:
+                    fut = futs.popleft()
+                    wrong_fut_cmd_id = cmd_id
+                    break
 
         try:
             params, rest = t.deserialize_dict(command.payload, rx_schema)
@@ -614,7 +631,16 @@ class Deconz:
 
         exc = None
 
-        if status != Status.SUCCESS:
+        if wrong_fut_cmd_id is not None:
+            exc = MismatchedResponseError(
+                command.command_id,
+                params,
+                (
+                    f"Response is mismatched! Sent {wrong_fut_cmd_id},"
+                    f" received {command.command_id}"
+                ),
+            )
+        elif status != Status.SUCCESS:
             exc = CommandError(status, f"{command.command_id}, status: {status}")
 
         if fut is not None:
