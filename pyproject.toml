@@ -61,3 +61,11 @@ ignore = [
     "D103", "D102", "D101",  # TODO: remove these once docstrings are added
 ]
 per-file-ignores = ["tests/*:F811,F401,F403"]
+
+[tool.coverage.report]
+exclude_also = [
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if (typing\\.)?TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+]
