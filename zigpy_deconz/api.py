@@ -418,9 +418,7 @@ class Deconz:
         self._app = app
 
         # [seq][cmd_id] = [fut1, fut2, ...]
-        self._awaiting = collections.defaultdict(
-            lambda: collections.defaultdict(lambda: collections.deque([]))
-        )
+        self._awaiting = collections.defaultdict(lambda: collections.defaultdict(list))
         self._command_lock = asyncio.Lock()
         self._config = device_config
         self._device_state = DeviceState(
@@ -574,11 +572,10 @@ class Deconz:
                 async with asyncio_timeout(COMMAND_TIMEOUT):
                     return await fut
             except asyncio.TimeoutError:
-                LOGGER.warning(
-                    "No response to '%s' command with seq id '0x%02x'", cmd, seq
-                )
-                self._awaiting[seq][cmd].remove(fut)
+                LOGGER.debug("No response to '%s' command with seq %d", cmd, seq)
                 raise
+            finally:
+                self._awaiting[seq][cmd].remove(fut)
 
     def data_received(self, data: bytes) -> None:
         command, _ = Command.deserialize(data)
@@ -593,13 +590,13 @@ class Deconz:
         wrong_fut_cmd_id = None
 
         try:
-            fut = self._awaiting[command.seq][command.command_id].popleft()
+            fut = self._awaiting[command.seq][command.command_id][0]
         except IndexError:
             # XXX: The firmware can sometimes respond with the wrong response. Find the
             # future associated with it so we can throw an appropriate error.
             for cmd_id, futs in self._awaiting[command.seq].items():
                 if futs:
-                    fut = futs.popleft()
+                    fut = futs[0]
                     wrong_fut_cmd_id = cmd_id
                     break
 
