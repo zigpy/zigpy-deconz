@@ -80,21 +80,15 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._written_endpoints = set()
 
     async def _watchdog_feed(self):
-        while True:
-            try:
-                if self._api.protocol_version >= PROTO_VER_WATCHDOG and not (
-                    self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
-                    and self._api.firmware_version <= 0x26450900
-                ):
-                    await self._api.write_parameter(
-                        NetworkParameter.watchdog_ttl, int(self._watchdog_period / 0.75)
-                    )
-                else:
-                    await self._api.get_device_state()
-
-                break
-            except zigpy_deconz.exception.MismatchedResponseError as exc:
-                LOGGER.debug("Firmware responded unexpectedly to watchdog: %s", exc)
+        if self._api.protocol_version >= PROTO_VER_WATCHDOG and not (
+            self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
+            and self._api.firmware_version <= 0x26450900
+        ):
+            await self._api.write_parameter(
+                NetworkParameter.watchdog_ttl, int(self._watchdog_period / 0.75)
+            )
+        else:
+            await self._api.get_device_state()
 
     async def connect(self):
         api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])

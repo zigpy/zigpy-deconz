@@ -464,7 +464,7 @@ class Deconz:
 
         await self.version()
 
-        device_state_rsp = await self._command(CommandId.device_state)
+        device_state_rsp = await self.send_command(CommandId.device_state)
         self._device_state = device_state_rsp["device_state"]
 
         self._data_poller_task = asyncio.create_task(self._data_poller())
@@ -490,6 +490,13 @@ class Deconz:
         if self._uart is not None:
             self._uart.close()
             self._uart = None
+
+    async def send_command(self, cmd, **kwargs) -> Any:
+        while True:
+            try:
+                return await self._command(cmd, **kwargs)
+            except MismatchedResponseError as exc:
+                LOGGER.debug("Firmware responded incorrectly (%s), retrying", exc)
 
     async def _command(self, cmd, **kwargs):
         payload = []
@@ -691,7 +698,9 @@ class Deconz:
                 else:
                     flags = t.DataIndicationFlags.Always_Use_NWK_Source_Addr
 
-                rsp = await self._command(CommandId.aps_data_indication, flags=flags)
+                rsp = await self.send_command(
+                    CommandId.aps_data_indication, flags=flags
+                )
                 self._handle_device_state_changed(
                     status=rsp["status"], device_state=rsp["device_state"]
                 )
@@ -713,7 +722,7 @@ class Deconz:
 
             # Poll data confirm
             if DeviceStateFlags.APSDE_DATA_CONFIRM in self._device_state.device_state:
-                rsp = await self._command(CommandId.aps_data_confirm)
+                rsp = await self.send_command(CommandId.aps_data_confirm)
 
                 self._app.handle_tx_confirm(rsp["request_id"], rsp["confirm_status"])
                 self._handle_device_state_changed(
@@ -764,7 +773,7 @@ class Deconz:
             NetworkParameter.protocol_version
         )
 
-        version_rsp = await self._command(CommandId.version, reserved=0)
+        version_rsp = await self.send_command(CommandId.version, reserved=0)
         self._firmware_version = version_rsp["version"]
 
         return self.firmware_version
@@ -779,7 +788,7 @@ class Deconz:
         else:
             value = read_param_type(parameter).serialize()
 
-        rsp = await self._command(
+        rsp = await self.send_command(
             CommandId.read_parameter,
             parameter_id=parameter_id,
             parameter=value,
@@ -796,7 +805,7 @@ class Deconz:
         self, parameter_id: NetworkParameter, parameter: Any
     ) -> None:
         read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
-        await self._command(
+        await self.send_command(
             CommandId.write_parameter,
             parameter_id=parameter_id,
             parameter=write_param_type(parameter).serialize(),
@@ -829,7 +838,7 @@ class Deconz:
                 await self._free_slots_available_event.wait()
 
             try:
-                rsp = await self._command(
+                rsp = await self.send_command(
                     CommandId.aps_data_request,
                     request_id=req_id,
                     flags=flags,
@@ -856,17 +865,17 @@ class Deconz:
                 return
 
     async def get_device_state(self) -> DeviceState:
-        rsp = await self._command(CommandId.device_state)
+        rsp = await self.send_command(CommandId.device_state)
 
         return rsp["device_state"]
 
     async def change_network_state(self, new_state: NetworkState) -> None:
-        await self._command(CommandId.change_network_state, network_state=new_state)
+        await self.send_command(CommandId.change_network_state, network_state=new_state)
 
     async def add_neighbour(
         self, nwk: t.NWK, ieee: t.EUI64, mac_capability_flags: t.uint8_t
     ) -> None:
-        await self._command(
+        await self.send_command(
             CommandId.update_neighbor,
             action=UpdateNeighborAction.ADD,
             nwk=nwk,
