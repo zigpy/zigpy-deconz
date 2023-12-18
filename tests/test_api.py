@@ -10,6 +10,11 @@ import pytest
 import zigpy.config
 import zigpy.types as zigpy_t
 
+if sys.version_info[:2] < (3, 11):
+    from async_timeout import timeout as asyncio_timeout
+else:
+    from asyncio import timeout as asyncio_timeout
+
 from zigpy_deconz import api as deconz_api, types as t, uart
 import zigpy_deconz.exception
 import zigpy_deconz.zigbee.application
@@ -86,7 +91,7 @@ def api(gateway, mock_command_rsp):
 
 @pytest.fixture
 async def mock_command_rsp(gateway):
-    def inner(command_id, params, rsp, *, replace=False):
+    def inner(command_id, params, rsp, *, rsp_command=None, replace=False):
         if (
             getattr(getattr(gateway.send, "side_effect", None), "_handlers", None)
             is None
@@ -107,15 +112,18 @@ async def mock_command_rsp(gateway):
 
                 kwargs, rest = t.deserialize_dict(command.payload, schema)
 
-                for params, mock in receiver._handlers[command.command_id]:
+                for params, rsp_command, mock in receiver._handlers[command.command_id]:
+                    if rsp_command is None:
+                        rsp_command = command.command_id
+
                     if all(kwargs[k] == v for k, v in params.items()):
-                        _, rx_schema = deconz_api.COMMAND_SCHEMAS[command.command_id]
+                        _, rx_schema = deconz_api.COMMAND_SCHEMAS[rsp_command]
                         ret = mock(**kwargs)
 
                         asyncio.get_running_loop().call_soon(
                             gateway._api.data_received,
                             deconz_api.Command(
-                                command_id=command.command_id,
+                                command_id=rsp_command,
                                 seq=command.seq,
                                 payload=t.serialize_dict(ret, rx_schema),
                             ).serialize(),
@@ -128,7 +136,9 @@ async def mock_command_rsp(gateway):
             gateway.send.side_effect._handlers[command_id].clear()
 
         mock = MagicMock(return_value=rsp)
-        gateway.send.side_effect._handlers[command_id].append((params, mock))
+        gateway.send.side_effect._handlers[command_id].append(
+            (params, rsp_command, mock)
+        )
 
         return mock
 
@@ -993,3 +1003,31 @@ async def test_cb3_device_state_callback_bug(api, mock_command_rsp):
     await asyncio.sleep(0.01)
 
     assert api._device_state == device_state
+
+
+async def test_firmware_responding_with_wrong_type_with_correct_seq(
+    api, mock_command_rsp, caplog
+):
+    await api.connect()
+
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.aps_data_confirm,
+        params={},
+        # Completely different response
+        rsp_command=deconz_api.CommandId.version,
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(9),
+            "version": deconz_api.FirmwareVersion(0x26450900),
+        },
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(asyncio.TimeoutError):
+            async with asyncio_timeout(0.5):
+                await api.send_command(deconz_api.CommandId.aps_data_confirm)
+
+    assert (
+        "Firmware responded incorrectly (Response is mismatched! Sent"
+        " <CommandId.aps_data_confirm: 4>, received <CommandId.version: 13>), retrying"
+    ) in caplog.text

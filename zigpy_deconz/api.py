@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import itertools
 import logging
 import sys
@@ -25,7 +26,7 @@ from zigpy.types import (
 )
 from zigpy.zdo.types import SimpleDescriptor
 
-from zigpy_deconz.exception import APIException, CommandError
+from zigpy_deconz.exception import APIException, CommandError, MismatchedResponseError
 import zigpy_deconz.types as t
 import zigpy_deconz.uart
 from zigpy_deconz.utils import restart_forever
@@ -415,7 +416,9 @@ class Deconz:
     def __init__(self, app: Callable, device_config: dict[str, Any]):
         """Init instance."""
         self._app = app
-        self._awaiting = {}
+
+        # [seq][cmd_id] = [fut1, fut2, ...]
+        self._awaiting = collections.defaultdict(lambda: collections.defaultdict(list))
         self._command_lock = asyncio.Lock()
         self._config = device_config
         self._device_state = DeviceState(
@@ -459,7 +462,7 @@ class Deconz:
 
         await self.version()
 
-        device_state_rsp = await self._command(CommandId.device_state)
+        device_state_rsp = await self.send_command(CommandId.device_state)
         self._device_state = device_state_rsp["device_state"]
 
         self._data_poller_task = asyncio.create_task(self._data_poller())
@@ -485,6 +488,13 @@ class Deconz:
         if self._uart is not None:
             self._uart.close()
             self._uart = None
+
+    async def send_command(self, cmd, **kwargs) -> Any:
+        while True:
+            try:
+                return await self._command(cmd, **kwargs)
+            except MismatchedResponseError as exc:
+                LOGGER.debug("Firmware responded incorrectly (%s), retrying", exc)
 
     async def _command(self, cmd, **kwargs):
         payload = []
@@ -556,17 +566,16 @@ class Deconz:
             self._seq = (self._seq % 255) + 1
 
             fut = asyncio.Future()
-            self._awaiting[seq, cmd] = fut
+            self._awaiting[seq][cmd].append(fut)
 
             try:
                 async with asyncio_timeout(COMMAND_TIMEOUT):
                     return await fut
             except asyncio.TimeoutError:
-                LOGGER.warning(
-                    "No response to '%s' command with seq id '0x%02x'", cmd, seq
-                )
-                self._awaiting.pop((seq, cmd), None)
+                LOGGER.debug("No response to '%s' command with seq %d", cmd, seq)
                 raise
+            finally:
+                self._awaiting[seq][cmd].remove(fut)
 
     def data_received(self, data: bytes) -> None:
         command, _ = Command.deserialize(data)
@@ -577,7 +586,19 @@ class Deconz:
 
         _, rx_schema = COMMAND_SCHEMAS[command.command_id]
 
-        fut = self._awaiting.pop((command.seq, command.command_id), None)
+        fut = None
+        wrong_fut_cmd_id = None
+
+        try:
+            fut = self._awaiting[command.seq][command.command_id][0]
+        except IndexError:
+            # XXX: The firmware can sometimes respond with the wrong response. Find the
+            # future associated with it so we can throw an appropriate error.
+            for cmd_id, futs in self._awaiting[command.seq].items():
+                if futs:
+                    fut = futs[0]
+                    wrong_fut_cmd_id = cmd_id
+                    break
 
         try:
             params, rest = t.deserialize_dict(command.payload, rx_schema)
@@ -614,7 +635,16 @@ class Deconz:
 
         exc = None
 
-        if status != Status.SUCCESS:
+        if wrong_fut_cmd_id is not None:
+            exc = MismatchedResponseError(
+                command.command_id,
+                params,
+                (
+                    f"Response is mismatched! Sent {wrong_fut_cmd_id},"
+                    f" received {command.command_id}"
+                ),
+            )
+        elif status != Status.SUCCESS:
             exc = CommandError(status, f"{command.command_id}, status: {status}")
 
         if fut is not None:
@@ -665,7 +695,9 @@ class Deconz:
                 else:
                     flags = t.DataIndicationFlags.Always_Use_NWK_Source_Addr
 
-                rsp = await self._command(CommandId.aps_data_indication, flags=flags)
+                rsp = await self.send_command(
+                    CommandId.aps_data_indication, flags=flags
+                )
                 self._handle_device_state_changed(
                     status=rsp["status"], device_state=rsp["device_state"]
                 )
@@ -687,7 +719,7 @@ class Deconz:
 
             # Poll data confirm
             if DeviceStateFlags.APSDE_DATA_CONFIRM in self._device_state.device_state:
-                rsp = await self._command(CommandId.aps_data_confirm)
+                rsp = await self.send_command(CommandId.aps_data_confirm)
 
                 self._app.handle_tx_confirm(rsp["request_id"], rsp["confirm_status"])
                 self._handle_device_state_changed(
@@ -738,7 +770,7 @@ class Deconz:
             NetworkParameter.protocol_version
         )
 
-        version_rsp = await self._command(CommandId.version, reserved=0)
+        version_rsp = await self.send_command(CommandId.version, reserved=0)
         self._firmware_version = version_rsp["version"]
 
         return self.firmware_version
@@ -753,7 +785,7 @@ class Deconz:
         else:
             value = read_param_type(parameter).serialize()
 
-        rsp = await self._command(
+        rsp = await self.send_command(
             CommandId.read_parameter,
             parameter_id=parameter_id,
             parameter=value,
@@ -770,7 +802,7 @@ class Deconz:
         self, parameter_id: NetworkParameter, parameter: Any
     ) -> None:
         read_param_type, write_param_type = NETWORK_PARAMETER_TYPES[parameter_id]
-        await self._command(
+        await self.send_command(
             CommandId.write_parameter,
             parameter_id=parameter_id,
             parameter=write_param_type(parameter).serialize(),
@@ -803,7 +835,7 @@ class Deconz:
                 await self._free_slots_available_event.wait()
 
             try:
-                rsp = await self._command(
+                rsp = await self.send_command(
                     CommandId.aps_data_request,
                     request_id=req_id,
                     flags=flags,
@@ -830,17 +862,17 @@ class Deconz:
                 return
 
     async def get_device_state(self) -> DeviceState:
-        rsp = await self._command(CommandId.device_state)
+        rsp = await self.send_command(CommandId.device_state)
 
         return rsp["device_state"]
 
     async def change_network_state(self, new_state: NetworkState) -> None:
-        await self._command(CommandId.change_network_state, network_state=new_state)
+        await self.send_command(CommandId.change_network_state, network_state=new_state)
 
     async def add_neighbour(
         self, nwk: t.NWK, ieee: t.EUI64, mac_capability_flags: t.uint8_t
     ) -> None:
-        await self._command(
+        await self.send_command(
             CommandId.update_neighbor,
             action=UpdateNeighborAction.ADD,
             nwk=nwk,
