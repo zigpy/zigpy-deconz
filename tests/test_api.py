@@ -1031,3 +1031,17 @@ async def test_firmware_responding_with_wrong_type_with_correct_seq(
         "Firmware responded incorrectly (Response is mismatched! Sent"
         " <CommandId.aps_data_confirm: 4>, received <CommandId.version: 13>), retrying"
     ) in caplog.text
+
+
+def test_get_command_priority(api):
+    assert (
+        api._get_command_priority(
+            deconz_api.Command(command_id=deconz_api.CommandId.write_parameter)
+        )
+        > api._get_command_priority(
+            deconz_api.Command(command_id=deconz_api.CommandId.update_neighbor)
+        )
+        > api._get_command_priority(
+            deconz_api.Command(command_id=deconz_api.CommandId.aps_data_request)
+        )
+    )

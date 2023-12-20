@@ -15,6 +15,7 @@ else:
     from asyncio import timeout as asyncio_timeout  # pragma: no cover
 
 from zigpy.config import CONF_DEVICE_PATH
+from zigpy.datastructures import PriorityLock
 from zigpy.types import (
     APSStatus,
     Bool,
@@ -419,7 +420,7 @@ class Deconz:
 
         # [seq][cmd_id] = [fut1, fut2, ...]
         self._awaiting = collections.defaultdict(lambda: collections.defaultdict(list))
-        self._command_lock = asyncio.Lock()
+        self._command_lock = PriorityLock()
         self._config = device_config
         self._device_state = DeviceState(
             network_state=NetworkState2.OFFLINE,
@@ -489,6 +490,16 @@ class Deconz:
             self._uart.close()
             self._uart = None
 
+    def _get_command_priority(self, command: Command) -> int:
+        return {
+            # The watchdog is fed using `write_parameter` and `get_device_state` so they
+            # must take priority
+            CommandId.write_parameter: 999,
+            CommandId.device_state: 999,
+            # APS data requests are retried and can be deprioritized
+            CommandId.aps_data_request: -1,
+        }.get(command.command_id, 0)
+
     async def send_command(self, cmd, **kwargs) -> Any:
         while True:
             try:
@@ -557,7 +568,7 @@ class Deconz:
             # connection was lost
             raise CommandError(Status.ERROR, "API is not running")
 
-        async with self._command_lock:
+        async with self._command_lock(priority=self._get_command_priority(command)):
             seq = self._seq
 
             LOGGER.debug("Sending %s%s (seq=%s)", cmd, kwargs, seq)
