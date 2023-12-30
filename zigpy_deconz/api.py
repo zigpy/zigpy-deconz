@@ -34,6 +34,7 @@ from zigpy_deconz.utils import restart_forever
 
 LOGGER = logging.getLogger(__name__)
 
+MISMATCHED_RESPONSE_TIMEOUT = 0.5
 COMMAND_TIMEOUT = 1.8
 PROBE_TIMEOUT = 2
 REQUEST_RETRY_DELAYS = (0.5, 1.0, 1.5, None)
@@ -420,6 +421,7 @@ class Deconz:
 
         # [seq][cmd_id] = [fut1, fut2, ...]
         self._awaiting = collections.defaultdict(lambda: collections.defaultdict(list))
+        self._mismatched_response_timers: dict[int, asyncio.TimerHandle] = {}
         self._command_lock = PriorityLock()
         self._config = device_config
         self._device_state = DeviceState(
@@ -646,6 +648,10 @@ class Deconz:
 
         exc = None
 
+        # Make sure to clear any pending mismatched response timers
+        if command.seq in self._mismatched_response_timers:
+            self._mismatched_response_timers.pop(command.seq).cancel()
+
         if wrong_fut_cmd_id is not None:
             exc = MismatchedResponseError(
                 command.command_id,
@@ -654,6 +660,13 @@ class Deconz:
                     f"Response is mismatched! Sent {wrong_fut_cmd_id},"
                     f" received {command.command_id}"
                 ),
+            )
+
+            # The firmware *sometimes* responds with the correct response later
+            self._mismatched_response_timers[
+                command.seq
+            ] = asyncio.get_event_loop().call_later(
+                MISMATCHED_RESPONSE_TIMEOUT, fut.set_exception, exc
             )
         elif status != Status.SUCCESS:
             exc = CommandError(status, f"{command.command_id}, status: {status}")
