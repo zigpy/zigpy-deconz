@@ -666,8 +666,9 @@ class Deconz:
                     fut.set_exception(exc)
             except asyncio.InvalidStateError:
                 LOGGER.debug(
-                    "Duplicate or delayed response for 0x:%02x sequence",
+                    "Duplicate or delayed response for seq %s (awaiting %s)",
                     command.seq,
+                    self._awaiting[command.seq],
                 )
 
             if exc is not None:
