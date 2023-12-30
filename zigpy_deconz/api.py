@@ -665,7 +665,7 @@ class Deconz:
                 else:
                     fut.set_exception(exc)
             except asyncio.InvalidStateError:
-                LOGGER.warning(
+                LOGGER.debug(
                     "Duplicate or delayed response for 0x:%02x sequence",
                     command.seq,
                 )
