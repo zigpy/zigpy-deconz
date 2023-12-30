@@ -1024,13 +1024,79 @@ async def test_firmware_responding_with_wrong_type_with_correct_seq(
 
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(asyncio.TimeoutError):
-            async with asyncio_timeout(0.5):
+            # We wait beyond 500ms to make sure it triggers
+            async with asyncio_timeout(0.6):
                 await api.send_command(deconz_api.CommandId.aps_data_confirm)
 
     assert (
         "Firmware responded incorrectly (Response is mismatched! Sent"
         " <CommandId.aps_data_confirm: 4>, received <CommandId.version: 13>), retrying"
     ) in caplog.text
+
+
+async def test_firmware_responding_with_wrong_type_with_correct_seq_eventual_response(
+    api, mock_command_rsp, caplog
+):
+    await api.connect()
+
+    mock_command_rsp(
+        command_id=deconz_api.CommandId.aps_data_confirm,
+        params={},
+        # Completely different response
+        rsp_command=deconz_api.CommandId.version,
+        rsp={
+            "status": deconz_api.Status.SUCCESS,
+            "frame_length": t.uint16_t(9),
+            "version": deconz_api.FirmwareVersion(0x26450900),
+        },
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        _, rx_schema = deconz_api.COMMAND_SCHEMAS[deconz_api.CommandId.aps_data_confirm]
+
+        asyncio.get_running_loop().call_later(
+            0.1,
+            api.data_received,
+            deconz_api.Command(
+                command_id=deconz_api.CommandId.aps_data_confirm,
+                seq=api._seq,
+                payload=t.serialize_dict(
+                    {
+                        "status": deconz_api.Status.SUCCESS,
+                        "frame_length": t.uint16_t(19),
+                        "payload_length": t.uint16_t(12),
+                        "device_state": deconz_api.DeviceState(
+                            network_state=deconz_api.NetworkState2.CONNECTED,
+                            device_state=(
+                                deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
+                                | deconz_api.DeviceStateFlags.APSDE_DATA_INDICATION
+                            ),
+                        ),
+                        "request_id": t.uint8_t(16),
+                        "dst_addr": t.DeconzAddressEndpoint.deserialize(
+                            b"\x02\xaa\x55\x01"
+                        )[0],
+                        "src_ep": t.uint8_t(0),
+                        "confirm_status": deconz_api.TXStatus.SUCCESS,
+                        "reserved1": t.uint8_t(0),
+                        "reserved2": t.uint8_t(0),
+                        "reserved3": t.uint8_t(0),
+                        "reserved4": t.uint8_t(0),
+                    },
+                    rx_schema,
+                ),
+            ).serialize(),
+        )
+
+        async with asyncio_timeout(0.2):
+            rsp = await api.send_command(deconz_api.CommandId.aps_data_confirm)
+
+    assert rsp["request_id"] == 16
+
+    assert (
+        "Firmware responded incorrectly (Response is mismatched! Sent"
+        " <CommandId.aps_data_confirm: 4>, received <CommandId.version: 13>), retrying"
+    ) not in caplog.text
 
 
 def test_get_command_priority(api):
