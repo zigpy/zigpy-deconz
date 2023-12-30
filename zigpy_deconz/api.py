@@ -650,6 +650,7 @@ class Deconz:
 
         # Make sure to clear any pending mismatched response timers
         if command.seq in self._mismatched_response_timers:
+            LOGGER.debug("Clearing existing mismatched response timer")
             self._mismatched_response_timers.pop(command.seq).cancel()
 
         if wrong_fut_cmd_id is not None:
@@ -662,6 +663,10 @@ class Deconz:
                 ),
             )
 
+            LOGGER.debug(
+                "Mismatched response, triggering error in %0.2fs",
+                MISMATCHED_RESPONSE_TIMEOUT,
+            )
             # The firmware *sometimes* responds with the correct response later
             self._mismatched_response_timers[
                 command.seq
