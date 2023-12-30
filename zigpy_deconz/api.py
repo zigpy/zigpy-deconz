@@ -654,15 +654,6 @@ class Deconz:
             self._mismatched_response_timers.pop(command.seq).cancel()
 
         if wrong_fut_cmd_id is not None:
-            exc = MismatchedResponseError(
-                command.command_id,
-                params,
-                (
-                    f"Response is mismatched! Sent {wrong_fut_cmd_id},"
-                    f" received {command.command_id}"
-                ),
-            )
-
             LOGGER.debug(
                 "Mismatched response, triggering error in %0.2fs",
                 MISMATCHED_RESPONSE_TIMEOUT,
@@ -671,8 +662,20 @@ class Deconz:
             self._mismatched_response_timers[
                 command.seq
             ] = asyncio.get_event_loop().call_later(
-                MISMATCHED_RESPONSE_TIMEOUT, fut.set_exception, exc
+                MISMATCHED_RESPONSE_TIMEOUT,
+                fut.set_exception,
+                MismatchedResponseError(
+                    command.command_id,
+                    params,
+                    (
+                        f"Response is mismatched! Sent {wrong_fut_cmd_id},"
+                        f" received {command.command_id}"
+                    ),
+                ),
             )
+
+            # Make sure we do not resolve the future
+            fut = None
         elif status != Status.SUCCESS:
             exc = CommandError(status, f"{command.command_id}, status: {status}")
 
