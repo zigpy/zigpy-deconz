@@ -13,10 +13,11 @@ This library uses the deCONZ serial protocol for communicating with [ConBee](htt
 
 dresden elektronik based radios USB-adapters and GPIO-modules with deCONZ Serial Protocol compatible with zigpy-deconz:
 
-- [ConBee II (a.k.a. ConBee 2)](https://shop.dresden-elektronik.de/conbee-2.html) USB adapter
-- [RaspBee II (a.k.a. RaspBee 2)](https://www.dresden-elektronik.com/product/raspbee-II.html) GPIO radio module
-- [ConBee](https://www.dresden-elektronik.de/conbee/) USB radio adapter
-- [RaspBee](https://www.dresden-elektronik.de/raspbee/) GPIO radio module
+- [ConBee III (a.k.a. ConBee 3)](https://phoscon.de/en/conbee3) USB adapter
+- [ConBee II (a.k.a. ConBee 2)](https://phoscon.de/en/conbee2) USB adapter
+- [ConBee](https://phoscon.de/en/conbee) USB radio adapter
+- [RaspBee II (a.k.a. RaspBee 2)](https://phoscon.de/en/raspbee2) GPIO radio module
+- [RaspBee](https://phoscon.de/en/raspbee) GPIO radio module
 
 # Testing new releases
 
