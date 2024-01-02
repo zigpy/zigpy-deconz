@@ -7,7 +7,7 @@
 
 The goal of this project to add native support for the Dresden-Elektronik/Phoscon deCONZ based ZigBee modules in Home Assistant via [zigpy](https://github.com/zigpy/).
 
-This library uses the deCONZ serial protocol for communicating with [ConBee](https://phoscon.de/en/conbee), [ConBee II (ConBee 2)](https://phoscon.de/en/conbee2), [RaspBee](https://phoscon.de/en/raspbee), and [RaspBee II (RaspBee 2)](https://phoscon.de/en/raspbee2) adapters from [Dresden-Elektronik](https://github.com/dresden-elektronik/)/[Phoscon](https://phoscon.de).
+This library uses the deCONZ serial protocol for communicating with [ConBee](https://phoscon.de/en/conbee), [ConBee II (ConBee 2)](https://phoscon.de/en/conbee2), [ConBee III (ConBee 3)](https://phoscon.de/en/conbee3), [RaspBee](https://phoscon.de/en/raspbee), and [RaspBee II (RaspBee 2)](https://phoscon.de/en/raspbee2) adapters from [Dresden-Elektronik](https://github.com/dresden-elektronik/)/[Phoscon](https://phoscon.de).
 
 # Releases via PyPI
 
