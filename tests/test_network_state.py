@@ -212,7 +212,9 @@ async def test_write_network_info(
             None,
             {
                 ("nwk_frame_counter",): zigpy_deconz.exception.CommandError(
-                    zigpy_deconz.api.Status.UNSUPPORTED
+                    "Some error",
+                    status=zigpy_deconz.api.Status.UNSUPPORTED,
+                    command=None,
                 )
             },
             {"network_key.tx_counter": 0},
