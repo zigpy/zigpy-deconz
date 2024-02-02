@@ -961,6 +961,65 @@ async def test_add_neighbour(api, mock_command_rsp):
     ]
 
 
+async def test_add_neighbour_conbee3_success(api):
+    api._command = AsyncMock(wraps=api._command)
+    api._uart = AsyncMock()
+
+    # Simulate a good but invalid response from the Conbee III
+    asyncio.get_running_loop().call_later(
+        0.001,
+        lambda: api.data_received(
+            b"\x1d" + bytes([api._seq - 1]) + b"\x00\x06\x00\x01"
+        ),
+    )
+
+    await api.add_neighbour(
+        nwk=0x1234,
+        ieee=t.EUI64.convert("aa:bb:cc:dd:11:22:33:44"),
+        mac_capability_flags=0x12,
+    )
+
+    assert api._command.mock_calls == [
+        call(
+            deconz_api.CommandId.update_neighbor,
+            action=deconz_api.UpdateNeighborAction.ADD,
+            nwk=0x1234,
+            ieee=t.EUI64.convert("aa:bb:cc:dd:11:22:33:44"),
+            mac_capability_flags=0x12,
+        )
+    ]
+
+
+async def test_add_neighbour_conbee3_failure(api):
+    api._command = AsyncMock(wraps=api._command)
+    api._uart = AsyncMock()
+
+    # Simulate a bad response from the Conbee III
+    asyncio.get_running_loop().call_later(
+        0.001,
+        lambda: api.data_received(
+            b"\x1d" + bytes([api._seq - 1]) + b"\x01\x06\x00\x01"
+        ),
+    )
+
+    with pytest.raises(deconz_api.CommandError):
+        await api.add_neighbour(
+            nwk=0x1234,
+            ieee=t.EUI64.convert("aa:bb:cc:dd:11:22:33:44"),
+            mac_capability_flags=0x12,
+        )
+
+    assert api._command.mock_calls == [
+        call(
+            deconz_api.CommandId.update_neighbor,
+            action=deconz_api.UpdateNeighborAction.ADD,
+            nwk=0x1234,
+            ieee=t.EUI64.convert("aa:bb:cc:dd:11:22:33:44"),
+            mac_capability_flags=0x12,
+        )
+    ]
+
+
 async def test_cb3_device_state_callback_bug(api, mock_command_rsp):
     mock_command_rsp(
         command_id=deconz_api.CommandId.version,
