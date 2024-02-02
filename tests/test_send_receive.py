@@ -8,7 +8,7 @@ import pytest
 import zigpy.exceptions
 import zigpy.types as zigpy_t
 
-from zigpy_deconz.api import TXStatus
+from zigpy_deconz.api import Status, TXStatus
 import zigpy_deconz.exception
 import zigpy_deconz.types as t
 
@@ -23,7 +23,9 @@ def patch_data_request(app, *, fail_enqueue=False, fail_deliver=False):  # noqa:
             await asyncio.sleep(0)
 
             if fail_enqueue:
-                raise zigpy_deconz.exception.CommandError("Error")
+                raise zigpy_deconz.exception.CommandError(
+                    "Error", status=Status.FAILURE, command=None
+                )
 
             if fail_deliver:
                 app.handle_tx_confirm(

@@ -755,7 +755,7 @@ async def test_bad_command_parsing(api, caplog):
 
     assert 0xFF not in deconz_api.COMMAND_SCHEMAS
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.DEBUG):
         api.data_received(
             bytes.fromhex(
                 "172c002f0028002e02000000020000000000"
