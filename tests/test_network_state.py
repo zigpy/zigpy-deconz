@@ -123,7 +123,9 @@ async def test_write_network_info(
             and param == zigpy_deconz.api.NetworkParameter.nwk_frame_counter
         ):
             raise zigpy_deconz.exception.CommandError(
-                status=zigpy_deconz.api.Status.UNSUPPORTED
+                "Command is unsupported",
+                status=zigpy_deconz.api.Status.UNSUPPORTED,
+                command=None,
             )
 
         params[param.name] = args
@@ -212,7 +214,9 @@ async def test_write_network_info(
             None,
             {
                 ("nwk_frame_counter",): zigpy_deconz.exception.CommandError(
-                    zigpy_deconz.api.Status.UNSUPPORTED
+                    "Some error",
+                    status=zigpy_deconz.api.Status.UNSUPPORTED,
+                    command=None,
                 )
             },
             {"network_key.tx_counter": 0},

@@ -216,7 +216,7 @@ async def test_disconnect_no_api(app):
 
 async def test_disconnect_close_error(app):
     app._api.write_parameter = MagicMock(
-        side_effect=zigpy_deconz.exception.CommandError(1, "Error")
+        side_effect=zigpy_deconz.exception.CommandError("Error", status=1, command=None)
     )
     await app.disconnect()
 
@@ -399,13 +399,17 @@ async def test_restore_neighbours(app, caplog):
 
         if max_neighbors < 0:
             raise zigpy_deconz.exception.CommandError(
-                deconz_api.Status.FAILURE, "Failure"
+                "Failure",
+                status=deconz_api.Status.FAILURE,
+                command=None,
             )
 
     p = patch.object(app, "_api", spec_set=zigpy_deconz.api.Deconz(None, None))
 
     with p as api_mock:
-        err = zigpy_deconz.exception.CommandError(deconz_api.Status.FAILURE, "Failure")
+        err = zigpy_deconz.exception.CommandError(
+            "Failure", status=deconz_api.Status.FAILURE, command=None
+        )
         api_mock.add_neighbour = AsyncMock(side_effect=[None, err, err, err])
 
         with caplog.at_level(logging.DEBUG):
@@ -483,7 +487,9 @@ async def test_add_endpoint(app, descriptor, slots, target_slot):
 
         if index not in slots:
             raise zigpy_deconz.exception.CommandError(
-                deconz_api.Status.UNSUPPORTED, "Unsupported"
+                "Unsupported",
+                status=deconz_api.Status.UNSUPPORTED,
+                command=None,
             )
         else:
             return deconz_api.IndexedEndpoint(index=index, descriptor=slots[index])
@@ -504,7 +510,9 @@ async def test_add_endpoint_no_free_space(app):
         assert index in (0x00, 0x01)
 
         raise zigpy_deconz.exception.CommandError(
-            deconz_api.Status.UNSUPPORTED, "Unsupported"
+            "Unsupported",
+            status=deconz_api.Status.UNSUPPORTED,
+            command=None,
         )
 
     app._api.read_parameter = AsyncMock(side_effect=read_param)
@@ -524,7 +532,9 @@ async def test_add_endpoint_no_unnecessary_writes(app):
 
         if index > 0x01:
             raise zigpy_deconz.exception.CommandError(
-                deconz_api.Status.UNSUPPORTED, "Unsupported"
+                "Unsupported",
+                status=deconz_api.Status.UNSUPPORTED,
+                command=None,
             )
 
         return deconz_api.IndexedEndpoint(

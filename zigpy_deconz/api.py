@@ -27,7 +27,7 @@ from zigpy.types import (
 )
 from zigpy.zdo.types import SimpleDescriptor
 
-from zigpy_deconz.exception import APIException, CommandError, MismatchedResponseError
+from zigpy_deconz.exception import CommandError, MismatchedResponseError, ParsingError
 import zigpy_deconz.types as t
 import zigpy_deconz.uart
 from zigpy_deconz.utils import restart_forever
@@ -568,7 +568,11 @@ class Deconz:
 
         if self._uart is None:
             # connection was lost
-            raise CommandError(Status.ERROR, "API is not running")
+            raise CommandError(
+                "API is not running",
+                status=Status.ERROR,
+                command=command,
+            )
 
         async with self._command_lock(priority=self._get_command_priority(command)):
             seq = self._seq
@@ -616,11 +620,15 @@ class Deconz:
         try:
             params, rest = t.deserialize_dict(command.payload, rx_schema)
         except Exception:
-            LOGGER.warning("Failed to parse command %s", command, exc_info=True)
+            LOGGER.debug("Failed to parse command %s", command, exc_info=True)
 
             if fut is not None and not fut.done():
                 fut.set_exception(
-                    APIException(f"Failed to deserialize command: {command}")
+                    ParsingError(
+                        f"Failed to parse command: {command}",
+                        status=Status.ERROR,
+                        command=command,
+                    )
                 )
 
             return
@@ -677,7 +685,11 @@ class Deconz:
             # Make sure we do not resolve the future
             fut = None
         elif status != Status.SUCCESS:
-            exc = CommandError(status, f"{command.command_id}, status: {status}")
+            exc = CommandError(
+                f"{command.command_id}, status: {status}",
+                status=status,
+                command=command,
+            )
 
         if fut is not None:
             try:
@@ -905,10 +917,21 @@ class Deconz:
     async def add_neighbour(
         self, nwk: t.NWK, ieee: t.EUI64, mac_capability_flags: t.uint8_t
     ) -> None:
-        await self.send_command(
-            CommandId.update_neighbor,
-            action=UpdateNeighborAction.ADD,
-            nwk=nwk,
-            ieee=ieee,
-            mac_capability_flags=mac_capability_flags,
-        )
+        try:
+            await self.send_command(
+                CommandId.update_neighbor,
+                action=UpdateNeighborAction.ADD,
+                nwk=nwk,
+                ieee=ieee,
+                mac_capability_flags=mac_capability_flags,
+            )
+        except ParsingError as exc:
+            # Older Conbee III firmwares send back an invalid response
+            status = Status(exc.command.payload[0])
+
+            if status != Status.SUCCESS:
+                raise CommandError(
+                    f"{exc.command.command_id}, status: {status}",
+                    status=status,
+                    command=exc.command,
+                ) from exc
