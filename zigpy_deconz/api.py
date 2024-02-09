@@ -572,16 +572,15 @@ class Deconz:
 
         async with self._command_lock(priority=self._get_command_priority(command)):
             seq = self._seq
-
-            LOGGER.debug("Sending %s%s (seq=%s)", cmd, kwargs, seq)
-            self._uart.send(command.replace(seq=seq).serialize())
-
             self._seq = (self._seq % 255) + 1
 
             fut = asyncio.Future()
             self._awaiting[seq][cmd].append(fut)
 
             try:
+                LOGGER.debug("Sending %s%s (seq=%s)", cmd, kwargs, seq)
+                self._uart.send(command.replace(seq=seq).serialize())
+
                 async with asyncio_timeout(COMMAND_TIMEOUT):
                     return await fut
             except asyncio.TimeoutError:
