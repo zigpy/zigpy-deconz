@@ -60,7 +60,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     SCHEMA = CONFIG_SCHEMA
 
     _probe_config_variants = [
-        {zigpy.config.CONF_DEVICE_BAUDRATE: 57600},
+        {zigpy.config.CONF_DEVICE_BAUDRATE: 38400},
         {zigpy.config.CONF_DEVICE_BAUDRATE: 115200},
     ]
 
