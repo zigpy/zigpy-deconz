@@ -326,7 +326,7 @@ def test_tx_confirm_dup(app, caplog):
 
 def test_tx_confirm_unexpcted(app, caplog):
     app.handle_tx_confirm(123, 0x00)
-    assert any(r.levelname == "WARNING" for r in caplog.records)
+    assert any(r.levelname == "DEBUG" for r in caplog.records)
     assert "Unexpected transmit confirm for request id" in caplog.text
 
 
