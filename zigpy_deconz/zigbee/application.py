@@ -540,7 +540,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self._pending[req_id].result.set_result(status)
             return
         except KeyError:
-            LOGGER.warning(
+            LOGGER.debug(
                 "Unexpected transmit confirm for request id %s, Status: %s",
                 req_id,
                 status,
