@@ -42,6 +42,7 @@ from zigpy_deconz.api import (
 from zigpy_deconz.config import CONFIG_SCHEMA
 import zigpy_deconz.exception
 
+LIB_VERSION = importlib.metadata.version("zigpy-deconz")
 LOGGER = logging.getLogger(__name__)
 
 CHANGE_NETWORK_POLL_TIME = 1
@@ -319,9 +320,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         node_info.version = f"{int(self._api.firmware_version):#010x}"
 
-        network_info.source = (
-            f"zigpy-deconz@{importlib.metadata.version('zigpy-deconz')}"
-        )
+        network_info.source = f"zigpy-deconz@{LIB_VERSION}"
         network_info.metadata = {
             "deconz": {
                 "version": node_info.version,
