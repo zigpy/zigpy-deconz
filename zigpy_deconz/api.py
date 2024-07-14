@@ -14,7 +14,6 @@ if sys.version_info[:2] < (3, 11):
 else:
     from asyncio import timeout as asyncio_timeout  # pragma: no cover
 
-from zigpy.config import CONF_DEVICE_PATH
 from zigpy.datastructures import PriorityLock
 from zigpy.types import (
     APSStatus,
@@ -461,36 +460,36 @@ class Deconz:
 
     async def connect(self) -> None:
         assert self._uart is None
+
         self._uart = await zigpy_deconz.uart.connect(self._config, self)
 
-        await self.version()
+        try:
+            await self.version()
+            device_state_rsp = await self.send_command(CommandId.device_state)
+        except Exception:
+            await self.disconnect()
+            self._uart = None
+            raise
 
-        device_state_rsp = await self.send_command(CommandId.device_state)
         self._device_state = device_state_rsp["device_state"]
 
         self._data_poller_task = asyncio.create_task(self._data_poller())
 
-    def connection_lost(self, exc: Exception) -> None:
+    def connection_lost(self, exc: Exception | None) -> None:
         """Lost serial connection."""
-        LOGGER.debug(
-            "Serial %r connection lost unexpectedly: %r",
-            self._config[CONF_DEVICE_PATH],
-            exc,
-        )
-
         if self._app is not None:
             self._app.connection_lost(exc)
 
-    def close(self):
-        self._app = None
-
+    async def disconnect(self):
         if self._data_poller_task is not None:
             self._data_poller_task.cancel()
             self._data_poller_task = None
 
         if self._uart is not None:
-            self._uart.close()
+            await self._uart.disconnect()
             self._uart = None
+
+        self._app = None
 
     def _get_command_priority(self, command: Command) -> int:
         return {
