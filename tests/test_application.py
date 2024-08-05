@@ -55,12 +55,10 @@ def api():
 
 @pytest.fixture
 def app(device_path, api):
-    config = application.ControllerApplication.SCHEMA(
-        {
-            **ZIGPY_NWK_CONFIG,
-            zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: device_path},
-        }
-    )
+    config = {
+        **ZIGPY_NWK_CONFIG,
+        zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: device_path},
+    }
 
     app = application.ControllerApplication(config)
 
@@ -426,12 +424,10 @@ async def test_delayed_scan():
     """Delayed scan."""
 
     coord = MagicMock()
-    config = application.ControllerApplication.SCHEMA(
-        {
-            zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: "usb0"},
-            zigpy.config.CONF_DATABASE: "tmp",
-        }
-    )
+    config = {
+        zigpy.config.CONF_DEVICE: {zigpy.config.CONF_DEVICE_PATH: "usb0"},
+        zigpy.config.CONF_DATABASE: "tmp",
+    }
 
     app = application.ControllerApplication(config)
     with patch.object(app, "get_device", return_value=coord):
