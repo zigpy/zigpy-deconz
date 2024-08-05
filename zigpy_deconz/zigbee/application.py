@@ -70,7 +70,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     def __init__(self, config: dict[str, Any]):
         """Initialize instance."""
 
-        super().__init__(config=zigpy.config.ZIGPY_SCHEMA(config))
+        super().__init__(config=config)
         self._api = None
 
         self._pending = zigpy.util.Requests()
