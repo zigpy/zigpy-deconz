@@ -1,9 +1,11 @@
 """Uart module."""
 
+from __future__ import annotations
+
 import asyncio
 import binascii
 import logging
-from typing import Callable, Dict
+from typing import Any, Callable
 
 import zigpy.config
 import zigpy.serial
@@ -11,49 +13,37 @@ import zigpy.serial
 LOGGER = logging.getLogger(__name__)
 
 
-class Gateway(asyncio.Protocol):
+class Gateway(zigpy.serial.SerialProtocol):
     END = b"\xC0"
     ESC = b"\xDB"
     ESC_END = b"\xDC"
     ESC_ESC = b"\xDD"
 
-    def __init__(self, api, connected_future=None):
+    def __init__(self, api):
         """Initialize instance of the UART gateway."""
-
+        super().__init__()
         self._api = api
-        self._buffer = b""
-        self._connected_future = connected_future
-        self._transport = None
 
-    def connection_lost(self, exc) -> None:
+    def connection_lost(self, exc: Exception | None) -> None:
         """Port was closed expectedly or unexpectedly."""
+        super().connection_lost(exc)
 
-        if exc is not None:
-            LOGGER.warning("Lost connection: %r", exc, exc_info=exc)
-
-        self._api.connection_lost(exc)
-
-    def connection_made(self, transport):
-        """Call this when the uart connection is established."""
-
-        LOGGER.debug("Connection made")
-        self._transport = transport
-        if self._connected_future and not self._connected_future.done():
-            self._connected_future.set_result(True)
+        if self._api is not None:
+            self._api.connection_lost(exc)
 
     def close(self):
-        self._transport.close()
+        self._api = None
 
-    def send(self, data):
+    def send(self, data: bytes) -> None:
         """Send data, taking care of escaping and framing."""
-        LOGGER.debug("Send: %s", binascii.hexlify(data).decode())
         checksum = bytes(self._checksum(data))
         frame = self._escape(data + checksum)
-        self._transport.write(self.END + frame + self.END)
+        self.send_data(self.END + frame + self.END)
 
-    def data_received(self, data):
+    def data_received(self, data: bytes) -> None:
         """Handle data received from the uart."""
-        self._buffer += data
+        super().data_received(data)
+
         while self._buffer:
             end = self._buffer.find(self.END)
             if end < 0:
@@ -121,23 +111,19 @@ class Gateway(asyncio.Protocol):
         return bytes(ret)
 
 
-async def connect(config: Dict[str, any], api: Callable) -> Gateway:
-    loop = asyncio.get_running_loop()
-    connected_future = loop.create_future()
-    protocol = Gateway(api, connected_future)
+async def connect(config: dict[str, Any], api: Callable) -> Gateway:
+    protocol = Gateway(api)
 
     LOGGER.debug("Connecting to %s", config[zigpy.config.CONF_DEVICE_PATH])
 
     _, protocol = await zigpy.serial.create_serial_connection(
-        loop=loop,
+        loop=asyncio.get_running_loop(),
         protocol_factory=lambda: protocol,
         url=config[zigpy.config.CONF_DEVICE_PATH],
         baudrate=config[zigpy.config.CONF_DEVICE_BAUDRATE],
         xonxoff=False,
     )
 
-    await connected_future
-
-    LOGGER.debug("Connected to %s", config[zigpy.config.CONF_DEVICE_PATH])
+    await protocol.wait_until_connected()
 
     return protocol

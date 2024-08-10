@@ -97,7 +97,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         try:
             await api.connect()
         except Exception:
-            api.close()
+            await api.disconnect()
             raise
 
         self._api = api
@@ -109,7 +109,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self._delayed_neighbor_scan_task = None
 
         if self._api is not None:
-            self._api.close()
+            await self._api.disconnect()
             self._api = None
 
     async def permit_with_link_key(self, node: t.EUI64, link_key: t.KeyData, time_s=60):
