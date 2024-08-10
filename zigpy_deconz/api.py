@@ -25,6 +25,9 @@ from zigpy.types import (
     Struct,
     ZigbeePacket,
 )
+from zigpy.zgp.types import (
+    GPDataFrame,
+)
 from zigpy.zdo.types import SimpleDescriptor
 
 from zigpy_deconz.exception import CommandError, MismatchedResponseError, ParsingError
@@ -406,7 +409,7 @@ COMMAND_SCHEMAS = {
             "status": Status,
             "frame_length": t.uint16_t,
             "payload_length": t.uint16_t,
-            "reserved": t.LongOctetString,
+            "gp_data_frame": GPDataFrame
         },
     ),
 }
@@ -769,6 +772,18 @@ class Deconz:
                 self._handle_device_state_changed(
                     status=rsp["status"], device_state=rsp["device_state"]
                 )
+
+    def _handle_zigbee_green_power(
+        self,
+        status: Status,
+        gp_data_frame: GPDataFrame
+    ) -> None:
+        if status == Status.SUCCESS:
+            asyncio.ensure_future(
+                self._app._greenpower.handle_received_green_power_frame(gp_data_frame),
+                loop=asyncio.get_running_loop()
+            )
+
 
     def _handle_device_state_changed(
         self,
