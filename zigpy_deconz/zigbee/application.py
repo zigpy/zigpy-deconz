@@ -499,7 +499,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         ):
             tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
 
-        async with self._limit_concurrency():
+        async with self._limit_concurrency(priority=packet.priority):
             req_id = self.get_sequence()
 
             with self._pending.new(req_id) as req:
