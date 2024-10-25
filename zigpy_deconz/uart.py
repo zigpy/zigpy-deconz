@@ -122,7 +122,7 @@ async def connect(config: dict[str, Any], api: Callable) -> Gateway:
         protocol_factory=lambda: protocol,
         url=config[zigpy.config.CONF_DEVICE_PATH],
         baudrate=config[zigpy.config.CONF_DEVICE_BAUDRATE],
-        xonxoff=False,
+        flow_control=config[zigpy.config.CONF_DEVICE_FLOW_CONTROL],
     )
 
     await protocol.wait_until_connected()
