@@ -39,7 +39,7 @@ class Gateway(zigpy.serial.SerialProtocol):
         """Send data, taking care of escaping and framing."""
         checksum = bytes(self._checksum(data))
         frame = self._escape(data + checksum)
-        self.send_data(self.END + frame + self.END)
+        self._transport.write(self.END + frame + self.END)
 
     def data_received(self, data: bytes) -> None:
         """Handle data received from the uart."""
