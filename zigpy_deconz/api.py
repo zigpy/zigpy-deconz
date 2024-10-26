@@ -488,8 +488,6 @@ class Deconz:
         if self._uart is not None:
             await self._uart.disconnect()
             self._uart = None
-        else:
-            self._app.connection_lost(None)
 
         self._app = None
 

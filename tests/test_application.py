@@ -187,6 +187,7 @@ async def test_connect_failure(app):
     with patch.object(application, "Deconz") as api_mock:
         api = api_mock.return_value = MagicMock()
         api.connect = AsyncMock(side_effect=RuntimeError("Broken"))
+        api.disconnect = AsyncMock()
 
         app._api = None
 
@@ -195,16 +196,16 @@ async def test_connect_failure(app):
 
         assert app._api is None
         api.connect.assert_called_once()
-        api.close.assert_called_once()
+        api.disconnect.assert_called_once()
 
 
 async def test_disconnect(app):
-    api_close = app._api.close = MagicMock()
+    api_disconnect = app._api.disconnect = AsyncMock()
 
     await app.disconnect()
 
     assert app._api is None
-    assert api_close.call_count == 1
+    assert api_disconnect.call_count == 1
 
 
 async def test_disconnect_no_api(app):

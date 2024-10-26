@@ -32,8 +32,16 @@ def gateway():
 @pytest.fixture
 def api(gateway, mock_command_rsp):
     async def mock_connect(config, api):
+        transport = MagicMock()
+        transport.close = MagicMock(
+            side_effect=lambda: asyncio.get_running_loop().call_soon(
+                gateway.connection_lost, None
+            )
+        )
+
         gateway._api = api
-        gateway.connection_made(MagicMock())
+        gateway.connection_made(transport)
+
         return gateway
 
     with patch("zigpy_deconz.uart.connect", side_effect=mock_connect):
@@ -182,11 +190,11 @@ async def test_close(api):
     await api.connect()
 
     uart = api._uart
-    uart.close = MagicMock(wraps=uart.close)
+    uart.disconnect = AsyncMock()
 
-    api.close()
+    await api.disconnect()
     assert api._uart is None
-    assert uart.close.call_count == 1
+    assert uart.disconnect.call_count == 1
 
 
 def test_commands():
@@ -898,11 +906,9 @@ async def test_data_poller(api, mock_command_rsp):
 
     # The task is cancelled on close
     task = api._data_poller_task
-    api.close()
+    await api.disconnect()
     assert api._data_poller_task is None
-
-    if sys.version_info >= (3, 11):
-        assert task.cancelling()
+    assert task.done()
 
 
 async def test_get_device_state(api, mock_command_rsp):

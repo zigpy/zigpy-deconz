@@ -4,7 +4,11 @@ import logging
 from unittest import mock
 
 import pytest
-from zigpy.config import CONF_DEVICE_BAUDRATE, CONF_DEVICE_PATH
+from zigpy.config import (
+    CONF_DEVICE_BAUDRATE,
+    CONF_DEVICE_FLOW_CONTROL,
+    CONF_DEVICE_PATH,
+)
 import zigpy.serial
 
 from zigpy_deconz import uart
@@ -28,7 +32,12 @@ async def test_connect(monkeypatch):
     monkeypatch.setattr(zigpy.serial, "create_serial_connection", mock_conn)
 
     await uart.connect(
-        {CONF_DEVICE_PATH: "/dev/null", CONF_DEVICE_BAUDRATE: 115200}, api
+        {
+            CONF_DEVICE_PATH: "/dev/null",
+            CONF_DEVICE_BAUDRATE: 115200,
+            CONF_DEVICE_FLOW_CONTROL: None,
+        },
+        api,
     )
 
 
