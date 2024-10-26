@@ -30,13 +30,13 @@ def gateway():
 
 
 @pytest.fixture
-def api(gateway, mock_command_rsp):
+async def api(gateway, mock_command_rsp):
+    loop = asyncio.get_running_loop()
+
     async def mock_connect(config, api):
         transport = MagicMock()
         transport.close = MagicMock(
-            side_effect=lambda: asyncio.get_running_loop().call_soon(
-                gateway.connection_lost, None
-            )
+            side_effect=lambda: loop.call_soon(gateway.connection_lost, None)
         )
 
         gateway._api = api
