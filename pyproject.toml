@@ -47,6 +47,7 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.flake8]
 exclude = [".venv", ".git", ".tox", "docs", "venv", "bin", "lib", "deps", "build"]
