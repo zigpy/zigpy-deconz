@@ -186,6 +186,24 @@ async def test_connect(api, mock_command_rsp):
     await api.connect()
 
 
+async def test_connect_failure(api, mock_command_rsp):
+    transport = None
+
+    def mock_version(*args, **kwargs):
+        nonlocal transport
+        transport = api._uart._transport
+
+        raise asyncio.TimeoutError()
+
+    with patch.object(api, "version", side_effect=mock_version):
+        # We connect but fail to probe
+        with pytest.raises(asyncio.TimeoutError):
+            await api.connect()
+
+    assert api._uart is None
+    assert len(transport.close.mock_calls) == 1
+
+
 async def test_close(api):
     await api.connect()
 
