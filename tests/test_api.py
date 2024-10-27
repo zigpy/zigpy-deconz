@@ -25,7 +25,7 @@ DEVICE_CONFIG = {zigpy.config.CONF_DEVICE_PATH: "/dev/null"}
 
 
 @pytest.fixture
-def gateway():
+async def gateway():
     return uart.Gateway(api=None)
 
 
