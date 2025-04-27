@@ -189,9 +189,11 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
-            LOGGER.warning(
-                "Writing the network frame counter is not supported with this firmware,"
-                " please update your Conbee"
+            fw_version = f"{int(self._api.firmware_version):#010x}"
+            raise zigpy.exceptions.ControllerException(
+                f"Please upgrade your adapter firmware. Firmware version {fw_version}"
+                f" does not support writing the network key frame counter, which is"
+                f" required for migration to succeed."
             )
 
         if node_info.logical_type == zdo_t.LogicalType.Coordinator:

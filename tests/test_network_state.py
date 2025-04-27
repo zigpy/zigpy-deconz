@@ -3,7 +3,7 @@
 import importlib.metadata
 
 import pytest
-from zigpy.exceptions import NetworkNotFormed
+from zigpy.exceptions import ControllerException, NetworkNotFormed
 import zigpy.state as app_state
 import zigpy.types as t
 import zigpy.zdo.types as zdo_t
@@ -140,6 +140,21 @@ async def test_write_network_info(
     )
 
     node_info = node_info.replace(logical_type=logical_type)
+
+    if not fw_supports_fc:
+        with pytest.raises(
+            ControllerException,
+            match=(
+                "Please upgrade your adapter firmware. Firmware version 0x26580700 does"
+                " not support writing the network key frame counter, which is required"
+                " for migration to succeed."
+            ),
+        ):
+            await app.write_network_info(
+                network_info=network_info,
+                node_info=node_info,
+            )
+        return
 
     await app.write_network_info(
         network_info=network_info,
