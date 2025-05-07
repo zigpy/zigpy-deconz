@@ -15,7 +15,7 @@ license = {text = "GPL-3.0"}
 requires-python = ">=3.8"
 dependencies = [
     "voluptuous",
-    "zigpy>=0.70.0",
+    "zigpy>=0.80.0",
     'async-timeout; python_version<"3.11"',
 ]
 
