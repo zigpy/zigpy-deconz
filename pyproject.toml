@@ -63,6 +63,11 @@ ignore = [
 ]
 per-file-ignores = ["tests/*:F811,F401,F403"]
 
+[tool.codespell]
+ignore-words-list = ["IntStruct"]
+skip = ["./.*", "tests/*", "pyproject.toml"]
+quiet-level = 2
+
 [tool.coverage.report]
 exclude_also = [
     "raise AssertionError",
