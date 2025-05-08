@@ -628,43 +628,6 @@ async def test_aps_data_request_relays(relays, api, mock_command_rsp):
         assert "has non-trailing optional argument" in str(exc.value)
 
 
-@patch(
-    "zigpy_deconz.api.REQUEST_RETRY_DELAYS",
-    [None if v is None else 0 for v in deconz_api.REQUEST_RETRY_DELAYS],
-)
-async def test_aps_data_request_retries_busy(api, mock_command_rsp):
-    await api.connect()
-
-    mock_rsp = mock_command_rsp(
-        command_id=deconz_api.CommandId.aps_data_request,
-        params={},
-        rsp={
-            "status": deconz_api.Status.BUSY,
-            "frame_length": t.uint16_t(9),
-            "payload_length": t.uint16_t(2),
-            "device_state": deconz_api.DeviceState(
-                network_state=deconz_api.NetworkState2.CONNECTED,
-                device_state=(
-                    deconz_api.DeviceStateFlags.APSDE_DATA_REQUEST_FREE_SLOTS_AVAILABLE
-                ),
-            ),
-            "request_id": t.uint8_t(0x00),
-        },
-    )
-
-    with pytest.raises(deconz_api.CommandError):
-        await api.aps_data_request(
-            req_id=0x00,
-            dst_addr_ep=t.DeconzAddressEndpoint.deserialize(b"\x02\xaa\x55\x01")[0],
-            profile=0x0104,
-            cluster=0x0007,
-            src_ep=1,
-            aps_payload=b"aps payload",
-        )
-
-    assert len(mock_rsp.mock_calls) == 4
-
-
 async def test_aps_data_request_retries_failure(api, mock_command_rsp):
     await api.connect()
 

@@ -36,7 +36,6 @@ LOGGER = logging.getLogger(__name__)
 MISMATCHED_RESPONSE_TIMEOUT = 0.5
 COMMAND_TIMEOUT = 1.8
 PROBE_TIMEOUT = 2
-REQUEST_RETRY_DELAYS = (0.5, 1.0, 1.5, None)
 
 FRAME_LENGTH = object()
 PAYLOAD_LENGTH = object()
@@ -872,37 +871,27 @@ class Deconz:
             assert len(relays) <= 9
             flags |= t.DeconzSendDataFlags.RELAYS
 
-        for delay in REQUEST_RETRY_DELAYS:
-            if not self._free_slots_available_event.is_set():
-                LOGGER.debug("Waiting for free slots to become available")
-                await self._free_slots_available_event.wait()
+        if not self._free_slots_available_event.is_set():
+            LOGGER.debug("Waiting for free slots to become available")
+            await self._free_slots_available_event.wait()
 
-            try:
-                rsp = await self.send_command(
-                    CommandId.aps_data_request,
-                    request_id=req_id,
-                    flags=flags,
-                    dst=dst_addr_ep,
-                    profile_id=profile,
-                    cluster_id=cluster,
-                    src_ep=src_ep,
-                    asdu=aps_payload,
-                    tx_options=tx_options,
-                    radius=radius,
-                    relays=relays,
-                )
-            except CommandError as ex:
-                LOGGER.debug("'aps_data_request' failure: %s", ex)
-                if delay is None or ex.status != Status.BUSY:
-                    raise
+        rsp = await self.send_command(
+            CommandId.aps_data_request,
+            request_id=req_id,
+            flags=flags,
+            dst=dst_addr_ep,
+            profile_id=profile,
+            cluster_id=cluster,
+            src_ep=src_ep,
+            asdu=aps_payload,
+            tx_options=tx_options,
+            radius=radius,
+            relays=relays,
+        )
 
-                LOGGER.debug("retrying 'aps_data_request' in %ss", delay)
-                await asyncio.sleep(delay)
-            else:
-                self._handle_device_state_changed(
-                    status=rsp["status"], device_state=rsp["device_state"]
-                )
-                return
+        self._handle_device_state_changed(
+            status=rsp["status"], device_state=rsp["device_state"]
+        )
 
     async def get_device_state(self) -> DeviceState:
         rsp = await self.send_command(CommandId.device_state)
