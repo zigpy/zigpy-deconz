@@ -15,7 +15,7 @@ license = {text = "GPL-3.0"}
 requires-python = ">=3.8"
 dependencies = [
     "voluptuous",
-    "zigpy>=0.70.0",
+    "zigpy>=0.80.0",
     'async-timeout; python_version<"3.11"',
 ]
 
@@ -62,6 +62,11 @@ ignore = [
     "D103", "D102", "D101",  # TODO: remove these once docstrings are added
 ]
 per-file-ignores = ["tests/*:F811,F401,F403"]
+
+[tool.codespell]
+ignore-words-list = ["IntStruct"]
+skip = ["./.*", "tests/*", "pyproject.toml"]
+quiet-level = 2
 
 [tool.coverage.report]
 exclude_also = [

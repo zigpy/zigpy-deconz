@@ -6,6 +6,7 @@ from zigpy.types import (  # noqa: F401
     EUI64,
     NWK,
     ExtendedPanId,
+    IntStruct,
     LongOctetString,
     LVBytes,
     LVList,

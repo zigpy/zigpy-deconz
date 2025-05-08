@@ -78,7 +78,7 @@ class FirmwarePlatform(t.enum8):
     Conbee_III = 0x09
 
 
-class FirmwareVersion(t.Struct, t.uint32_t):
+class FirmwareVersion(t.IntStruct, t.uint32_t):
     reserved: t.uint8_t
     platform: FirmwarePlatform
     minor: t.uint8_t
