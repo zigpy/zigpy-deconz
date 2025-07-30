@@ -73,7 +73,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         super().__init__(config=config)
         self._api = None
 
-        self._pending = zigpy.util.Requests()
+        self._pending_requests = {}
 
         self._delayed_neighbor_scan_task = None
         self._reconnect_task = None
@@ -504,7 +504,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         async with self._limit_concurrency(priority=packet.priority):
             req_id = self.get_sequence()
 
-            with self._pending.new(req_id) as req:
+            if req_id in self._pending_requests:
+                raise zigpy.exceptions.DeliveryError(
+                    f"Request with id {req_id} is already pending, cannot send"
+                )
+
+            future = self._pending_requests[req_id] = asyncio.Future()
+
+            try:
                 try:
                     await self._api.aps_data_request(
                         req_id=req_id,
@@ -525,12 +532,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                     )
 
                 async with asyncio_timeout(SEND_CONFIRM_TIMEOUT):
-                    status = await req.result
+                    status = await future
 
                 if status != TXStatus.SUCCESS:
                     raise zigpy.exceptions.DeliveryError(
                         f"Failed to deliver packet: {status!r}", status
                     )
+            finally:
+                del self._pending_requests[req_id]
 
     async def permit_ncp(self, time_s=60):
         assert 0 <= time_s <= 254
@@ -538,18 +547,20 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     def handle_tx_confirm(self, req_id, status):
         try:
-            self._pending[req_id].result.set_result(status)
-            return
+            future = self._pending_requests[req_id]
         except KeyError:
             LOGGER.warning(
                 "Unexpected transmit confirm for request id %s, Status: %s",
                 req_id,
                 status,
             )
-        except asyncio.InvalidStateError as exc:
-            LOGGER.debug(
-                "Invalid state on future - probably duplicate response: %s", exc
-            )
+        else:
+            try:
+                future.set_result(status)
+            except asyncio.InvalidStateError as exc:
+                LOGGER.debug(
+                    "Invalid state on future - probably duplicate response: %s", exc
+                )
 
     async def restore_neighbours(self) -> None:
         """Restore children."""
@@ -599,10 +610,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
-    def __init__(self, model: str, *args):
+    def __init__(self, model: str, *args, **kwargs):
         """Initialize instance."""
 
-        super().__init__(*args)
+        super().__init__(*args, **kwargs)
         self._model = model
 
     async def add_to_group(self, grp_id: int, name: str = None) -> None:

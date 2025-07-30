@@ -276,7 +276,7 @@ async def test_deconz_dev_remove_from_group(app, nwk, device_path):
     assert group.remove_member.call_count == 2
 
 
-def test_deconz_props(nwk, device_path):
+def test_deconz_props(app, nwk, device_path):
     deconz = application.DeconzDevice("Conbee II", app, sentinel.ieee, nwk)
     assert deconz.manufacturer is not None
     assert deconz.model is not None
@@ -305,20 +305,20 @@ async def test_deconz_new(app, nwk, device_path, monkeypatch):
 
 def test_tx_confirm_success(app):
     tsn = 123
-    req = app._pending[tsn] = MagicMock()
+    req = app._pending_requests[tsn] = MagicMock()
     app.handle_tx_confirm(tsn, sentinel.status)
-    assert req.result.set_result.call_count == 1
-    assert req.result.set_result.call_args[0][0] is sentinel.status
+    assert req.set_result.call_count == 1
+    assert req.set_result.call_args[0][0] is sentinel.status
 
 
 def test_tx_confirm_dup(app, caplog):
     caplog.set_level(logging.DEBUG)
     tsn = 123
-    req = app._pending[tsn] = MagicMock()
-    req.result.set_result.side_effect = asyncio.InvalidStateError
+    req = app._pending_requests[tsn] = MagicMock()
+    req.set_result.side_effect = asyncio.InvalidStateError
     app.handle_tx_confirm(tsn, sentinel.status)
-    assert req.result.set_result.call_count == 1
-    assert req.result.set_result.call_args[0][0] is sentinel.status
+    assert req.set_result.call_count == 1
+    assert req.set_result.call_args[0][0] is sentinel.status
     assert any(r.levelname == "DEBUG" for r in caplog.records)
     assert "probably duplicate response" in caplog.text
 
