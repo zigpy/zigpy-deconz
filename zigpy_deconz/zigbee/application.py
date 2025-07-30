@@ -610,10 +610,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
-    def __init__(self, model: str, *args):
+    def __init__(self, model: str, *args, **kwargs):
         """Initialize instance."""
 
-        super().__init__(*args)
+        super().__init__(*args, **kwargs)
         self._model = model
 
     async def add_to_group(self, grp_id: int, name: str = None) -> None:
