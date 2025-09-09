@@ -365,6 +365,11 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
+            LOGGER.debug(
+                "Conbee firmware is too old and does not support reading the frame"
+                " counter, picking a large value instead"
+            )
+            network_info.network_key.tx_counter = 2**30
 
         network_info.tc_link_key = zigpy.state.Key()
         network_info.tc_link_key.partner_ieee = await self._api.read_parameter(
