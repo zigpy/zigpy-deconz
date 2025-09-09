@@ -234,7 +234,7 @@ async def test_write_network_info(
                     command=None,
                 )
             },
-            {"network_key.tx_counter": 0},
+            {"network_key.tx_counter": 1073741824},
             {},
         ),
         (
