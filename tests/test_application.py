@@ -556,7 +556,7 @@ async def test_reset_network_info(app):
     app.form_network = AsyncMock()
     await app.reset_network_info()
 
-    app.form_network.assert_called_once()
+    app.form_network.assert_called_once_with(fast=True)
 
 
 async def test_energy_scan_conbee_2(app):

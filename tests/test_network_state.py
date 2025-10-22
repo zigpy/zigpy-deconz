@@ -1,9 +1,10 @@
 """Test `load_network_info` and `write_network_info` methods."""
 
 import importlib.metadata
+from unittest.mock import ANY, call
 
 import pytest
-from zigpy.exceptions import ControllerException, NetworkNotFormed
+from zigpy.exceptions import CannotWriteNetworkSettings, NetworkNotFormed
 import zigpy.state as app_state
 import zigpy.types as t
 import zigpy.zdo.types as zdo_t
@@ -70,28 +71,55 @@ def network_info(node_info):
 @patch.object(application, "CHANGE_NETWORK_POLL_TIME", 0.001)
 @patch.object(application, "CHANGE_NETWORK_STATE_DELAY", 0.001)
 @pytest.mark.parametrize(
-    "channel_mask, channel, security_level, fw_supports_fc, logical_type",
+    (
+        "channel_mask",
+        "channel",
+        "security_level",
+        "fw_supports_fc",
+        "logical_type",
+        "tx_counter",
+        "should_error",
+    ),
     [
+        # FW supports frame counter
         (
             t.Channels.from_channel_list([15]),
             15,
             0,
             True,
             zdo_t.LogicalType.Coordinator,
+            39009277,
+            False,
         ),
+        # FW doesn't support but we're writing blank settings (tx_counter == 0)
+        (
+            t.Channels.from_channel_list([15]),
+            15,
+            5,
+            False,
+            zdo_t.LogicalType.Coordinator,
+            0,
+            False,
+        ),
+        # FW doesn't support and we're writing real settings (should error)
         (
             t.Channels.from_channel_list([15]),
             15,
             0,
             False,
             zdo_t.LogicalType.Coordinator,
+            39009277,
+            True,
         ),
+        # Additional test cases with FW support
         (
             t.Channels.from_channel_list([15, 20]),
             15,
             5,
             True,
             zdo_t.LogicalType.Coordinator,
+            39009277,
+            False,
         ),
         (
             t.Channels.from_channel_list([15, 20, 25]),
@@ -99,8 +127,18 @@ def network_info(node_info):
             5,
             True,
             zdo_t.LogicalType.Router,
+            39009277,
+            False,
         ),
-        (None, 15, 5, True, zdo_t.LogicalType.Coordinator),
+        (
+            None,
+            15,
+            5,
+            True,
+            zdo_t.LogicalType.Coordinator,
+            39009277,
+            False,
+        ),
     ],
 )
 async def test_write_network_info(
@@ -112,6 +150,8 @@ async def test_write_network_info(
     security_level,
     fw_supports_fc,
     logical_type,
+    tx_counter,
+    should_error,
 ):
     """Test that network info is correctly written."""
 
@@ -137,13 +177,14 @@ async def test_write_network_info(
         channel=channel,
         channel_mask=channel_mask,
         security_level=security_level,
+        network_key=network_info.network_key.replace(tx_counter=tx_counter),
     )
 
     node_info = node_info.replace(logical_type=logical_type)
 
-    if not fw_supports_fc:
+    if should_error:
         with pytest.raises(
-            ControllerException,
+            CannotWriteNetworkSettings,
             match=(
                 "Please upgrade your adapter firmware. Firmware version 0x26580700 does"
                 " not support writing the network key frame counter, which is required"
@@ -166,7 +207,9 @@ async def test_write_network_info(
         for call in app._api.write_parameter.await_args_list
     }
 
-    assert params["nwk_frame_counter"] == (network_info.network_key.tx_counter,)
+    # Only check frame counter if firmware supports it
+    if fw_supports_fc:
+        assert params["nwk_frame_counter"] == (network_info.network_key.tx_counter,)
 
     if node_info.logical_type == zdo_t.LogicalType.Coordinator:
         assert params["aps_designed_coordinator"] == (1,)
@@ -328,3 +371,57 @@ async def test_load_network_info(
     assert app.state.network_info == network_info
 
     assert app.state.node_info == node_info.replace(**node_state_changes)
+
+
+@patch.object(application, "CHANGE_NETWORK_POLL_TIME", 0.001)
+@patch.object(application, "CHANGE_NETWORK_STATE_DELAY", 0.001)
+async def test_form_network_fast_without_frame_counter_support(app):  # noqa: F811
+    """Test that form_network(fast=True) works when FW doesn't support frame counter."""
+
+    async def write_parameter(param, *args):
+        if param == zigpy_deconz.api.NetworkParameter.nwk_frame_counter:
+            raise zigpy_deconz.exception.CommandError(
+                "Command is unsupported",
+                status=zigpy_deconz.api.Status.UNSUPPORTED,
+                command=None,
+            )
+
+    app._change_network_state = AsyncMock()
+    app._api.write_parameter = AsyncMock(side_effect=write_parameter)
+    app.backups = AsyncMock()
+    app.backups.restore_backup = AsyncMock()
+
+    # This should not raise an error because fast=True sets form_quickly
+    await app.form_network(fast=True)
+
+    # Verify that restore_backup was called with create_new=False (due to fast=True)
+    assert app.backups.restore_backup.mock_calls == [
+        call(backup=ANY, counter_increment=0, allow_incomplete=True, create_new=False)
+    ]
+
+
+@patch.object(application, "CHANGE_NETWORK_POLL_TIME", 0.001)
+@patch.object(application, "CHANGE_NETWORK_STATE_DELAY", 0.001)
+async def test_reset_network_info_without_frame_counter_support(app):  # noqa: F811
+    """Test that reset_network_info works even when FW doesn't support frame counter."""
+
+    async def write_parameter(param, *args):
+        if param == zigpy_deconz.api.NetworkParameter.nwk_frame_counter:
+            raise zigpy_deconz.exception.CommandError(
+                "Command is unsupported",
+                status=zigpy_deconz.api.Status.UNSUPPORTED,
+                command=None,
+            )
+
+    app._change_network_state = AsyncMock()
+    app._api.write_parameter = AsyncMock(side_effect=write_parameter)
+    app.backups = AsyncMock()
+    app.backups.restore_backup = AsyncMock()
+
+    # Should not raise an error because reset_network_info calls form_network(fast=True)
+    await app.reset_network_info()
+
+    # Verify that restore_backup was called once (via form_network)
+    assert app.backups.restore_backup.mock_calls == [
+        call(backup=ANY, counter_increment=0, allow_incomplete=True, create_new=False)
+    ]

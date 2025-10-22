@@ -180,7 +180,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def reset_network_info(self):
         # TODO: There does not appear to be a way to factory reset a Conbee
-        await self.form_network()
+        await self.form_network(fast=True)
 
     async def write_network_info(self, *, network_info, node_info):
         try:
@@ -189,12 +189,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             )
         except zigpy_deconz.exception.CommandError as ex:
             assert ex.status == Status.UNSUPPORTED
-            fw_version = f"{int(self._api.firmware_version):#010x}"
-            raise zigpy.exceptions.ControllerException(
-                f"Please upgrade your adapter firmware. Firmware version {fw_version}"
-                f" does not support writing the network key frame counter, which is"
-                f" required for migration to succeed."
-            )
+
+            # If we are resetting the adapter or forming a brand new network, we can
+            # skip this check
+            if not (
+                network_info.stack_specific.get("form_quickly", False)
+                or network_info.network_key.tx_counter == 0
+            ):
+                fw_version = f"{int(self._api.firmware_version):#010x}"
+                raise zigpy.exceptions.CannotWriteNetworkSettings(
+                    f"Please upgrade your adapter firmware. Firmware version"
+                    f" {fw_version} does not support writing the network key frame"
+                    f" counter, which is required for migration to succeed."
+                )
 
         if node_info.logical_type == zdo_t.LogicalType.Coordinator:
             await self._api.write_parameter(
