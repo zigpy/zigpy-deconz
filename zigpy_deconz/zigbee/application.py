@@ -313,6 +313,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         # Note: Changed network configuration parameters become only affective after
         # sending a Leave Network Request followed by a Create or Join Network Request
         await self._change_network_state(NetworkState.OFFLINE)
+
+        if (
+            network_info.pan_id == 0xFFFF
+            or network_info.channel_mask == zigpy.types.Channels(0)
+        ):
+            # Network is being reset, it will never enter the CONNECTED state
+            return
+
         await asyncio.sleep(CHANGE_NETWORK_STATE_DELAY)
         await self._change_network_state(NetworkState.CONNECTED)
 

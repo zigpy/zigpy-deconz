@@ -12,6 +12,7 @@ import zigpy.zdo.types as zdo_t
 import zigpy_deconz
 import zigpy_deconz.api
 import zigpy_deconz.exception
+import zigpy_deconz.types
 import zigpy_deconz.zigbee.application as application
 
 from tests.async_mock import AsyncMock, patch
@@ -428,5 +429,7 @@ async def test_reset_network_info_without_frame_counter_support(app):  # noqa: F
         for mock_call in app._api.write_parameter.mock_calls
     )
 
-    # Verify network state changes were called
-    assert len(app._change_network_state.mock_calls) == 2
+    # Verify network state changes were awaited
+    assert app._change_network_state.mock_calls == [
+        call(zigpy_deconz.api.NetworkState.OFFLINE)
+    ]
