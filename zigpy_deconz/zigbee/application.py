@@ -180,7 +180,29 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def reset_network_info(self):
         # TODO: There does not appear to be a way to factory reset a Conbee
-        await self.form_network(fast=True)
+        await self.write_network_info(
+            network_info=zigpy.state.NetworkInfo(
+                pan_id=0xFFFF,
+                extended_pan_id=zigpy.types.EUI64.convert("FF:FF:FF:FF:FF:FF:FF:FF"),
+                channel=None,
+                channel_mask=zigpy.types.Channels(0),
+                nwk_update_id=0,
+                network_key=zigpy.state.Key(
+                    key=zigpy.types.KeyData.convert(
+                        "FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF"
+                    )
+                ),
+                tc_link_key=zigpy.state.Key(
+                    key=zigpy.types.KeyData.convert(b"ZigBeeAlliance09".hex())
+                ),
+                security_level=0x05,
+            ),
+            node_info=zigpy.state.NodeInfo(
+                logical_type=zdo_t.LogicalType.Coordinator,
+                ieee=zigpy.types.EUI64.UNKNOWN,
+                nwk=0xFFFF,
+            ),
+        )
 
     async def write_network_info(self, *, network_info, node_info):
         try:
@@ -341,7 +363,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             NetworkParameter.aps_extended_panid
         )
 
-        if network_info.extended_pan_id == zigpy.types.EUI64.convert(
+        if network_info.extended_pan_id == zigpy.types.ExtendedPanId.convert(
             "00:00:00:00:00:00:00:00"
         ):
             network_info.extended_pan_id = await self._api.read_parameter(
@@ -358,8 +380,16 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             NetworkParameter.nwk_update_id
         )
 
-        if network_info.channel == 0:
-            raise NetworkNotFormed("Network channel is zero")
+        if (
+            node_info.nwk == 0xFFFF
+            or network_info.pan_id == 0xFFFF
+            or (
+                network_info.extended_pan_id
+                == zigpy.types.ExtendedPanId.convert("FF:FF:FF:FF:FF:FF:FF:FF")
+            )
+            or network_info.channel == 0
+        ):
+            raise NetworkNotFormed("Network is not formed")
 
         indexed_key = await self._api.read_parameter(NetworkParameter.network_key, 0)
 
