@@ -553,10 +553,20 @@ async def test_add_endpoint_no_unnecessary_writes(app):
 
 
 async def test_reset_network_info(app):
-    app.form_network = AsyncMock()
+    app.write_network_info = AsyncMock()
     await app.reset_network_info()
 
-    app.form_network.assert_called_once_with(fast=True)
+    assert len(app.write_network_info.mock_calls) == 1
+    network_info = app.write_network_info.mock_calls[0].kwargs["network_info"]
+    node_info = app.write_network_info.mock_calls[0].kwargs["node_info"]
+
+    # Verify invalid network settings are written
+    assert network_info.pan_id == 0xFFFF
+    assert network_info.extended_pan_id == zigpy.types.EUI64.convert(
+        "FF:FF:FF:FF:FF:FF:FF:FF"
+    )
+    assert network_info.channel is None
+    assert node_info.nwk == 0xFFFF
 
 
 async def test_energy_scan_conbee_2(app):

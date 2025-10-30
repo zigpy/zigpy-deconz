@@ -12,6 +12,7 @@ import zigpy.zdo.types as zdo_t
 import zigpy_deconz
 import zigpy_deconz.api
 import zigpy_deconz.exception
+import zigpy_deconz.types
 import zigpy_deconz.zigbee.application as application
 
 from tests.async_mock import AsyncMock, patch
@@ -415,13 +416,20 @@ async def test_reset_network_info_without_frame_counter_support(app):  # noqa: F
 
     app._change_network_state = AsyncMock()
     app._api.write_parameter = AsyncMock(side_effect=write_parameter)
-    app.backups = AsyncMock()
-    app.backups.restore_backup = AsyncMock()
+    app._api.read_parameter = AsyncMock(
+        return_value=t.EUI64.convert("00:11:22:33:44:55:66:77")
+    )
 
-    # Should not raise an error because reset_network_info calls form_network(fast=True)
+    # Should not raise an error despite frame counter not being supported
     await app.reset_network_info()
 
-    # Verify that restore_backup was called once (via form_network)
-    assert app.backups.restore_backup.mock_calls == [
-        call(backup=ANY, counter_increment=0, allow_incomplete=True, create_new=False)
+    # Verify that write_parameter was called (including the frame counter attempt)
+    assert any(
+        mock_call.args[0] == zigpy_deconz.api.NetworkParameter.nwk_frame_counter
+        for mock_call in app._api.write_parameter.mock_calls
+    )
+
+    # Verify network state changes were awaited
+    assert app._change_network_state.mock_calls == [
+        call(zigpy_deconz.api.NetworkState.OFFLINE)
     ]
