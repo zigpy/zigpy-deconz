@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata
 import logging
+import os.path
 import re
 import sys
 from typing import Any
@@ -343,10 +344,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         node_info.manufacturer = "dresden elektronik"
 
-        if re.match(
-            r"/dev/tty(S|AMA|ACM)\d+",
+        resolved_device = await asyncio.get_running_loop().run_in_executor(
+            None,
+            os.path.realpath,
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
-        ):
+        )
+
+        if re.match(r"/dev/tty(S|AMA)\d+", resolved_device):
             node_info.model = "Raspbee"
         else:
             node_info.model = "Conbee"
