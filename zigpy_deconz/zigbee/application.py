@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata
 import logging
-import re
 import sys
 from typing import Any
 
@@ -41,6 +40,7 @@ from zigpy_deconz.api import (
 )
 from zigpy_deconz.config import CONFIG_SCHEMA
 import zigpy_deconz.exception
+from zigpy_deconz.utils import is_usb_serial_port
 
 LIB_VERSION = importlib.metadata.version("zigpy-deconz")
 LOGGER = logging.getLogger(__name__)
@@ -343,13 +343,16 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         node_info.manufacturer = "dresden elektronik"
 
-        if re.match(
-            r"/dev/tty(S|AMA|ACM)\d+",
+        is_usb = await asyncio.get_running_loop().run_in_executor(
+            None,
+            is_usb_serial_port,
             self._config[zigpy.config.CONF_DEVICE][zigpy.config.CONF_DEVICE_PATH],
-        ):
-            node_info.model = "Raspbee"
-        else:
+        )
+
+        if is_usb:
             node_info.model = "Conbee"
+        else:
+            node_info.model = "Raspbee"
 
         node_info.model += {
             FirmwarePlatform.Conbee: "",
