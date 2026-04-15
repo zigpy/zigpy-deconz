@@ -583,14 +583,14 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                     raise zigpy.exceptions.DeliveryError(
                         f"Failed to enqueue packet: {ex!r}", ex.status
                     )
+                if tx_options & t.DeconzTransmitOptions.USE_APS_ACKS:
+                    async with asyncio_timeout(SEND_CONFIRM_TIMEOUT):
+                        status = await future
 
-                async with asyncio_timeout(SEND_CONFIRM_TIMEOUT):
-                    status = await future
-
-                if status != TXStatus.SUCCESS:
-                    raise zigpy.exceptions.DeliveryError(
-                        f"Failed to deliver packet: {status!r}", status
-                    )
+                    if status != TXStatus.SUCCESS:
+                        raise zigpy.exceptions.DeliveryError(
+                            f"Failed to deliver packet: {status!r}", status
+                        )
             finally:
                 del self._pending_requests[req_id]
 
@@ -602,8 +602,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         try:
             future = self._pending_requests[req_id]
         except KeyError:
-            LOGGER.warning(
-                "Unexpected transmit confirm for request id %s, Status: %s",
+            LOGGER.debug(
+                "Transmit confirm for request id %s, Status: %s",
                 req_id,
                 status,
             )
