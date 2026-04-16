@@ -323,10 +323,8 @@ def test_tx_confirm_dup(app, caplog):
     assert "probably duplicate response" in caplog.text
 
 
-def test_tx_confirm_unexpcted(app, caplog):
+def test_tx_confirm_unexpcted(app):
     app.handle_tx_confirm(123, 0x00)
-    assert any(r.levelname == "WARNING" for r in caplog.records)
-    assert "Unexpected transmit confirm for request id" in caplog.text
 
 
 async def test_reset_watchdog(app):

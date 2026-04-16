@@ -206,3 +206,10 @@ async def test_send_packet_deliver_failure(app, tx_packet):  # noqa: F811
             await app.send_packet(tx_packet)
 
     assert "Failed to deliver" in str(e)
+
+
+async def test_send_packet_no_ack_ignores_deliver_failure(app, tx_packet):  # noqa: F811
+    tx_packet.tx_options &= ~zigpy_t.TransmitOptions.ACK
+    with patch_data_request(app, fail_deliver=True):
+        await app.send_packet(tx_packet)
+    assert len(app._pending_requests) == 0
