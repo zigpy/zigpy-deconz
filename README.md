@@ -7,7 +7,28 @@
 
 The goal of this project to add native support for the Dresden-Elektronik/Phoscon deCONZ based ZigBee modules in Home Assistant via [zigpy](https://github.com/zigpy/).
 
-This library uses the deCONZ serial protocol for communicating with [ConBee](https://phoscon.de/en/conbee), [ConBee II (ConBee 2)](https://phoscon.de/en/conbee2), [ConBee III (ConBee 3)](https://phoscon.de/en/conbee3), [RaspBee](https://phoscon.de/en/raspbee), and [RaspBee II (RaspBee 2)](https://phoscon.de/en/raspbee2) adapters from [Dresden-Elektronik](https://github.com/dresden-elektronik/)/[Phoscon](https://phoscon.de).
+This library uses the deCONZ serial protocol for communicating with ConBee/RaspBee series of Zigbee Coordinator adapters from [Dresden-Elektronik](https://github.com/dresden-elektronik/)/[Phoscon](https://phoscon.de).
+
+## Hardware requirement
+
+dresden elektronik based radios USB-adapters and GPIO-modules with deCONZ Serial Protocol compatible with zigpy-deconz.
+
+Note! ConBee III (a.k.a. ConBee 3) is the only deconz based adapter that supports forming a Zigbee 3.0 network and ZGP.
+
+### deconz adapters recommended for new purchase
+
+The adapters below are recommended because they use powerful chips, can handle large networks and firmware is well maintained:
+
+- [ConBee III (a.k.a. ConBee 3)](https://phoscon.de/en/conbee3) USB adapter
+
+### Older supported deconz adapters no longer recommended for new purchase
+
+The adapters below are well-supported for legacy installations but use outdated chips and firmware is no longer maintained:
+
+- [ConBee II (a.k.a. ConBee 2)](https://phoscon.de/en/conbee2) USB adapter
+- [ConBee](https://phoscon.de/en/conbee) USB radio adapter
+- [RaspBee II (a.k.a. RaspBee 2)](https://phoscon.de/en/raspbee2) GPIO radio module (not recommended for Zigbee 3.0 devices)
+- [RaspBee](https://phoscon.de/en/raspbee) GPIO radio module (not recommended for Zigbee 3.0 devices)
 
 # Releases via PyPI
 
