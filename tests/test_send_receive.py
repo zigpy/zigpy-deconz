@@ -96,6 +96,21 @@ async def test_send_packet_nwk_no_ack(app, tx_packet):  # noqa: F811
     assert req["radius"] == 0
 
 
+async def test_send_packet_nwk_aps_encryption(app, tx_packet):  # noqa: F811
+    tx_packet.tx_options |= zigpy_t.TransmitOptions.APS_Encryption
+
+    with patch_data_request(app) as mock_req:
+        await app.send_packet(tx_packet)
+
+    assert len(mock_req.mock_calls) == 1
+    req = mock_req.mock_calls[0].kwargs
+
+    # The network key security option is replaced by APS encryption
+    assert req["tx_options"] == (
+        t.DeconzTransmitOptions.SECURITY_ENABLED | t.DeconzTransmitOptions.USE_APS_ACKS
+    )
+
+
 async def test_send_packet_source_route(app, tx_packet):  # noqa: F811
     tx_packet.source_route = [0xAABB, 0xCCDD]
 
