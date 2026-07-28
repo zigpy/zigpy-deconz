@@ -545,7 +545,12 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def send_packet(self, packet):
         LOGGER.debug("Sending packet: %r", packet)
 
-        tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
+        if zigpy.types.TransmitOptions.APS_Encryption in packet.tx_options:
+            # APS encryption is performed with the link key, not the network key, so
+            # the "use NWK key" option must not be set
+            tx_options = t.DeconzTransmitOptions.SECURITY_ENABLED
+        else:
+            tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
 
         if (
             zigpy.types.TransmitOptions.ACK in packet.tx_options
