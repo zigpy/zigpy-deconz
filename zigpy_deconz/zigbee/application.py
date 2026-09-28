@@ -167,7 +167,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         try:
             async with asyncio_timeout(timeout):
                 await change_loop()
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             if target_state != NetworkState.CONNECTED:
                 raise
 
@@ -176,7 +176,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 " Make sure your coordinator is on a USB 2.0 extension cable and"
                 " away from any sources of interference, like USB 3.0 ports, SSDs,"
                 " 2.4GHz routers, motherboards, etc."
-            )
+            ) from exc
 
     async def reset_network_info(self):
         # TODO: There does not appear to be a way to factory reset a Conbee
@@ -223,7 +223,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                     f"Please upgrade your adapter firmware. Firmware version"
                     f" {fw_version} does not support writing the network key frame"
                     f" counter, which is required for migration to succeed."
-                )
+                ) from ex
 
         if node_info.logical_type == zdo_t.LogicalType.Coordinator:
             await self._api.write_parameter(
@@ -587,7 +587,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 except zigpy_deconz.exception.CommandError as ex:
                     raise zigpy.exceptions.DeliveryError(
                         f"Failed to enqueue packet: {ex!r}", ex.status
-                    )
+                    ) from ex
 
                 async with asyncio_timeout(SEND_CONFIRM_TIMEOUT):
                     status = await future

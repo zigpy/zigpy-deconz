@@ -664,19 +664,19 @@ class Deconz:
                 MISMATCHED_RESPONSE_TIMEOUT,
             )
             # The firmware *sometimes* responds with the correct response later
-            self._mismatched_response_timers[
-                command.seq
-            ] = asyncio.get_event_loop().call_later(
-                MISMATCHED_RESPONSE_TIMEOUT,
-                fut.set_exception,
-                MismatchedResponseError(
-                    command.command_id,
-                    params,
-                    (
-                        f"Response is mismatched! Sent {wrong_fut_cmd_id},"
-                        f" received {command.command_id}"
+            self._mismatched_response_timers[command.seq] = (
+                asyncio.get_event_loop().call_later(
+                    MISMATCHED_RESPONSE_TIMEOUT,
+                    fut.set_exception,
+                    MismatchedResponseError(
+                        command.command_id,
+                        params,
+                        (
+                            f"Response is mismatched! Sent {wrong_fut_cmd_id},"
+                            f" received {command.command_id}"
+                        ),
                     ),
-                ),
+                )
             )
 
             # Make sure we do not resolve the future

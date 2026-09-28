@@ -46,10 +46,10 @@ def test_send(gw):
     gw.send(data)
 
     packet = b""
-    packet += b"\xC0"  # END
+    packet += b"\xc0"  # END
     packet += b"test"  # data
-    packet += b"\x40\xFE"  # checksum
-    packet += b"\xC0"  # END
+    packet += b"\x40\xfe"  # checksum
+    packet += b"\xc0"  # END
 
     gw._transport.write.assert_called_once_with(packet)
 
@@ -60,7 +60,7 @@ def test_close(gw):
 
 
 def test_data_received_chunk_frame(gw):
-    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xFF\xC0"
+    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xff\xc0"
     gw.data_received(data[:-4])
     assert gw._api.data_received.call_count == 0
     gw.data_received(data[-4:])
@@ -69,7 +69,7 @@ def test_data_received_chunk_frame(gw):
 
 
 def test_data_received_full_frame(gw):
-    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xFF\xC0"
+    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xff\xc0"
     gw.data_received(data)
     assert gw._api.data_received.call_count == 1
     assert gw._api.data_received.call_args[0][0] == data[:-3]
@@ -82,13 +82,13 @@ def test_data_received_incomplete_frame(gw):
 
 
 def test_data_received_runt_frame(gw):
-    data = b"\x02\x44\xC0"
+    data = b"\x02\x44\xc0"
     gw.data_received(data)
     assert gw._api.data_received.call_count == 0
 
 
 def test_data_received_extra(gw):
-    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xFF\xC0\x00"
+    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xff\xc0\x00"
     gw.data_received(data)
     assert gw._api.data_received.call_count == 1
     assert gw._api.data_received.call_args[0][0] == data[:-4]
@@ -96,13 +96,13 @@ def test_data_received_extra(gw):
 
 
 def test_data_received_wrong_checksum(gw):
-    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xFE\xC0"
+    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xfe\xc0"
     gw.data_received(data)
     assert gw._api.data_received.call_count == 0
 
 
 def test_data_received_error(gw, caplog):
-    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xFF\xC0"
+    data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xff\xc0"
 
     gw._api.data_received.side_effect = [RuntimeError("error")]
 
@@ -116,28 +116,28 @@ def test_data_received_error(gw, caplog):
 
 
 def test_unescape(gw):
-    data = b"\x00\xDB\xDC\x00\xDB\xDD\x00\x00\x00"
-    data_unescaped = b"\x00\xC0\x00\xDB\x00\x00\x00"
+    data = b"\x00\xdb\xdc\x00\xdb\xdd\x00\x00\x00"
+    data_unescaped = b"\x00\xc0\x00\xdb\x00\x00\x00"
     r = gw._unescape(data)
     assert r == data_unescaped
 
 
 def test_unescape_error(gw):
-    data = b"\x00\xDB\xDC\x00\xDB\xDD\x00\x00\x00\xDB"
+    data = b"\x00\xdb\xdc\x00\xdb\xdd\x00\x00\x00\xdb"
     r = gw._unescape(data)
     assert r is None
 
 
 def test_escape(gw):
-    data = b"\x00\xC0\x00\xDB\x00\x00\x00"
-    data_escaped = b"\x00\xDB\xDC\x00\xDB\xDD\x00\x00\x00"
+    data = b"\x00\xc0\x00\xdb\x00\x00\x00"
+    data_escaped = b"\x00\xdb\xdc\x00\xdb\xdd\x00\x00\x00"
     r = gw._escape(data)
     assert r == data_escaped
 
 
 def test_checksum(gw):
     data = b"\x07\x01\x00\x08\x00\xaa\x00\x02"
-    checksum = b"\x44\xFF"
+    checksum = b"\x44\xff"
     r = gw._checksum(data)
     assert r == checksum
 

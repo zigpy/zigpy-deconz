@@ -731,7 +731,7 @@ async def test_unknown_command(api, caplog):
     assert 0xFF not in deconz_api.COMMAND_SCHEMAS
 
     with caplog.at_level(logging.WARNING):
-        api.data_received(b"\xFF\xAA\xBB")
+        api.data_received(b"\xff\xaa\xbb")
 
     assert (
         "Unknown command received: Command(command_id=<CommandId.undefined_0xff: 255>,"
@@ -754,8 +754,7 @@ async def test_bad_command_parsing(api, caplog):
         )
 
     assert (
-        "Failed to parse command Command(command_id="
-        "<CommandId.aps_data_indication: 23>"
+        "Failed to parse command Command(command_id=<CommandId.aps_data_indication: 23>"
     ) in caplog.text
 
     caplog.clear()
@@ -1068,11 +1067,10 @@ async def test_firmware_responding_with_wrong_type_with_correct_seq(
         },
     )
 
-    with caplog.at_level(logging.DEBUG):
-        with pytest.raises(asyncio.TimeoutError):
-            # We wait beyond 500ms to make sure it triggers
-            async with asyncio_timeout(0.6):
-                await api.send_command(deconz_api.CommandId.aps_data_confirm)
+    with caplog.at_level(logging.DEBUG), pytest.raises(asyncio.TimeoutError):
+        # We wait beyond 500ms to make sure it triggers
+        async with asyncio_timeout(0.6):
+            await api.send_command(deconz_api.CommandId.aps_data_confirm)
 
     assert (
         "Firmware responded incorrectly (Response is mismatched! Sent"

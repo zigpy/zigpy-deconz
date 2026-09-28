@@ -227,7 +227,7 @@ async def test_write_network_info(
     elif channel_mask is not None:
         assert params["channel_mask"] == (network_info.channel_mask,)
     else:
-        assert False
+        raise AssertionError()
 
     assert params["use_predefined_nwk_panid"] == (True,)
     assert params["nwk_panid"] == (network_info.pan_id,)
@@ -340,7 +340,7 @@ async def test_load_network_info(
         except KeyError:
             raise zigpy_deconz.exception.CommandError(
                 zigpy_deconz.api.Status.UNSUPPORTED, f"Unsupported: {param!r} {args!r}"
-            )
+            ) from None
 
         if isinstance(value, Exception):
             raise value

@@ -31,9 +31,6 @@ def is_usb_serial_port(device_path: str) -> bool:
     """Check if a device path is a USB serial port."""
     resolved_device = os.path.realpath(device_path)
 
-    # Platform serial ports (Raspbee)
-    if re.match(r"/dev/tty(S|AMA)\d+", resolved_device):
-        return False
-
-    # Everything else is assumed to be USB serial
-    return True
+    # Platform serial ports (Raspbee) are not USB serial, everything else is assumed
+    # to be USB serial
+    return not re.match(r"/dev/tty(S|AMA)\d+", resolved_device)
