@@ -14,10 +14,10 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Gateway(zigpy.serial.SerialProtocol):
-    END = b"\xC0"
-    ESC = b"\xDB"
-    ESC_END = b"\xDC"
-    ESC_ESC = b"\xDD"
+    END = b"\xc0"
+    ESC = b"\xdb"
+    ESC_END = b"\xdc"
+    ESC_ESC = b"\xdd"
 
     def __init__(self, api):
         """Initialize instance of the UART gateway."""

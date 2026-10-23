@@ -1,6 +1,5 @@
 """Tests for zigpy_deconz.types module."""
 
-
 import pytest
 import zigpy.types as zigpy_t
 

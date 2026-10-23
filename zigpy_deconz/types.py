@@ -1,6 +1,5 @@
 """Data types module."""
 
-
 import zigpy.types as zigpy_t
 from zigpy.types import (  # noqa: F401
     EUI64,
@@ -203,9 +202,11 @@ class DeconzAddressEndpoint(Struct):
     def serialize(self):
         r = uint8_t(self.address_mode).serialize()
 
-        if self.address_mode in (AddressMode.NWK, AddressMode.NWK_AND_IEEE):
-            r += NWK(self.address).serialize()
-        elif self.address_mode == AddressMode.GROUP:
+        if self.address_mode in (
+            AddressMode.NWK,
+            AddressMode.NWK_AND_IEEE,
+            AddressMode.GROUP,
+        ):
             r += NWK(self.address).serialize()
 
         if self.address_mode in (AddressMode.IEEE, AddressMode.NWK_AND_IEEE):

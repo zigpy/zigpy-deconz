@@ -603,7 +603,7 @@ async def test_energy_scan_conbee_3(app):
                     "ScannedChannels": Channels.ALL_CHANNELS,
                     "TotalTransmissions": 0,
                     "TransmissionFailures": 0,
-                    "EnergyValues": [i for i in range(11, 26 + 1)],
+                    "EnergyValues": list(range(11, 26 + 1)),
                 }.values()
             ),
         ]
