@@ -785,7 +785,12 @@ class Deconz:
             return
 
         if packet.frame_counter is None and self._gp_debouncer.filter(
-            (packet.src_id, packet.command_id, packet.payload.serialize()),
+            (
+                packet.src_id,
+                packet.command_id,
+                packet.endpoint,
+                packet.payload.serialize(),
+            ),
             GP_DUPLICATE_TIMEOUT.total_seconds(),
         ):
             LOGGER.debug("Dropping repeated GPDF: %r", packet)
