@@ -9,6 +9,7 @@ import sys
 import pytest
 import zigpy.config
 import zigpy.types as zigpy_t
+import zigpy.zgp
 
 if sys.version_info[:2] < (3, 11):
     from async_timeout import timeout as asyncio_timeout
@@ -333,6 +334,90 @@ async def test_command_not_connected(api):
 
     with pytest.raises(deconz_api.CommandError):
         await api._command(cmd=deconz_api.CommandId.version, reserved=0)
+
+
+def green_power_indication(api, gpdf: bytes) -> bytes:
+    _, rx_schema = deconz_api.COMMAND_SCHEMAS[deconz_api.CommandId.zigbee_green_power]
+
+    return deconz_api.Command(
+        command_id=deconz_api.CommandId.zigbee_green_power,
+        seq=api._seq,
+        payload=t.serialize_dict(
+            {
+                "status": deconz_api.Status.SUCCESS,
+                "frame_length": t.uint16_t(7 + len(gpdf)),
+                "payload_length": t.uint16_t(len(gpdf)),
+                "gpdf": t.Bytes(gpdf),
+            },
+            rx_schema,
+        ),
+    ).serialize()
+
+
+async def test_green_power_indication(api, mock_command_rsp):
+    """A GPDF received directly is passed to zigpy unprocessed, with its MIC."""
+    await api.connect()
+
+    # The spec's test vector for SecurityLevel 0b10 (A.1.5.4.2.1), repeated by the GPD
+    gpdf = bytes.fromhex("8C 10 21 43 65 87 02 00 00 00 20 CF 78 7E 72")
+    api.data_received(green_power_indication(api, gpdf))
+    api.data_received(green_power_indication(api, gpdf))
+
+    await asyncio.sleep(0.01)
+
+    # Protected GPDFs are filtered by their frame counter in zigpy
+    assert (
+        api._app.gp_packet_received.mock_calls
+        == [
+            call(
+                zigpy_t.ZigbeeGpPacket(
+                    application_id=zigpy.zgp.ApplicationID.SrcID,
+                    src_id=zigpy.zgp.SrcID(0x87654321),
+                    command_id=zigpy.zgp.GPDCommandID.Off,
+                    payload=zigpy_t.SerializableBytes(b""),
+                    frame_counter=zigpy_t.uint32_t(2),
+                    security_level=zigpy.zgp.SecurityLevel.FullFrameCounterAndMIC,
+                    security_key_type=None,
+                    security_status=zigpy.zgp.SecurityStatus.Unprocessed,
+                    mic=zigpy_t.uint32_t(0x727E78CF),
+                    auto_commissioning=False,
+                    rx_after_tx=False,
+                    individual_key=False,
+                )
+            )
+        ]
+        * 2
+    )
+
+
+async def test_green_power_indication_unprotected_repeated(api, mock_command_rsp):
+    """Without a MAC sequence number, repetitions of an unprotected GPDF are dropped."""
+    await api.connect()
+
+    toggle = bytes.fromhex("0C 44 33 22 11 22")
+    on = bytes.fromhex("0C 44 33 22 11 21")
+
+    for gpdf in (toggle, toggle, on, toggle):
+        api.data_received(green_power_indication(api, gpdf))
+
+    await asyncio.sleep(0.01)
+
+    assert [c.args[0].command_id for c in api._app.gp_packet_received.mock_calls] == [
+        zigpy.zgp.GPDCommandID.Toggle,
+        zigpy.zgp.GPDCommandID.On,
+    ]
+
+
+async def test_green_power_indication_invalid(api, mock_command_rsp, caplog):
+    await api.connect()
+
+    # A Channel Configuration sent by another sink (Direction 0b1)
+    with caplog.at_level(logging.DEBUG):
+        api.data_received(green_power_indication(api, bytes.fromhex("8D 80 F3 1F")))
+        await asyncio.sleep(0.01)
+
+    assert "Ignoring GPDF" in caplog.text
+    assert len(api._app.gp_packet_received.mock_calls) == 0
 
 
 async def test_data_received(api, mock_command_rsp):

@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 import zigpy.exceptions
 import zigpy.types as zigpy_t
+import zigpy.zgp
 
 from zigpy_deconz.api import Status, TXStatus
 import zigpy_deconz.exception
@@ -205,6 +206,32 @@ async def test_send_packet_broadcast(app, tx_packet):  # noqa: F811
     assert req["tx_options"] == t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
     assert req["relays"] is None
     assert req["radius"] == 12
+
+
+async def test_send_packet_green_power_endpoint(app, tx_packet):  # noqa: F811
+    """The Green Power endpoint is the one source endpoint that is kept as is."""
+    tx_packet.src_ep = zigpy.zgp.GP_ENDPOINT
+    tx_packet.dst_ep = zigpy.zgp.GP_ENDPOINT
+
+    with patch_data_request(app) as mock_req:
+        await app.send_packet(tx_packet)
+
+    assert mock_req.mock_calls[0].kwargs["src_ep"] == zigpy.zgp.GP_ENDPOINT
+
+
+async def test_send_packet_alias(app, tx_packet):  # noqa: F811
+    """The firmware cannot send on behalf of a Green Power alias."""
+    tx_packet.dst = zigpy_t.AddrModeAddress(
+        addr_mode=zigpy_t.AddrMode.Broadcast,
+        address=zigpy_t.BroadcastAddress.RX_ON_WHEN_IDLE,
+    )
+    tx_packet.alias_src = zigpy_t.NWK(0x1234)
+    tx_packet.alias_seq = zigpy_t.uint8_t(0)
+
+    with patch_data_request(app) as mock_req, pytest.raises(NotImplementedError):
+        await app.send_packet(tx_packet)
+
+    assert len(mock_req.mock_calls) == 0
 
 
 async def test_send_packet_enqueue_failure(app, tx_packet):  # noqa: F811

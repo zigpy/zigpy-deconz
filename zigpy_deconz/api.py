@@ -14,7 +14,8 @@ if sys.version_info[:2] < (3, 11):
 else:
     from asyncio import timeout as asyncio_timeout  # pragma: no cover
 
-from zigpy.datastructures import PriorityLock
+from zigpy.datastructures import Debouncer, PriorityLock
+from zigpy.device import GP_DUPLICATE_TIMEOUT
 from zigpy.types import (
     APSStatus,
     Bool,
@@ -25,6 +26,7 @@ from zigpy.types import (
     ZigbeePacket,
 )
 from zigpy.zdo.types import SimpleDescriptor
+from zigpy.zgp.util import parse_gpdf
 
 from zigpy_deconz.exception import CommandError, MismatchedResponseError, ParsingError
 import zigpy_deconz.types as t
@@ -404,7 +406,9 @@ COMMAND_SCHEMAS = {
             "status": Status,
             "frame_length": t.uint16_t,
             "payload_length": t.uint16_t,
-            "reserved": t.LongOctetString,
+            # The NWK frame of a received GPDF, raw: the firmware performs no security
+            # processing and strips the MAC header
+            "gpdf": t.Bytes,
         },
     ),
 }
@@ -432,6 +436,11 @@ class Deconz:
 
         self._free_slots_available_event = asyncio.Event()
         self._free_slots_available_event.set()
+
+        # The firmware delivers every repetition of a GPDF and strips the MAC header,
+        # so the MAC sequence number of an unprotected GPDF is not available to filter
+        # them (spec A.3.6.1.2): its content is the only key
+        self._gp_debouncer = Debouncer()
 
         self._data_poller_event = asyncio.Event()
         self._data_poller_event.set()
@@ -767,6 +776,27 @@ class Deconz:
                 self._handle_device_state_changed(
                     status=rsp["status"], device_state=rsp["device_state"]
                 )
+
+    def _handle_zigbee_green_power(self, status: Status, gpdf: t.Bytes) -> None:
+        try:
+            packet = parse_gpdf(gpdf)
+        except ValueError:
+            LOGGER.debug("Ignoring GPDF %r", gpdf, exc_info=True)
+            return
+
+        if packet.frame_counter is None and self._gp_debouncer.filter(
+            (
+                packet.src_id,
+                packet.command_id,
+                packet.endpoint,
+                packet.payload.serialize(),
+            ),
+            GP_DUPLICATE_TIMEOUT.total_seconds(),
+        ):
+            LOGGER.debug("Dropping repeated GPDF: %r", packet)
+            return
+
+        self._app.gp_packet_received(packet)
 
     def _handle_device_state_changed(
         self,
