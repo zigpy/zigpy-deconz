@@ -23,6 +23,7 @@ import zigpy.state
 import zigpy.types
 import zigpy.util
 import zigpy.zdo.types as zdo_t
+import zigpy.zgp
 
 import zigpy_deconz
 from zigpy_deconz import types as t
@@ -545,6 +546,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
     async def send_packet(self, packet):
         LOGGER.debug("Sending packet: %r", packet)
 
+        if packet.alias_src is not None:
+            # The APS data request has no alias parameters
+            raise NotImplementedError("The firmware cannot send with an alias")
+
         if zigpy.types.TransmitOptions.APS_Encryption in packet.tx_options:
             # APS encryption is performed with the link key, not the network key, so
             # the "use NWK key" option must not be set
@@ -578,7 +583,13 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                         ),
                         profile=packet.profile_id,
                         cluster=packet.cluster_id,
-                        src_ep=min(1, packet.src_ep),
+                        # The Green Power endpoint is registered on its own, every
+                        # other source endpoint collapses onto the first one
+                        src_ep=(
+                            packet.src_ep
+                            if packet.src_ep == zigpy.zgp.GP_ENDPOINT
+                            else min(1, packet.src_ep)
+                        ),
                         aps_payload=packet.data.serialize(),
                         tx_options=tx_options,
                         relays=packet.source_route,
