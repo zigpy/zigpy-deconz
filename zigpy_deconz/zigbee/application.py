@@ -565,6 +565,11 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             tx_options |= t.DeconzTransmitOptions.USE_APS_ACKS
 
         async with self._limit_concurrency(priority=packet.priority):
+            # The radio can be disconnected while the request waits its turn, e.g.
+            # when a device is replied to after startup has failed
+            if self._api is None:
+                raise zigpy.exceptions.DeliveryError("Coordinator is not connected")
+
             req_id = self.get_sequence()
 
             if req_id in self._pending_requests:
