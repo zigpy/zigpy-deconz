@@ -19,6 +19,7 @@ import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
 from zigpy.exceptions import FormationFailure, NetworkNotFormed
+import zigpy.profiles.zll
 import zigpy.state
 import zigpy.types
 import zigpy.util
@@ -57,6 +58,9 @@ PROTO_VER_NEIGBOURS = 0x0107
 
 CONBEE_III_ENERGY_SCAN_ATTEMPTS = 5
 
+# zigpy registers its ZLL endpoint here, see `ControllerApplication.register_endpoints`
+ZLL_ENDPOINT_ID = 2
+
 
 class ControllerApplication(zigpy.application.ControllerApplication):
     SCHEMA = CONFIG_SCHEMA
@@ -79,7 +83,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._delayed_neighbor_scan_task = None
         self._reconnect_task = None
 
-        self._written_endpoints = set()
+        self._endpoints: list[zdo_t.SimpleDescriptor] = []
+        self._pending_endpoints: list[zdo_t.SimpleDescriptor] | None = None
 
     async def _watchdog_feed(self):
         if self._api.protocol_version >= PROTO_VER_WATCHDOG and not (
@@ -102,7 +107,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             raise
 
         self._api = api
-        self._written_endpoints.clear()
+        self._endpoints = []
 
     async def disconnect(self):
         if self._delayed_neighbor_scan_task is not None:
@@ -492,56 +497,105 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await asyncio.sleep(CHANGE_NETWORK_STATE_DELAY)
         await self._change_network_state(NetworkState.CONNECTED)
 
+    async def register_endpoints(self) -> None:
+        """Register all endpoints at once, so they can be fit into the available slots."""
+        self._pending_endpoints = []
+
+        try:
+            await super().register_endpoints()
+            descriptors = self._pending_endpoints
+        finally:
+            self._pending_endpoints = None
+
+        await self._configure_endpoints(descriptors)
+
     async def add_endpoint(self, descriptor: zdo_t.SimpleDescriptor) -> None:
         """Register an endpoint on the device, replacing any with conflicting IDs."""
+        if self._pending_endpoints is not None:
+            self._pending_endpoints.append(descriptor)
+            return
 
-        endpoints = {}
+        await self._configure_endpoints([*self._endpoints, descriptor])
 
-        # Read and count the current endpoints. Some firmwares have three, others four.
+    async def _read_endpoint_slots(self) -> dict[int, zdo_t.SimpleDescriptor]:
+        """Read the endpoint slots of the firmware, they can't be queried otherwise."""
+        slots = {}
+
+        # Most firmwares have two slots, a ConBee II test firmware had four
         for index in range(255 + 1):
             try:
-                current_descriptor = await self._api.read_parameter(
+                current = await self._api.read_parameter(
                     NetworkParameter.configure_endpoint, index
                 )
             except zigpy_deconz.exception.CommandError as ex:
                 assert ex.status == Status.UNSUPPORTED
                 break
             else:
-                endpoints[index] = current_descriptor.descriptor
+                slots[index] = current.descriptor
 
-        LOGGER.debug("Got endpoint slots: %r", endpoints)
+        LOGGER.debug("Got endpoint slots: %r", slots)
+
+        return slots
+
+    async def _configure_endpoints(
+        self, descriptors: list[zdo_t.SimpleDescriptor]
+    ) -> None:
+        """Fit the endpoints into the slots, writing only the ones that changed."""
+        slots = await self._read_endpoint_slots()
+
+        # A later endpoint replaces an earlier one with the same ID
+        descriptors = list({ep.endpoint: ep for ep in descriptors}.values())
+
+        # Two-slot firmware cannot host zigpy's ZLL endpoint next to the HA and Green
+        # Power ones. Nothing is sent from it, so drop it like deCONZ and Z2M do.
+        if len(descriptors) > len(slots):
+            fitting = [
+                ep
+                for ep in descriptors
+                if not (
+                    ep.endpoint == ZLL_ENDPOINT_ID
+                    and ep.profile == zigpy.profiles.zll.PROFILE_ID
+                )
+            ]
+
+            if len(fitting) < len(descriptors):
+                LOGGER.debug("Not enough endpoint slots, skipping the ZLL endpoint")
+                descriptors = fitting
+
+        if len(descriptors) > len(slots):
+            raise ValueError(
+                f"Cannot fit {len(descriptors)} endpoints into {len(slots)} endpoint"
+                f" slots: {descriptors!r}"
+            )
+
+        assigned: dict[int, zdo_t.SimpleDescriptor] = {}
+        missing: list[zdo_t.SimpleDescriptor] = []
 
         # Don't write endpoints unnecessarily
-        if descriptor in endpoints.values():
-            LOGGER.debug("Endpoint already registered, skipping")
+        for descriptor in descriptors:
+            for index, current in slots.items():
+                if index not in assigned and current == descriptor:
+                    assigned[index] = descriptor
+                    break
+            else:
+                missing.append(descriptor)
 
-            # Pretend we wrote it
-            self._written_endpoints.add(list(endpoints.values()).index(descriptor))
-            return
+        free = [index for index in slots if index not in assigned]
 
-        # Keep track of the best endpoint descriptor to replace
-        target_index = None
+        for descriptor in missing:
+            # Prefer to replace the endpoint with the same ID
+            index = next(
+                (i for i in free if slots[i].endpoint == descriptor.endpoint), free[0]
+            )
+            free.remove(index)
 
-        for index, current_descriptor in endpoints.items():
-            # Ignore ones we've already written
-            if index in self._written_endpoints:
-                continue
+            LOGGER.debug("Writing %s to slot %r", descriptor, index)
+            await self._api.write_parameter(
+                NetworkParameter.configure_endpoint,
+                IndexedEndpoint(index=index, descriptor=descriptor),
+            )
 
-            target_index = index
-
-            if current_descriptor.endpoint == descriptor.endpoint:
-                # Prefer to replace the endpoint with the same ID
-                break
-
-        if target_index is None:
-            raise ValueError(f"No available endpoint slots exist: {endpoints!r}")
-
-        LOGGER.debug("Writing %s to slot %r", descriptor, target_index)
-
-        await self._api.write_parameter(
-            NetworkParameter.configure_endpoint,
-            IndexedEndpoint(index=target_index, descriptor=descriptor),
-        )
+        self._endpoints = list(descriptors)
 
     async def send_packet(self, packet):
         LOGGER.debug("Sending packet: %r", packet)
