@@ -514,8 +514,6 @@ async def test_add_endpoint_no_free_space(app):
 
     app._api.read_parameter = AsyncMock(side_effect=read_param)
     app._api.write_parameter = AsyncMock()
-    app._written_endpoints.add(0x00)
-    app._written_endpoints.add(0x01)
 
     with pytest.raises(ValueError):
         await app.add_endpoint(ENDPOINT.replace(endpoint=1))
@@ -550,6 +548,115 @@ async def test_add_endpoint_no_unnecessary_writes(app):
         deconz_api.NetworkParameter.configure_endpoint,
         deconz_api.IndexedEndpoint(index=1, descriptor=ENDPOINT.replace(endpoint=2)),
     )
+
+
+def mock_endpoint_slots(app, slots):
+    """Mock the firmware's endpoint slots, keeping track of writes."""
+
+    async def read_param(param_id, index):
+        assert param_id == deconz_api.NetworkParameter.configure_endpoint
+
+        if index not in slots:
+            raise zigpy_deconz.exception.CommandError(
+                "Unsupported",
+                status=deconz_api.Status.UNSUPPORTED,
+                command=None,
+            )
+
+        return deconz_api.IndexedEndpoint(index=index, descriptor=slots[index])
+
+    async def write_param(param_id, value):
+        assert param_id == deconz_api.NetworkParameter.configure_endpoint
+        assert value.index in slots
+        slots[value.index] = value.descriptor
+
+    app._api.read_parameter = AsyncMock(side_effect=read_param)
+    app._api.write_parameter = AsyncMock(side_effect=write_param)
+
+
+async def zigpy_endpoints(app):
+    """Return the endpoints zigpy registers: HA, ZLL and Green Power."""
+    with patch.object(app, "add_endpoint", AsyncMock()) as add_endpoint:
+        await zigpy.application.ControllerApplication.register_endpoints(app)
+
+    return [call.args[0] for call in add_endpoint.await_args_list]
+
+
+@pytest.mark.parametrize(
+    "initial, expected, num_writes",
+    [
+        # Two slots last configured by zigpy 2.1-2.3: the ZLL endpoint makes room
+        (["ha", "zll"], ["ha", "gp"], 1),
+        # Two slots already holding the HA and GP endpoints are left alone
+        (["ha", "gp"], ["ha", "gp"], 0),
+        # Two slots configured by something else entirely
+        (["other1", "other2"], ["ha", "gp"], 2),
+        # Firmware with more slots keeps the ZLL endpoint
+        (["ha", "zll", "other1", "other2"], ["ha", "zll", "gp", "other2"], 1),
+        (["ha", "zll", "gp"], ["ha", "zll", "gp"], 0),
+    ],
+)
+async def test_register_endpoints(app, initial, expected, num_writes):
+    ha, zll, gp = await zigpy_endpoints(app)
+    named = {
+        "ha": ha,
+        "zll": zll,
+        "gp": gp,
+        "other1": ENDPOINT.replace(endpoint=10),
+        "other2": ENDPOINT.replace(endpoint=11),
+    }
+
+    slots = {index: named[name] for index, name in enumerate(initial)}
+    mock_endpoint_slots(app, slots)
+
+    await app.register_endpoints()
+
+    assert slots == {index: named[name] for index, name in enumerate(expected)}
+    assert app._api.write_parameter.await_count == num_writes
+
+    # Registering again, e.g. when `start_network` is retried, writes nothing
+    app._api.write_parameter.reset_mock()
+    await app.register_endpoints()
+    assert app._api.write_parameter.await_count == 0
+
+
+async def test_register_endpoints_too_many(app):
+    ha, zll, gp = await zigpy_endpoints(app)
+    slots = {0: ha, 1: zll}
+    mock_endpoint_slots(app, slots)
+
+    with patch.dict(
+        app._config,
+        {zigpy.config.CONF_ADDITIONAL_ENDPOINTS: [ENDPOINT.replace(endpoint=10)]},
+    ):
+        with pytest.raises(ValueError):
+            await app.register_endpoints()
+
+    assert slots == {0: ha, 1: zll}
+    app._api.write_parameter.assert_not_called()
+
+
+async def test_add_endpoint_after_register(app):
+    ha, zll, gp = await zigpy_endpoints(app)
+    slots = {0: ha, 1: zll, 2: gp, 3: ENDPOINT.replace(endpoint=10)}
+    mock_endpoint_slots(app, slots)
+
+    await app.register_endpoints()
+    app._api.write_parameter.assert_not_called()
+
+    # A new endpoint goes into the free slot, not one of the registered ones
+    await app.add_endpoint(ENDPOINT.replace(endpoint=20))
+    assert slots == {0: ha, 1: zll, 2: gp, 3: ENDPOINT.replace(endpoint=20)}
+
+    # Replacing an endpoint with the same ID reuses its slot
+    await app.add_endpoint(ENDPOINT.replace(endpoint=20, profile=1234))
+    assert slots == {
+        0: ha,
+        1: zll,
+        2: gp,
+        3: ENDPOINT.replace(endpoint=20, profile=1234),
+    }
+    assert app._api.write_parameter.await_count == 2
 
 
 async def test_reset_network_info(app):
