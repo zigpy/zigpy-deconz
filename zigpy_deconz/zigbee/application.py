@@ -58,6 +58,9 @@ PROTO_VER_NEIGBOURS = 0x0107
 
 CONBEE_III_ENERGY_SCAN_ATTEMPTS = 5
 
+# zigpy registers its ZLL endpoint here, see `ControllerApplication.register_endpoints`
+ZLL_ENDPOINT_ID = 2
+
 
 class ControllerApplication(zigpy.application.ControllerApplication):
     SCHEMA = CONFIG_SCHEMA
@@ -512,10 +515,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             self._pending_endpoints.append(descriptor)
             return
 
-        await self._configure_endpoints(
-            [ep for ep in self._endpoints if ep.endpoint != descriptor.endpoint]
-            + [descriptor]
-        )
+        await self._configure_endpoints([*self._endpoints, descriptor])
 
     async def _read_endpoint_slots(self) -> dict[int, zdo_t.SimpleDescriptor]:
         """Read the endpoint slots of the firmware, they can't be queried otherwise."""
@@ -543,13 +543,24 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         """Fit the endpoints into the slots, writing only the ones that changed."""
         slots = await self._read_endpoint_slots()
 
-        # Two-slot firmware cannot host the ZLL endpoint next to the HA and Green Power
-        # ones. Nothing is sent from it, so drop it like deCONZ and Z2M do.
+        # A later endpoint replaces an earlier one with the same ID
+        descriptors = list({ep.endpoint: ep for ep in descriptors}.values())
+
+        # Two-slot firmware cannot host zigpy's ZLL endpoint next to the HA and Green
+        # Power ones. Nothing is sent from it, so drop it like deCONZ and Z2M do.
         if len(descriptors) > len(slots):
-            LOGGER.debug("Not enough endpoint slots, skipping the ZLL endpoint")
-            descriptors = [
-                ep for ep in descriptors if ep.profile != zigpy.profiles.zll.PROFILE_ID
+            fitting = [
+                ep
+                for ep in descriptors
+                if not (
+                    ep.endpoint == ZLL_ENDPOINT_ID
+                    and ep.profile == zigpy.profiles.zll.PROFILE_ID
+                )
             ]
+
+            if len(fitting) < len(descriptors):
+                LOGGER.debug("Not enough endpoint slots, skipping the ZLL endpoint")
+                descriptors = fitting
 
         if len(descriptors) > len(slots):
             raise ValueError(

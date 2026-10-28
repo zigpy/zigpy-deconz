@@ -8,6 +8,7 @@ import pytest
 import zigpy.application
 import zigpy.config
 import zigpy.device
+import zigpy.profiles.zll
 from zigpy.types import EUI64, Channels, KeyData
 import zigpy.zdo.types as zdo_t
 
@@ -634,6 +635,35 @@ async def test_register_endpoints_too_many(app):
 
     assert slots == {0: ha, 1: zll}
     app._api.write_parameter.assert_not_called()
+
+
+async def test_register_endpoints_additional_zll(app):
+    """Only zigpy's own ZLL endpoint makes room, a configured one is kept."""
+    ha, zll, gp = await zigpy_endpoints(app)
+    slots = {0: ha, 1: zll}
+    mock_endpoint_slots(app, slots)
+
+    extra = ENDPOINT.replace(endpoint=3, profile=zigpy.profiles.zll.PROFILE_ID)
+
+    with patch.dict(app._config, {zigpy.config.CONF_ADDITIONAL_ENDPOINTS: [extra]}):
+        with pytest.raises(ValueError):
+            await app.register_endpoints()
+
+    assert slots == {0: ha, 1: zll}
+
+
+async def test_register_endpoints_override(app):
+    """A configured endpoint replaces zigpy's endpoint with the same ID."""
+    ha, zll, gp = await zigpy_endpoints(app)
+    slots = {0: ha, 1: zll, 2: gp, 3: ENDPOINT.replace(endpoint=10)}
+    mock_endpoint_slots(app, slots)
+
+    override = ha.replace(device_type=0x1234)
+
+    with patch.dict(app._config, {zigpy.config.CONF_ADDITIONAL_ENDPOINTS: [override]}):
+        await app.register_endpoints()
+
+    assert slots == {0: override, 1: zll, 2: gp, 3: ENDPOINT.replace(endpoint=10)}
 
 
 async def test_add_endpoint_after_register(app):
