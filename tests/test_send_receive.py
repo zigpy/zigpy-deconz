@@ -248,3 +248,14 @@ async def test_send_packet_deliver_failure(app, tx_packet):  # noqa: F811
             await app.send_packet(tx_packet)
 
     assert "Failed to deliver" in str(e)
+
+
+async def test_send_packet_disconnected(app, tx_packet):  # noqa: F811
+    """Sending after the radio was disconnected fails cleanly."""
+    app._api = None
+
+    with pytest.raises(zigpy.exceptions.DeliveryError) as e:
+        await app.send_packet(tx_packet)
+
+    assert "not connected" in str(e)
+    assert not app._pending_requests
