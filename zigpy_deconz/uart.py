@@ -50,9 +50,16 @@ class Gateway(zigpy.serial.SerialProtocol):
             if end < 0:
                 return None
 
-            frame = self._buffer[:end]
+            raw_frame = self._buffer[:end]
             self._buffer = self._buffer[(end + 1) :]
-            frame = self._unescape(frame)
+            frame = self._unescape(raw_frame)
+
+            if frame is None:
+                LOGGER.warning(
+                    "Invalid escape sequence, data: 0x%s",
+                    binascii.hexlify(raw_frame).decode(),
+                )
+                continue
 
             if len(frame) < 4:
                 continue

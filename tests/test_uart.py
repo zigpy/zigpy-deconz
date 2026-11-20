@@ -95,6 +95,19 @@ def test_data_received_extra(gw):
     assert gw._buffer == b"\x00"
 
 
+def test_data_received_trailing_escape(gw, caplog):
+    valid = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xff\xc0"
+
+    # A frame ending in an escape byte is dropped and the next one is still handled
+    with caplog.at_level(logging.WARNING):
+        gw.data_received(b"\x07\x01\x00\x08\xdb\xc0" + valid)
+
+    assert "Invalid escape sequence" in caplog.text
+    assert gw._api.data_received.call_count == 1
+    assert gw._api.data_received.call_args[0][0] == valid[:-3]
+    assert gw._buffer == b""
+
+
 def test_data_received_wrong_checksum(gw):
     data = b"\x07\x01\x00\x08\x00\xaa\x00\x02\x44\xfe\xc0"
     gw.data_received(data)
