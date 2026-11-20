@@ -22,6 +22,9 @@ dependencies = [
 [tool.setuptools.packages.find]
 exclude = ["tests", "tests.*", "tools", "tools.*"]
 
+[tool.setuptools.package-data]
+zigpy_deconz = ["py.typed"]
+
 [project.optional-dependencies]
 testing = [
     "pytest>=7.1.2",
