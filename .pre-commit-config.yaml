@@ -12,3 +12,12 @@ repos:
       - id: codespell
         additional_dependencies: [tomli]
         args: ["--toml", "pyproject.toml"]
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: script/run-in-env.sh mypy
+        language: script
+        types_or: [python, pyi]
+        exclude: ^tests/
