@@ -604,12 +604,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             # The APS data request has no alias parameters
             raise NotImplementedError("The firmware cannot send with an alias")
 
-        if zigpy.types.TransmitOptions.APS_Encryption in packet.tx_options:
-            # APS encryption is performed with the link key, not the network key, so
-            # the "use NWK key" option must not be set
-            tx_options = t.DeconzTransmitOptions.SECURITY_ENABLED
-        else:
-            tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
+        tx_options = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY
 
         if (
             zigpy.types.TransmitOptions.ACK in packet.tx_options
