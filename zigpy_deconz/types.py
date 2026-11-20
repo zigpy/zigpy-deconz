@@ -1,33 +1,40 @@
 """Data types module."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
+
 import zigpy.types as zigpy_t
-from zigpy.types import (  # noqa: F401
-    EUI64,
-    NWK,
-    ExtendedPanId,
-    IntStruct,
-    LongOctetString,
-    LVBytes,
-    LVList,
-    PanId,
-    Struct,
-    bitmap3,
-    bitmap5,
-    bitmap6,
-    bitmap8,
-    bitmap16,
-    enum2,
-    enum3,
-    enum8,
-    int8s,
-    uint8_t,
-    uint16_t,
-    uint32_t,
-    uint64_t,
+from zigpy.types import (
+    EUI64 as EUI64,
+    NWK as NWK,
+    ExtendedPanId as ExtendedPanId,
+    IntStruct as IntStruct,
+    LongOctetString as LongOctetString,
+    LVBytes as LVBytes,
+    LVList as LVList,
+    PanId as PanId,
+    Struct as Struct,
+    bitmap3 as bitmap3,
+    bitmap5 as bitmap5,
+    bitmap6 as bitmap6,
+    bitmap8 as bitmap8,
+    bitmap16 as bitmap16,
+    enum2 as enum2,
+    enum3 as enum3,
+    enum8 as enum8,
+    int8s as int8s,
+    uint8_t as uint8_t,
+    uint16_t as uint16_t,
+    uint32_t as uint32_t,
+    uint64_t as uint64_t,
 )
 
+if TYPE_CHECKING:
+    from typing import Self
 
-def serialize_dict(data, schema):
+
+def serialize_dict(data: dict[str, Any], schema: dict[str, Any]) -> bytes:
     chunks = []
 
     for key in schema:
@@ -43,8 +50,10 @@ def serialize_dict(data, schema):
     return b"".join(chunks)
 
 
-def deserialize_dict(data, schema):
-    result = {}
+def deserialize_dict(
+    data: bytes, schema: dict[str, Any]
+) -> tuple[dict[str, Any], bytes]:
+    result: dict[str, Any] = {}
     for name, type_ in schema.items():
         try:
             result[name], data = type_.deserialize(data)
@@ -56,17 +65,17 @@ def deserialize_dict(data, schema):
     return result, data
 
 
-def list_replace(lst: list, old: object, new: object) -> list:
+def list_replace(lst: list[Any], old: object, new: object) -> list[Any]:
     """Replace all occurrences of `old` with `new` in `lst`."""
     return [new if x == old else x for x in lst]
 
 
 class Bytes(bytes):
-    def serialize(self):
+    def serialize(self) -> Self:
         return self
 
     @classmethod
-    def deserialize(cls, data):
+    def deserialize(cls, data: bytes) -> tuple[Self, bytes]:
         return cls(data), b""
 
 
@@ -93,9 +102,8 @@ class DeconzTransmitOptions(bitmap8):
     ALLOW_FRAGMENTATION = 0x08
 
 
-class NWKList(LVList):
-    _length_type = uint8_t
-    _item_type = NWK
+class NWKList(LVList[NWK, uint8_t]):
+    pass
 
 
 ZIGPY_ADDR_MODE_MAPPING = {
@@ -132,11 +140,16 @@ ZIGPY_ADDR_TYPE_REVERSE_MAPPING = {
 
 class DeconzAddress(Struct):
     address_mode: AddressMode
-    address: EUI64
+    if TYPE_CHECKING:
+        # Holds an NWK or an EUI64, depending on `address_mode`
+        address: NWK | EUI64
+    else:
+        address: EUI64
+    # Only set for `NWK_AND_IEEE`
     ieee: EUI64
 
     @classmethod
-    def deserialize(cls, data):
+    def deserialize(cls, data: bytes) -> tuple[Self, bytes]:
         r = cls()
         mode, data = AddressMode.deserialize(data)
         r.address_mode = mode
@@ -148,17 +161,19 @@ class DeconzAddress(Struct):
             r.ieee, data = EUI64.deserialize(data)
         return r, data
 
-    def serialize(self):
+    def serialize(self) -> bytes:
         r = self.address_mode.serialize() + self.address.serialize()
         if self.address_mode == AddressMode.NWK_AND_IEEE:
             r += self.ieee.serialize()
         return r
 
-    def as_zigpy_type(self):
+    def as_zigpy_type(self) -> zigpy_t.AddrModeAddress:
         addr_mode = ZIGPY_ADDR_MODE_REVERSE_MAPPING[self.address_mode]
-        address = ZIGPY_ADDR_TYPE_REVERSE_MAPPING[self.address_mode](self.address)
+        address: NWK | EUI64 | zigpy_t.Group | zigpy_t.BroadcastAddress = (
+            ZIGPY_ADDR_TYPE_REVERSE_MAPPING[self.address_mode](self.address)
+        )
 
-        if self.address_mode == AddressMode.NWK and self.address > 0xFFF7:
+        if self.address_mode == AddressMode.NWK and cast(NWK, self.address) > 0xFFF7:
             addr_mode = zigpy_t.AddrMode.Broadcast
             address = zigpy_t.BroadcastAddress(self.address)
         elif self.address_mode == AddressMode.NWK_AND_IEEE:
@@ -170,7 +185,7 @@ class DeconzAddress(Struct):
         )
 
     @classmethod
-    def from_zigpy_type(cls, addr):
+    def from_zigpy_type(cls, addr: zigpy_t.AddrModeAddress) -> Self:
         instance = cls()
         instance.address_mode = ZIGPY_ADDR_MODE_MAPPING[addr.addr_mode]
         instance.address = ZIGPY_ADDR_TYPE_MAPPING[addr.addr_mode](addr.address)
@@ -180,13 +195,22 @@ class DeconzAddress(Struct):
 
 class DeconzAddressEndpoint(Struct):
     address_mode: AddressMode
-    address: EUI64
-    ieee: EUI64
-    endpoint: uint8_t
+    if TYPE_CHECKING:
+        # Holds an NWK or an EUI64, depending on `address_mode`
+        address: NWK | EUI64
+        # Only set for `NWK_AND_IEEE`
+        ieee: EUI64 | None
+        # Only present for unicast address modes
+        endpoint: int | None
+    else:
+        address: EUI64
+        ieee: EUI64
+        endpoint: uint8_t
 
     @classmethod
-    def deserialize(cls, data):
-        r, data = DeconzAddress.deserialize.__func__(cls, data)
+    def deserialize(cls, data: bytes) -> tuple[Self, bytes]:
+        # Parse the address with `DeconzAddress`'s parser, but into this class
+        r, data = DeconzAddress.deserialize.__func__(cls, data)  # type: ignore[attr-defined]
 
         if r.address_mode in (
             AddressMode.NWK,
@@ -199,7 +223,7 @@ class DeconzAddressEndpoint(Struct):
 
         return r, data
 
-    def serialize(self):
+    def serialize(self) -> bytes:
         r = uint8_t(self.address_mode).serialize()
 
         if self.address_mode in (
@@ -210,7 +234,9 @@ class DeconzAddressEndpoint(Struct):
             r += NWK(self.address).serialize()
 
         if self.address_mode in (AddressMode.IEEE, AddressMode.NWK_AND_IEEE):
-            r += EUI64(self.address).serialize()
+            # XXX: for `NWK_AND_IEEE`, `address` holds the NWK address and the IEEE
+            # address is in `ieee`
+            r += EUI64(self.address).serialize()  # type: ignore[arg-type]
 
         if self.address_mode in (
             AddressMode.NWK,
@@ -222,7 +248,9 @@ class DeconzAddressEndpoint(Struct):
         return r
 
     @classmethod
-    def from_zigpy_type(cls, addr, endpoint):
+    def from_zigpy_type(
+        cls, addr: zigpy_t.AddrModeAddress, endpoint: int | None
+    ) -> Self:
         temp_addr = DeconzAddress.from_zigpy_type(addr)
 
         instance = cls()

@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import binascii
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, cast
 
 import zigpy.config
 import zigpy.serial
+
+if TYPE_CHECKING:
+    from zigpy_deconz.api import Deconz
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,19 +22,19 @@ class Gateway(zigpy.serial.SerialProtocol):
     ESC_END = b"\xdc"
     ESC_ESC = b"\xdd"
 
-    def __init__(self, api):
+    def __init__(self, api: Deconz) -> None:
         """Initialize instance of the UART gateway."""
         super().__init__()
-        self._api = api
+        self._api: Deconz | None = api
 
-    def connection_lost(self, exc: Exception | None) -> None:
+    def connection_lost(self, exc: BaseException | None) -> None:
         """Port was closed expectedly or unexpectedly."""
         super().connection_lost(exc)
 
         if self._api is not None:
             self._api.connection_lost(exc)
 
-    def close(self):
+    def close(self) -> None:
         super().close()
         self._api = None
 
@@ -39,7 +42,8 @@ class Gateway(zigpy.serial.SerialProtocol):
         """Send data, taking care of escaping and framing."""
         checksum = bytes(self._checksum(data))
         frame = self._escape(data + checksum)
-        self._transport.write(self.END + frame + self.END)
+        # The transport is only `None` once the connection is lost
+        self._transport.write(self.END + frame + self.END)  # type: ignore[union-attr]
 
     def data_received(self, data: bytes) -> None:
         """Handle data received from the uart."""
@@ -50,9 +54,11 @@ class Gateway(zigpy.serial.SerialProtocol):
             if end < 0:
                 return None
 
-            frame = self._buffer[:end]
+            frame: bytes | bytearray = self._buffer[:end]
             self._buffer = self._buffer[(end + 1) :]
-            frame = self._unescape(frame)
+            # XXX: a frame ending in an escape byte unescapes to `None`, which the
+            # length check below does not handle
+            frame = cast(bytes, self._unescape(frame))
 
             if len(frame) < 4:
                 continue
@@ -69,11 +75,12 @@ class Gateway(zigpy.serial.SerialProtocol):
 
             LOGGER.debug("Frame received: 0x%s", binascii.hexlify(frame).decode())
             try:
+                assert self._api is not None
                 self._api.data_received(frame)
             except Exception as exc:
                 LOGGER.error("Unexpected error handling the frame", exc_info=exc)
 
-    def _unescape(self, data):
+    def _unescape(self, data: bytes | bytearray) -> bytes | None:
         ret = []
         idx = 0
         while idx < len(data):
@@ -91,7 +98,7 @@ class Gateway(zigpy.serial.SerialProtocol):
 
         return bytes(ret)
 
-    def _escape(self, data):
+    def _escape(self, data: bytes | bytearray) -> bytes:
         ret = []
         for b in data:
             if b == self.END[0]:
@@ -104,7 +111,7 @@ class Gateway(zigpy.serial.SerialProtocol):
                 ret.append(b)
         return bytes(ret)
 
-    def _checksum(self, data):
+    def _checksum(self, data: bytes | bytearray) -> bytes:
         ret = []
         s = ~(sum(data)) + 1
         ret.append(s % 0x100)
@@ -112,12 +119,12 @@ class Gateway(zigpy.serial.SerialProtocol):
         return bytes(ret)
 
 
-async def connect(config: dict[str, Any], api: Callable) -> Gateway:
+async def connect(config: dict[str, Any], api: Deconz) -> Gateway:
     protocol = Gateway(api)
 
     LOGGER.debug("Connecting to %s", config[zigpy.config.CONF_DEVICE_PATH])
 
-    _, protocol = await zigpy.serial.create_serial_connection(
+    await zigpy.serial.create_serial_connection(
         loop=asyncio.get_running_loop(),
         protocol_factory=lambda: protocol,
         url=config[zigpy.config.CONF_DEVICE_PATH],

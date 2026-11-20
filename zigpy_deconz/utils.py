@@ -7,13 +7,22 @@ import functools
 import logging
 import os.path
 import re
+from typing import TYPE_CHECKING, Any, NoReturn
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+    from typing import ParamSpec
+
+    _P = ParamSpec("_P")
 
 LOGGER = logging.getLogger(__name__)
 
 
-def restart_forever(func, *, restart_delay=1.0):
+def restart_forever(
+    func: Callable[_P, Coroutine[Any, Any, object]], *, restart_delay: float = 1.0
+) -> Callable[_P, Coroutine[Any, Any, NoReturn]]:
     @functools.wraps(func)
-    async def replacement(*args, **kwargs):
+    async def replacement(*args: _P.args, **kwargs: _P.kwargs) -> NoReturn:
         while True:
             try:
                 await func(*args, **kwargs)

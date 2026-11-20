@@ -6,7 +6,7 @@ import asyncio
 import importlib.metadata
 import logging
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 if sys.version_info[:2] < (3, 11):
     from async_timeout import timeout as asyncio_timeout  # pragma: no cover
@@ -44,6 +44,9 @@ from zigpy_deconz.config import CONFIG_SCHEMA
 import zigpy_deconz.exception
 from zigpy_deconz.utils import is_usb_serial_port
 
+if TYPE_CHECKING:
+    from typing import Self
+
 LIB_VERSION = importlib.metadata.version("zigpy-deconz")
 LOGGER = logging.getLogger(__name__)
 
@@ -76,17 +79,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         """Initialize instance."""
 
         super().__init__(config=config)
-        self._api = None
+        self._api: Deconz | None = None
 
-        self._pending_requests = {}
+        self._pending_requests: dict[int, asyncio.Future[TXStatus]] = {}
 
-        self._delayed_neighbor_scan_task = None
-        self._reconnect_task = None
+        self._delayed_neighbor_scan_task: asyncio.Task[None] | None = None
+        self._reconnect_task: asyncio.Task[None] | None = None
 
         self._endpoints: list[zdo_t.SimpleDescriptor] = []
         self._pending_endpoints: list[zdo_t.SimpleDescriptor] | None = None
 
-    async def _watchdog_feed(self):
+    async def _watchdog_feed(self) -> None:
+        assert self._api is not None
+
         if self._api.protocol_version >= PROTO_VER_WATCHDOG and not (
             self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
             and self._api.firmware_version <= 0x26450900
@@ -97,7 +102,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         else:
             await self._api.get_device_state()
 
-    async def connect(self):
+    async def connect(self) -> None:
         api = Deconz(self, self._config[zigpy.config.CONF_DEVICE])
 
         try:
@@ -109,7 +114,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self._api = api
         self._endpoints = []
 
-    async def disconnect(self):
+    async def disconnect(self) -> None:
         if self._delayed_neighbor_scan_task is not None:
             self._delayed_neighbor_scan_task.cancel()
             self._delayed_neighbor_scan_task = None
@@ -118,14 +123,17 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             await self._api.disconnect()
             self._api = None
 
-    async def permit_with_link_key(self, node: t.EUI64, link_key: t.KeyData, time_s=60):
+    async def permit_with_link_key(
+        self, node: t.EUI64, link_key: zigpy.types.KeyData, time_s: int = 60
+    ) -> None:
+        assert self._api is not None
         await self._api.write_parameter(
             NetworkParameter.link_key,
             LinkKey(ieee=node, key=link_key),
         )
         await self.permit(time_s)
 
-    async def start_network(self):
+    async def start_network(self) -> None:
         await self.register_endpoints()
         await self.load_network_info(load_devices=False)
         await self._change_network_state(NetworkState.CONNECTED)
@@ -138,6 +146,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         )
 
         self.devices[self.state.node_info.ieee] = coordinator
+
+        assert self._api is not None
         if self._api.protocol_version >= PROTO_VER_NEIGBOURS and not (
             self._api.firmware_version.platform == FirmwarePlatform.Conbee_III
             and self._api.firmware_version < 0x264D0900
@@ -153,21 +163,25 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         target_state: NetworkState,
         *,
         timeout: int = 10 * CHANGE_NETWORK_POLL_TIME,
-    ):
-        async def change_loop():
+    ) -> None:
+        async def change_loop() -> None:
             while True:
                 try:
+                    assert self._api is not None
                     device_state = await self._api.get_device_state()
                 except asyncio.TimeoutError:
                     # 0x264B0900 and earlier can reset during device state changes
                     # requiring a firmware reset, causing state polling to fail
                     LOGGER.debug("Failed to poll device state")
                 else:
-                    if NetworkState(device_state.network_state) == target_state:
+                    state = NetworkState(device_state.network_state)  # type: ignore[no-untyped-call]
+
+                    if state == target_state:
                         break
 
                 await asyncio.sleep(CHANGE_NETWORK_POLL_TIME)
 
+        assert self._api is not None
         await self._api.change_network_state(target_state)
 
         try:
@@ -184,15 +198,19 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 " 2.4GHz routers, motherboards, etc."
             ) from exc
 
-    async def reset_network_info(self):
+    async def reset_network_info(self) -> None:
         # TODO: There does not appear to be a way to factory reset a Conbee
         await self.write_network_info(
             network_info=zigpy.state.NetworkInfo(
-                pan_id=0xFFFF,
-                extended_pan_id=zigpy.types.EUI64.convert("FF:FF:FF:FF:FF:FF:FF:FF"),
-                channel=None,
+                pan_id=zigpy.types.PanId(0xFFFF),
+                # An `EUI64`, not the `ExtendedPanId` the field declares
+                extended_pan_id=zigpy.types.EUI64.convert(  # type: ignore[arg-type]
+                    "FF:FF:FF:FF:FF:FF:FF:FF"
+                ),
+                # zigpy annotates `channel` without `None`, which means "no channel"
+                channel=None,  # type: ignore[arg-type]
                 channel_mask=zigpy.types.Channels(0),
-                nwk_update_id=0,
+                nwk_update_id=zigpy.types.uint8_t(0),
                 network_key=zigpy.state.Key(
                     key=zigpy.types.KeyData.convert(
                         "FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF:FF"
@@ -201,16 +219,24 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 tc_link_key=zigpy.state.Key(
                     key=zigpy.types.KeyData.convert(b"ZigBeeAlliance09".hex())
                 ),
-                security_level=0x05,
+                security_level=zigpy.types.uint8_t(0x05),
             ),
             node_info=zigpy.state.NodeInfo(
                 logical_type=zdo_t.LogicalType.Coordinator,
-                ieee=zigpy.types.EUI64.UNKNOWN,
-                nwk=0xFFFF,
+                # zigpy sets `UNKNOWN` after the class body
+                ieee=zigpy.types.EUI64.UNKNOWN,  # type: ignore[attr-defined]
+                nwk=zigpy.types.NWK(0xFFFF),
             ),
         )
 
-    async def write_network_info(self, *, network_info, node_info):
+    async def write_network_info(
+        self,
+        *,
+        network_info: zigpy.state.NetworkInfo,
+        node_info: zigpy.state.NodeInfo,
+    ) -> None:
+        assert self._api is not None
+
         try:
             await self._api.write_parameter(
                 NetworkParameter.nwk_frame_counter, network_info.network_key.tx_counter
@@ -242,7 +268,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         await self._api.write_parameter(NetworkParameter.nwk_address, node_info.nwk)
 
-        if node_info.ieee != zigpy.types.EUI64.UNKNOWN:
+        if node_info.ieee != zigpy.types.EUI64.UNKNOWN:  # type: ignore[attr-defined]
             # TODO: is there a way to revert it back to the hardware default? Or is this
             #       information lost when the parameter is overwritten?
             await self._api.write_parameter(
@@ -255,7 +281,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         # There is no way to specify both a mask and the logical channel
         if network_info.channel is not None:
-            channel_mask = zigpy.types.Channels.from_channel_list(
+            # zigpy annotates `cls` as an instance
+            channel_mask = zigpy.types.Channels.from_channel_list(  # type: ignore[misc]
                 [network_info.channel]
             )
 
@@ -266,7 +293,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                     channel_mask,
                 )
         else:
-            channel_mask = network_info.channel_mask
+            # zigpy annotates `channel` without `None`, which means "no channel"
+            channel_mask = network_info.channel_mask  # type: ignore[unreachable]
 
         await self._api.write_parameter(NetworkParameter.channel_mask, channel_mask)
         await self._api.write_parameter(NetworkParameter.use_predefined_nwk_panid, True)
@@ -291,7 +319,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         tc_link_key_partner_ieee = network_info.tc_link_key.partner_ieee
 
-        if tc_link_key_partner_ieee == zigpy.types.EUI64.UNKNOWN:
+        if tc_link_key_partner_ieee == zigpy.types.EUI64.UNKNOWN:  # type: ignore[attr-defined]
             tc_link_key_partner_ieee = node_ieee
 
         await self._api.write_parameter(
@@ -330,7 +358,9 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         await asyncio.sleep(CHANGE_NETWORK_STATE_DELAY)
         await self._change_network_state(NetworkState.CONNECTED)
 
-    async def load_network_info(self, *, load_devices=False):
+    async def load_network_info(self, *, load_devices: bool = False) -> None:
+        assert self._api is not None
+
         network_info = self.state.network_info
         node_info = self.state.node_info
 
@@ -423,7 +453,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                 "Conbee firmware is too old and does not support reading the frame"
                 " counter, picking a large value instead"
             )
-            network_info.network_key.tx_counter = 2**30
+            network_info.network_key.tx_counter = zigpy.types.uint32_t(2**30)
 
         network_info.tc_link_key = zigpy.state.Key()
         network_info.tc_link_key.partner_ieee = await self._api.read_parameter(
@@ -439,19 +469,21 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         security_mode = await self._api.read_parameter(NetworkParameter.security_mode)
 
         if security_mode == SecurityMode.NO_SECURITY:
-            network_info.security_level = 0x00
+            network_info.security_level = zigpy.types.uint8_t(0x00)
         elif security_mode == SecurityMode.ONLY_TCLK:
-            network_info.security_level = 0x05
+            network_info.security_level = zigpy.types.uint8_t(0x05)
         else:
             LOGGER.warning("Unsupported security mode %r", security_mode)
-            network_info.security_level = 0x05
+            network_info.security_level = zigpy.types.uint8_t(0x05)
 
-    async def force_remove(self, dev):
+    async def force_remove(self, dev: zigpy.device.Device) -> None:
         """Forcibly remove device from NCP."""
 
     async def energy_scan(
-        self, channels: t.Channels.ALL_CHANNELS, duration_exp: int, count: int
+        self, channels: zigpy.types.Channels, duration_exp: int, count: int
     ) -> dict[int, float]:
+        assert self._api is not None
+
         if self._api.firmware_version.platform in (
             FirmwarePlatform.Conbee,
             FirmwarePlatform.Conbee_II,
@@ -487,7 +519,10 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         self, new_channel: int, new_nwk_update_id: int
     ) -> None:
         """Move device to a new channel."""
-        channel_mask = zigpy.types.Channels.from_channel_list([new_channel])
+        assert self._api is not None
+
+        # zigpy annotates `cls` as an instance
+        channel_mask = zigpy.types.Channels.from_channel_list([new_channel])  # type: ignore[misc]
         await self._api.write_parameter(NetworkParameter.channel_mask, channel_mask)
         await self._api.write_parameter(
             NetworkParameter.nwk_update_id, new_nwk_update_id
@@ -519,6 +554,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
     async def _read_endpoint_slots(self) -> dict[int, zdo_t.SimpleDescriptor]:
         """Read the endpoint slots of the firmware, they can't be queried otherwise."""
+        assert self._api is not None
         slots = {}
 
         # Most firmwares have two slots, a ConBee II test firmware had four
@@ -590,6 +626,7 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             free.remove(index)
 
             LOGGER.debug("Writing %s to slot %r", descriptor, index)
+            assert self._api is not None
             await self._api.write_parameter(
                 NetworkParameter.configure_endpoint,
                 IndexedEndpoint(index=index, descriptor=descriptor),
@@ -597,12 +634,16 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         self._endpoints = list(descriptors)
 
-    async def send_packet(self, packet):
+    async def send_packet(self, packet: zigpy.types.ZigbeePacket) -> None:
         LOGGER.debug("Sending packet: %r", packet)
 
         if packet.alias_src is not None:
             # The APS data request has no alias parameters
             raise NotImplementedError("The firmware cannot send with an alias")
+
+        # zigpy always sets the destination and source endpoint of a sent packet
+        assert packet.dst is not None
+        assert packet.src_ep is not None
 
         if zigpy.types.TransmitOptions.APS_Encryption in packet.tx_options:
             # APS encryption is performed with the link key, not the network key, so
@@ -631,7 +672,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
                     f"Request with id {req_id} is already pending, cannot send"
                 )
 
-            future = self._pending_requests[req_id] = asyncio.Future()
+            future: asyncio.Future[TXStatus] = asyncio.Future()
+            self._pending_requests[req_id] = future
 
             try:
                 try:
@@ -669,11 +711,12 @@ class ControllerApplication(zigpy.application.ControllerApplication):
             finally:
                 del self._pending_requests[req_id]
 
-    async def permit_ncp(self, time_s=60):
+    async def permit_ncp(self, time_s: int = 60) -> None:
         assert 0 <= time_s <= 254
+        assert self._api is not None
         await self._api.write_parameter(NetworkParameter.permit_join, time_s)
 
-    def handle_tx_confirm(self, req_id, status):
+    def handle_tx_confirm(self, req_id: int, status: TXStatus) -> None:
         try:
             future = self._pending_requests[req_id]
         except KeyError:
@@ -696,7 +739,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
         for neighbor in self.topology.neighbors[coord.ieee]:
             try:
-                device = self.get_device(ieee=neighbor.ieee)
+                # Neighbors from the coordinator's neighbor table are Zigbee devices
+                device = cast(zigpy.device.Device, self.get_device(ieee=neighbor.ieee))
             except KeyError:
                 continue
 
@@ -718,6 +762,8 @@ class ControllerApplication(zigpy.application.ControllerApplication):
 
             LOGGER.debug("Restoring %s as direct child", device)
 
+            assert self._api is not None
+
             try:
                 await self._api.add_neighbour(
                     nwk=device.nwk,
@@ -732,49 +778,56 @@ class ControllerApplication(zigpy.application.ControllerApplication):
         """Scan coordinator's neighbours."""
         await asyncio.sleep(DELAY_NEIGHBOUR_SCAN_S)
         coord = self.get_device(ieee=self.state.node_info.ieee)
-        await self.topology.scan(devices=[coord])
+        await self.topology.scan(devices=[cast(zigpy.device.Device, coord)])
 
 
 class DeconzDevice(zigpy.device.Device):
     """Zigpy Device representing Coordinator."""
 
-    def __init__(self, model: str, *args, **kwargs):
+    def __init__(self, model: str | None, *args: Any, **kwargs: Any) -> None:
         """Initialize instance."""
 
         super().__init__(*args, **kwargs)
         self._model = model
 
-    async def add_to_group(self, grp_id: int, name: str = None) -> None:
+    async def add_to_group(self, grp_id: int, name: str | None = None) -> None:
         group = self.application.groups.add_group(grp_id, name)
 
         for epid in self.endpoints:
             if not epid:
                 continue  # skip ZDO
-            group.add_member(self.endpoints[epid])
-        return [0]
+            group.add_member(cast(zigpy.endpoint.Endpoint, self.endpoints[epid]))
 
     async def remove_from_group(self, grp_id: int) -> None:
         for epid in self.endpoints:
             if not epid:
                 continue  # skip ZDO
-            self.application.groups[grp_id].remove_member(self.endpoints[epid])
-        return [0]
+            self.application.groups[grp_id].remove_member(
+                cast(zigpy.endpoint.Endpoint, self.endpoints[epid])
+            )
 
-    @property
-    def manufacturer(self):
+    # The coordinator's manufacturer and model are fixed, so they are read-only
+    @property  # type: ignore[misc]
+    def manufacturer(self) -> str:
         return "dresden elektronik"
 
-    @property
-    def model(self):
+    @property  # type: ignore[misc]
+    def model(self) -> str | None:
         return self._model
 
     @classmethod
-    async def new(cls, application, ieee, nwk, model: str):
+    async def new(
+        cls,
+        application: ControllerApplication,
+        ieee: zigpy.types.EUI64,
+        nwk: zigpy.types.NWK,
+        model: str | None,
+    ) -> Self:
         """Create or replace zigpy device."""
         dev = cls(model, application, ieee, nwk)
 
         if ieee in application.devices:
-            from_dev = application.get_device(ieee=ieee)
+            from_dev = cast(zigpy.device.Device, application.get_device(ieee=ieee))
             dev.status = from_dev.status
             dev.node_desc = from_dev.node_desc
             for ep_id, from_ep in from_dev.endpoints.items():

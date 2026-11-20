@@ -7,7 +7,7 @@ import collections
 import itertools
 import logging
 import sys
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, cast
 
 if sys.version_info[:2] < (3, 11):
     from async_timeout import timeout as asyncio_timeout  # pragma: no cover
@@ -20,6 +20,7 @@ from zigpy.types import (
     APSStatus,
     Bool,
     Channels,
+    FixedIntType,
     KeyData,
     SerializableBytes,
     Struct,
@@ -32,6 +33,9 @@ from zigpy_deconz.exception import CommandError, MismatchedResponseError, Parsin
 import zigpy_deconz.types as t
 import zigpy_deconz.uart
 from zigpy_deconz.utils import restart_forever
+
+if TYPE_CHECKING:
+    from zigpy_deconz.zigbee.application import ControllerApplication
 
 LOGGER = logging.getLogger(__name__)
 
@@ -125,9 +129,9 @@ class TXStatus(t.enum8):
     SUCCESS = 0x00
 
     @classmethod
-    def _missing_(cls, value):
+    def _missing_(cls, value: Any) -> TXStatus:
         chained = APSStatus(value)
-        status = t.uint8_t.__new__(cls, chained.value)
+        status: TXStatus = t.uint8_t.__new__(cls, chained.value)
         status._name_ = chained.name
         status._value_ = value
         return status
@@ -175,7 +179,7 @@ class UpdateNeighborAction(t.enum8):
     ADD = 0x01
 
 
-NETWORK_PARAMETER_TYPES = {
+NETWORK_PARAMETER_TYPES: dict[NetworkParameter, tuple[type[Any] | None, type[Any]]] = {
     NetworkParameter.mac_address: (None, t.EUI64),
     NetworkParameter.nwk_panid: (None, t.PanId),
     NetworkParameter.nwk_address: (None, t.NWK),
@@ -205,7 +209,7 @@ class Command(Struct):
     payload: t.Bytes
 
 
-COMMAND_SCHEMAS = {
+COMMAND_SCHEMAS: dict[CommandId, tuple[dict[str, Any] | None, dict[str, Any]]] = {
     CommandId.update_neighbor: (
         {
             "status": Status.SUCCESS,
@@ -417,12 +421,17 @@ COMMAND_SCHEMAS = {
 class Deconz:
     """deCONZ API class."""
 
-    def __init__(self, app: Callable, device_config: dict[str, Any]):
+    def __init__(
+        self, app: ControllerApplication, device_config: dict[str, Any]
+    ) -> None:
         """Init instance."""
-        self._app = app
+        self._app: ControllerApplication | None = app
 
         # [seq][cmd_id] = [fut1, fut2, ...]
-        self._awaiting = collections.defaultdict(lambda: collections.defaultdict(list))
+        self._awaiting: collections.defaultdict[
+            int,
+            collections.defaultdict[CommandId, list[asyncio.Future[dict[str, Any]]]],
+        ] = collections.defaultdict(lambda: collections.defaultdict(list))
         self._mismatched_response_timers: dict[int, asyncio.TimerHandle] = {}
         self._command_lock = PriorityLock()
         self._config = device_config
@@ -444,7 +453,7 @@ class Deconz:
 
         self._data_poller_event = asyncio.Event()
         self._data_poller_event.set()
-        self._data_poller_task: asyncio.Task | None = None
+        self._data_poller_task: asyncio.Task[None] | None = None
 
         self._seq = 1
         self._protocol_version = 0
@@ -457,7 +466,7 @@ class Deconz:
         return self._firmware_version
 
     @property
-    def network_state(self) -> NetworkState:
+    def network_state(self) -> NetworkState2:
         """Return current network state."""
         return self._device_state.network_state
 
@@ -483,12 +492,14 @@ class Deconz:
 
         self._data_poller_task = asyncio.create_task(self._data_poller())
 
-    def connection_lost(self, exc: Exception | None) -> None:
+    def connection_lost(self, exc: BaseException | None) -> None:
         """Lost serial connection."""
         if self._app is not None:
-            self._app.connection_lost(exc)
+            # zigpy annotates `exc` as `Exception`, but asyncio passes `None` for a
+            # connection closed without an error
+            self._app.connection_lost(exc)  # type: ignore[arg-type]
 
-    async def disconnect(self):
+    async def disconnect(self) -> None:
         if self._data_poller_task is not None:
             self._data_poller_task.cancel()
             self._data_poller_task = None
@@ -509,25 +520,31 @@ class Deconz:
             CommandId.aps_data_request: -1,
         }.get(command.command_id, 0)
 
-    async def send_command(self, cmd, **kwargs) -> Any:
+    async def send_command(self, cmd: CommandId, **kwargs: Any) -> dict[str, Any]:
         while True:
             try:
                 return await self._command(cmd, **kwargs)
             except MismatchedResponseError as exc:
                 LOGGER.debug("Firmware responded incorrectly (%s), retrying", exc)
 
-    async def _command(self, cmd, **kwargs):
-        payload = []
+    async def _command(self, cmd: CommandId, **kwargs: Any) -> dict[str, Any]:
+        payload: list[Any] = []
         tx_schema, _ = COMMAND_SCHEMAS[cmd]
         trailing_optional = False
 
+        # Only commands the firmware sends unsolicited have no request schema
+        assert tx_schema is not None
+
         for name, param_type in tx_schema.items():
             if isinstance(param_type, int):
+                # Default values are zigpy integer types
+                default = cast(FixedIntType, param_type)
+
                 if name not in kwargs:
                     # Default value
-                    value = param_type.serialize()
+                    value = default.serialize()
                 else:
-                    value = type(param_type)(kwargs[name]).serialize()
+                    value = type(default)(kwargs[name]).serialize()
             elif name in ("frame_length", "payload_length"):
                 value = param_type
             elif kwargs.get(name) is None:
@@ -585,12 +602,13 @@ class Deconz:
             seq = self._seq
             self._seq = (self._seq % 255) + 1
 
-            fut = asyncio.Future()
+            fut: asyncio.Future[dict[str, Any]] = asyncio.Future()
             self._awaiting[seq][cmd].append(fut)
 
             try:
                 LOGGER.debug("Sending %s%s (seq=%s)", cmd, kwargs, seq)
-                self._uart.send(command.replace(seq=seq).serialize())
+                # zigpy annotates `Struct.replace(**kwargs)` values as dicts
+                self._uart.send(command.replace(seq=seq).serialize())  # type: ignore[arg-type]
 
                 async with asyncio_timeout(COMMAND_TIMEOUT):
                     return await fut
@@ -609,7 +627,7 @@ class Deconz:
 
         _, rx_schema = COMMAND_SCHEMAS[command.command_id]
 
-        fut = None
+        fut: asyncio.Future[dict[str, Any]] | None = None
         wrong_fut_cmd_id = None
 
         try:
@@ -668,6 +686,8 @@ class Deconz:
             self._mismatched_response_timers.pop(command.seq).cancel()
 
         if wrong_fut_cmd_id is not None:
+            # `wrong_fut_cmd_id` is only set together with `fut`
+            assert fut is not None
             LOGGER.debug(
                 "Mismatched response, triggering error in %0.2fs",
                 MISMATCHED_RESPONSE_TIMEOUT,
@@ -724,7 +744,7 @@ class Deconz:
             asyncio.get_running_loop().call_soon(lambda: handler(**handler_params))
 
     @restart_forever
-    async def _data_poller(self):
+    async def _data_poller(self) -> None:
         while True:
             await self._data_poller_event.wait()
             self._data_poller_event.clear()
@@ -753,13 +773,15 @@ class Deconz:
                     status=rsp["status"], device_state=rsp["device_state"]
                 )
 
+                assert self._app is not None
                 self._app.packet_received(
                     ZigbeePacket(
                         src=rsp["src_addr"].as_zigpy_type(),
                         src_ep=rsp["src_ep"],
                         dst=rsp["dst_addr"].as_zigpy_type(),
                         dst_ep=rsp["dst_ep"],
-                        tsn=None,
+                        # The firmware does not report the APS counter
+                        tsn=None,  # type: ignore[arg-type]
                         profile_id=rsp["profile_id"],
                         cluster_id=rsp["cluster_id"],
                         data=SerializableBytes(rsp["asdu"]),
@@ -772,6 +794,7 @@ class Deconz:
             if DeviceStateFlags.APSDE_DATA_CONFIRM in self._device_state.device_state:
                 rsp = await self.send_command(CommandId.aps_data_confirm)
 
+                assert self._app is not None
                 self._app.handle_tx_confirm(rsp["request_id"], rsp["confirm_status"])
                 self._handle_device_state_changed(
                     status=rsp["status"], device_state=rsp["device_state"]
@@ -796,13 +819,14 @@ class Deconz:
             LOGGER.debug("Dropping repeated GPDF: %r", packet)
             return
 
+        assert self._app is not None
         self._app.gp_packet_received(packet)
 
     def _handle_device_state_changed(
         self,
-        status: t.Status,
+        status: Status,
         device_state: DeviceState,
-        reserved: t.uint8_t = 0,
+        reserved: int = 0,
     ) -> None:
         if device_state.network_state != self.network_state:
             LOGGER.debug(
@@ -824,7 +848,7 @@ class Deconz:
 
     def _handle_device_state(
         self,
-        status: t.Status,
+        status: Status,
         device_state: DeviceState,
         reserved1: t.uint8_t,
         reserved2: t.uint8_t,
@@ -837,7 +861,7 @@ class Deconz:
             # state changes
             self._handle_device_state_changed(status=status, device_state=device_state)
 
-    async def version(self):
+    async def version(self) -> FirmwareVersion:
         self._protocol_version = await self.read_parameter(
             NetworkParameter.protocol_version
         )
@@ -855,6 +879,8 @@ class Deconz:
         if parameter is None:
             value = t.Bytes(b"")
         else:
+            # Only indexed parameters can be read with an argument
+            assert read_param_type is not None
             value = read_param_type(parameter).serialize()
 
         rsp = await self.send_command(
@@ -882,16 +908,16 @@ class Deconz:
 
     async def aps_data_request(
         self,
-        req_id,
-        dst_addr_ep,
-        profile,
-        cluster,
-        src_ep,
-        aps_payload,
+        req_id: int,
+        dst_addr_ep: t.DeconzAddressEndpoint,
+        profile: int,
+        cluster: int,
+        src_ep: int,
+        aps_payload: bytes,
         *,
-        relays=None,
-        tx_options=t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
-        radius=0,
+        relays: list[t.NWK] | None = None,
+        tx_options: t.DeconzTransmitOptions = t.DeconzTransmitOptions.USE_NWK_KEY_SECURITY,
+        radius: int = 0,
     ) -> None:
         flags = t.DeconzSendDataFlags.NONE
 
@@ -926,7 +952,8 @@ class Deconz:
     async def get_device_state(self) -> DeviceState:
         rsp = await self.send_command(CommandId.device_state)
 
-        return rsp["device_state"]
+        device_state: DeviceState = rsp["device_state"]
+        return device_state
 
     async def change_network_state(self, new_state: NetworkState) -> None:
         await self.send_command(CommandId.change_network_state, network_state=new_state)
@@ -944,7 +971,7 @@ class Deconz:
             )
         except ParsingError as exc:
             # Older Conbee III firmwares send back an invalid response
-            status = Status(exc.command.payload[0])
+            status = Status(exc.command.payload[0])  # type: ignore[no-untyped-call]
 
             if status != Status.SUCCESS:
                 raise CommandError(

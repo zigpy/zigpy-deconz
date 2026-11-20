@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typing
+from typing import Any
 
 from zigpy.exceptions import APIException
 
@@ -11,7 +12,9 @@ if typing.TYPE_CHECKING:
 
 
 class CommandError(APIException):
-    def __init__(self, *args, status: Status, command: Command, **kwargs):
+    def __init__(
+        self, *args: Any, status: Status, command: Command, **kwargs: Any
+    ) -> None:
         """Initialize instance."""
         super().__init__(*args, **kwargs)
         self.command = command
@@ -24,7 +27,11 @@ class ParsingError(CommandError):
 
 class MismatchedResponseError(APIException):
     def __init__(
-        self, command_id: CommandId, params: dict[str, typing.Any], *args, **kwargs
+        self,
+        command_id: CommandId,
+        params: dict[str, Any],
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
         """Initialize instance."""
         super().__init__(*args, **kwargs)
