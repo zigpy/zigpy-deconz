@@ -209,8 +209,11 @@ class DeconzAddressEndpoint(Struct):
         ):
             r += NWK(self.address).serialize()
 
-        if self.address_mode in (AddressMode.IEEE, AddressMode.NWK_AND_IEEE):
+        if self.address_mode == AddressMode.IEEE:
             r += EUI64(self.address).serialize()
+        elif self.address_mode == AddressMode.NWK_AND_IEEE:
+            # The NWK address is in `address`, the IEEE address in `ieee`
+            r += EUI64(self.ieee).serialize()
 
         if self.address_mode in (
             AddressMode.NWK,

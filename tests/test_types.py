@@ -200,6 +200,15 @@ def test_deconz_addr_ep():
     a.endpoint = 0xCC
     assert a.serialize() == data
 
+    data = b"\x04\xaa\x55\x31\x32\x33\x34\x35\x36\x37\x38\xcc"
+    r, rest = t.DeconzAddressEndpoint.deserialize(data + extra)
+    assert rest == extra
+    assert r.address_mode == t.AddressMode.NWK_AND_IEEE
+    assert r.address == 0x55AA
+    assert r.ieee == [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]
+    assert r.endpoint == 0xCC
+    assert r.serialize() == data
+
 
 def test_nwklist():
     assert t.NWKList([]).serialize() == b"\x00"
